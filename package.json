@@ -27,7 +27,12 @@
   "license": "MIT",
   "author": "Adel Rodriguez",
   "type": "module",
-  "module": "index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./hooks": "./src/hooks/index.ts",
+    "./hooks/recipes": "./src/hooks/recipes.ts",
+    "./react": "./src/react.tsx"
+  },
   "scripts": {
     "check": "adamantite check",
     "fix": "adamantite fix",
@@ -38,11 +43,16 @@
   "devDependencies": {
     "@biomejs/biome": "2.2.6",
     "@changesets/cli": "2.29.7",
+    "@happy-dom/global-registrator": "^20.0.8",
+    "@testing-library/react": "^16.3.0",
     "@types/bun": "latest",
-    "adamantite": "^0.11.1"
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "adamantite": "^0.11.1",
+    "react-dom": "^19.2.0"
   },
   "peerDependencies": {
-    "react": "^19.2.0",
+    "react": "",
     "typescript": "^5"
   },
   "peerDependenciesMeta": {
