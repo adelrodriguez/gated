@@ -57,7 +57,7 @@ export function buildGate<TIdentity extends Identity>(
 
 export function FeatureGate<TIdentity extends Identity>(props: {
   children: ReactNode
-  hook: (overrideIdentity?: TIdentity) => boolean
+  gate: (overrideIdentity?: TIdentity) => boolean
   loading?: ReactNode
   fallback?: ReactNode
   overrideIdentity?: TIdentity
@@ -65,39 +65,36 @@ export function FeatureGate<TIdentity extends Identity>(props: {
 }): ReactNode
 export function FeatureGate<
   TIdentity extends Identity,
-  THook extends (overrideIdentity?: TIdentity) => string,
+  TGate extends (overrideIdentity?: TIdentity) => string,
 >(props: {
   children: ReactNode
-  hook: THook
+  gate: TGate
   loading?: ReactNode
   fallback?: ReactNode
   overrideIdentity?: TIdentity
-  match: ReturnType<THook>
+  match: ReturnType<TGate>
 }): ReactNode
 export function FeatureGate<
   TIdentity extends Identity,
-  THook extends (overrideIdentity?: TIdentity) => boolean | string,
->(props: {
-  children: ReactNode
-  hook: THook
+  TGate extends (overrideIdentity?: TIdentity) => boolean | string,
+>({
+  children,
+  gate,
+  loading,
+  fallback,
+  overrideIdentity,
+  match,
+}: React.PropsWithChildren<{
+  gate: TGate
   loading?: ReactNode
   fallback?: ReactNode
   overrideIdentity?: TIdentity
-  match?: ReturnType<THook>
-}): ReactNode {
-  const {
-    children,
-    loading,
-    fallback = null,
-    hook,
-    overrideIdentity,
-    match,
-  } = props
-
+  match?: ReturnType<TGate>
+}>): ReactNode {
   return (
     <Suspense fallback={loading}>
       {(() => {
-        const value = hook(overrideIdentity)
+        const value = gate(overrideIdentity)
         const matchValue = match ?? true
         return value === matchValue ? children : fallback
       })()}

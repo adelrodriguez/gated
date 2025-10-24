@@ -6,6 +6,8 @@
   "scripts": {
     "check": "adamantite check",
     "fix": "adamantite fix",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
