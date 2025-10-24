@@ -1,58 +1,49 @@
 import { type ReactNode, Suspense, use } from "react"
-import { executeGate } from "./lib"
-import type { GatedConfig, Identity } from "./lib/types"
+import type { Identity } from "./lib/types"
 
 /**
- * Builds a gated hook function that mirrors the core buildGate pattern.
+ * Wraps an async gate function to work as a React hook using React.use()
  *
  * @example
  * ```typescript
- * import { buildGate } from "gated/react"
+ * import { buildGate } from "gated"
+ * import { createReactHook } from "gated/react"
  *
  * const gate = buildGate({
  *   identify: async () => ({ distinctId: userId }),
  *   decide: async (key, identity) => api.evaluateFlag(key, identity),
- *   hooks: [cacheHook(cache)], // optional
+ *   hooks: [cacheHook(cache)],
  * })
  *
- * export const useBetaAccess = gate({
- *   key: "beta-access",
- *   defaultValue: false,
- * })
+ * const betaAccess = gate({ key: "beta-access", defaultValue: false })
+ * export const useBetaAccess = createReactHook(betaAccess)
  *
- * export const useTheme = gate({
+ * const themeFlag = gate({
  *   key: "theme",
  *   defaultValue: "light",
  *   variants: ["light", "dark", "system"],
  * })
- * ```
+ * export const useTheme = createReactHook(themeFlag)
  *
+ * // In component:
+ * function MyComponent() {
+ *   const isBeta = useBetaAccess()
+ *   const theme = useTheme()
+ *   return <div className={theme}>{isBeta && <BetaFeature />}</div>
+ * }
+ * ```
  */
-export function buildGate<TIdentity extends Identity>(
-  config: GatedConfig<TIdentity>
-) {
-  function gate(options: {
-    key: string
-    defaultValue: boolean
-  }): (overrideIdentity?: TIdentity) => boolean
-  function gate<const T extends string[]>(options: {
-    key: string
-    defaultValue: T[number]
-    variants: T
-  }): (overrideIdentity?: TIdentity) => T[number]
-  function gate<const T extends string[]>(options: {
-    key: string
-    defaultValue: boolean | T[number]
-    variants?: T
-  }): (overrideIdentity?: TIdentity) => boolean | T[number] {
-    function useGate(overrideIdentity?: TIdentity) {
-      return use(executeGate(config, options, overrideIdentity))
-    }
-
-    return useGate
+export function createReactHook<
+  TIdentity extends Identity,
+  TValue extends boolean | string,
+>(
+  gateFn: (overrideIdentity?: TIdentity) => Promise<TValue>
+): (overrideIdentity?: TIdentity) => TValue {
+  function useGateValue(overrideIdentity?: TIdentity): TValue {
+    return use(gateFn(overrideIdentity))
   }
 
-  return gate
+  return useGateValue
 }
 
 export function FeatureGate<TIdentity extends Identity>(props: {
