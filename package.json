@@ -1,0 +1,12 @@
+{
+  "name": "gated",
+  "version": "0.0.1",
+  "type": "module",
+  "module": "index.ts",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
