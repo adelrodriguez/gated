@@ -1,6 +1,31 @@
 {
   "name": "gated",
   "version": "0.0.1",
+  "description": "Type-safe feature flag library for TypeScript applications",
+  "keywords": [
+    "feature-flags",
+    "feature-gates",
+    "feature-toggles",
+    "feature-management",
+    "ab-testing",
+    "type-safe",
+    "typescript",
+    "variants",
+    "react",
+    "launchdarkly",
+    "posthog",
+    "statsig"
+  ],
+  "homepage": "https://github.com/adelrodriguez/gated#readme",
+  "bugs": {
+    "url": "https://github.com/adelrodriguez/gated/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adelrodriguez/gated.git"
+  },
+  "license": "MIT",
+  "author": "Adel Rodriguez",
   "type": "module",
   "module": "index.ts",
   "scripts": {
