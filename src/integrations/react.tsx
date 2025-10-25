@@ -1,5 +1,5 @@
 import { type ReactNode, Suspense, use } from "react"
-import type { Identity } from "./lib/types"
+import type { Identity } from "../lib/types"
 
 /**
  * Wraps an async gate function to work as a React hook using React.use()

@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test"
 import { render, screen, waitFor } from "@testing-library/react"
+import { createReactHook, FeatureGate } from "../integrations/react"
 import type { Identity } from "../lib/types"
-import { createReactHook, FeatureGate } from "../react"
 
 const USE_PREFIX_REGEX = /^use/
 
