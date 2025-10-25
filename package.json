@@ -34,11 +34,14 @@
     "./react": "./src/react.tsx"
   },
   "scripts": {
+    "build": "tsdown",
     "check": "adamantite check",
     "fix": "adamantite fix",
+    "release": "changeset publish",
     "test": "bun test",
     "test:watch": "bun test --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "version": "changeset version"
   },
   "devDependencies": {
     "@biomejs/biome": "2.2.6",
@@ -49,10 +52,11 @@
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "adamantite": "^0.11.1",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "tsdown": "0.15.9"
   },
   "peerDependencies": {
-    "react": "",
+    "react": "^19.2.0",
     "typescript": "^5"
   },
   "peerDependenciesMeta": {
