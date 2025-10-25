@@ -1,6 +1,5 @@
 import { describe, expect, mock, test } from "bun:test"
 import { render, screen, waitFor } from "@testing-library/react"
-import { Suspense } from "react"
 import type { Identity } from "../lib/types"
 import { createReactHook, FeatureGate } from "../react"
 
@@ -664,7 +663,7 @@ describe("FeatureGate - Edge Cases", () => {
 })
 
 describe("FeatureGate - Error Handling", () => {
-  test("handles synchronous gate function errors", async () => {
+  test("handles synchronous gate function errors", () => {
     const gateFn = mock(() => {
       throw new Error("Gate evaluation failed")
     })
@@ -716,7 +715,7 @@ describe("FeatureGate - Error Handling", () => {
     })
   })
 
-  test("handles gate with overrideIdentity throwing error", async () => {
+  test("handles gate with overrideIdentity throwing error", () => {
     interface CustomIdentity extends Identity {
       plan: string
     }
