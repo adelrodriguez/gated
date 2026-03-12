@@ -119,7 +119,10 @@ function validateVariant(value: string, variants?: readonly string[]) {
   }
 }
 
-export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
+export async function executeGate<
+  TIdentity extends Identity,
+  T extends readonly string[] = string[],
+>(
   config: {
     identify: () => TIdentity | null | Promise<TIdentity | null>
     decide: (key: string, identity: TIdentity) => Decision | Promise<Decision>

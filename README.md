@@ -307,7 +307,7 @@ const ldClient = LaunchDarkly.initialize("client-id", { key: "user-key" })
 
 const gate = buildGate({
   identify: async () => ({ distinctId: getCurrentUserId() }),
-  decide: async (key) => ({ value: await ldClient.variation(key, false) }),
+  decide: async (key) => ({ value: ldClient.variation(key, false) }),
 })
 ```
 
@@ -334,6 +334,9 @@ const gate = buildGate({
   decide: async (key, identity) => {
     const res = await fetch(`/api/features/${key}`, {
       method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify(identity),
     })
     return { value: (await res.json()).enabled }

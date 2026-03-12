@@ -14,15 +14,14 @@ import { executeGate } from "./lib"
  *     // add hooks here
  *   ],
  * })
- * const betaAccess = providerGate("flag1", false)
+ * const betaAccess = providerGate({ key: "flag1", defaultValue: false })
  *
  * await betaAccess() // false
- * await betaAccess({ override: true }) // true
- * await betaAccess({ identity: "test-user" }) // evaluate for specific user
+ * await betaAccess({ distinctId: "test-user" }) // evaluate for specific user
  *
  * // Or
  *
- * const themeName = providerGate("theme", "light", ["light", "dark", "system"])
+ * const themeName = providerGate({ key: "theme", defaultValue: "light", variants: ["light", "dark", "system"] })
  *
  * const result = await themeName() // "result" is type-safe and can be "light", "dark", or "system"
  */
@@ -31,7 +30,7 @@ type Gate<TIdentity extends Identity> = {
     key: string
     defaultValue: boolean
   }): (overrideIdentity?: TIdentity) => Promise<boolean>
-  <const T extends string[]>(options: {
+  <const T extends readonly string[]>(options: {
     key: string
     defaultValue: T[number]
     variants: T
@@ -41,7 +40,7 @@ type Gate<TIdentity extends Identity> = {
 export function buildGate<TIdentity extends Identity>(
   config: GatedConfig<TIdentity>
 ): Gate<TIdentity> {
-  function gate<const T extends string[]>(options: {
+  function gate<const T extends readonly string[]>(options: {
     key: string
     defaultValue: boolean | T[number]
     variants?: T

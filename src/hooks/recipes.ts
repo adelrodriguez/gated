@@ -1,5 +1,5 @@
 // Recipes for common and useful hooks
-import type { Decision, HookContext } from "../lib/types"
+import type { Decision, Hook, HookContext } from "../lib/types"
 import { createHook } from "./index"
 
 export interface Cache {
@@ -14,7 +14,7 @@ function getKey(context: HookContext) {
   return context.flagKey
 }
 
-export const cacheHook = createHook<Cache>((cache) => ({
+export const cacheHook: (options: Cache) => Hook = createHook<Cache>((cache) => ({
   async resolve(context) {
     if (!context.identity) {
       return
@@ -44,7 +44,7 @@ function createDeferredPromise<T>() {
   return { promise, reject: rejectFn, resolve: resolveFn }
 }
 
-export const dedupeHook = createHook(() => {
+export const dedupeHook: () => Hook = createHook(() => {
   type PendingRequest = {
     promise: Promise<Decision>
     resolve: (decision: Decision) => void
