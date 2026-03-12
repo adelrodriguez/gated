@@ -26,16 +26,21 @@ import { executeGate } from "./lib"
  *
  * const result = await themeName() // "result" is type-safe and can be "light", "dark", or "system"
  */
-export function buildGate<TIdentity extends Identity>(config: GatedConfig<TIdentity>) {
-  function gate(options: {
+type Gate<TIdentity extends Identity> = {
+  (options: {
     key: string
     defaultValue: boolean
   }): (overrideIdentity?: TIdentity) => Promise<boolean>
-  function gate<const T extends string[]>(options: {
+  <const T extends string[]>(options: {
     key: string
     defaultValue: T[number]
     variants: T
   }): (overrideIdentity?: TIdentity) => Promise<T[number]>
+}
+
+export function buildGate<TIdentity extends Identity>(
+  config: GatedConfig<TIdentity>
+): Gate<TIdentity> {
   function gate<const T extends string[]>(options: {
     key: string
     defaultValue: boolean | T[number]
@@ -44,5 +49,5 @@ export function buildGate<TIdentity extends Identity>(config: GatedConfig<TIdent
     return async (overrideIdentity) => executeGate(config, options, overrideIdentity)
   }
 
-  return gate
+  return gate as Gate<TIdentity>
 }
