@@ -2,14 +2,15 @@ import { describe, expect, mock, test } from "bun:test"
 import type { Decision, HookContext } from "../../lib/types"
 import { cacheHook, dedupeHook } from "../recipes"
 
+const emptyCache = (): Promise<Decision | undefined> =>
+  Promise.resolve() as Promise<Decision | undefined>
+
 describe("cacheHook", () => {
   test("resolves from cache if available", async () => {
     const cachedDecision: Decision = { value: true }
     const cache = {
-      get: mock(async () => cachedDecision),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve(cachedDecision)),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -26,11 +27,8 @@ describe("cacheHook", () => {
 
   test("returns undefined if cache is empty", async () => {
     const cache = {
-      // biome-ignore lint/nursery/noUselessUndefined: Empty function
-      get: mock(async (): Promise<Decision | undefined> => undefined),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(emptyCache),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -46,11 +44,8 @@ describe("cacheHook", () => {
 
   test("stores decision to cache after evaluation", async () => {
     const cache = {
-      // biome-ignore lint/nursery/noUselessUndefined: Empty function
-      get: mock(async (): Promise<Decision | undefined> => undefined),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(emptyCache),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -67,10 +62,8 @@ describe("cacheHook", () => {
 
   test("handles missing identity in resolve", async () => {
     const cache = {
-      get: mock(async () => ({ value: true })),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve({ value: true })),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -87,11 +80,8 @@ describe("cacheHook", () => {
 
   test("handles missing identity in after", async () => {
     const cache = {
-      // biome-ignore lint/nursery/noUselessUndefined: Empty function
-      get: mock(async (): Promise<Decision | undefined> => undefined),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(emptyCache),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -108,11 +98,8 @@ describe("cacheHook", () => {
 
   test("uses correct cache key format with variant decision", async () => {
     const cache = {
-      // biome-ignore lint/nursery/noUselessUndefined: Empty function
-      get: mock(async (): Promise<Decision | undefined> => undefined),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(emptyCache),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -129,10 +116,8 @@ describe("cacheHook", () => {
 
   test("creates different cache keys for different identities", async () => {
     const cache = {
-      get: mock(async () => ({ value: true })),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve({ value: true })),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -154,10 +139,8 @@ describe("cacheHook", () => {
 
   test("creates different cache keys for different flags", async () => {
     const cache = {
-      get: mock(async () => ({ value: true })),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve({ value: true })),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -177,15 +160,10 @@ describe("cacheHook", () => {
     expect(cache.get).toHaveBeenCalledWith("flag-b:user123")
   })
 
-  test("handles cache.get errors", async () => {
+  test("handles cache.get errors", () => {
     const cache = {
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      get: mock(async () => {
-        throw new Error("Cache read error")
-      }),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.reject(new Error("Cache read error"))),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -194,17 +172,13 @@ describe("cacheHook", () => {
       identity: { distinctId: "user123" },
     }
 
-    await expect(hook.resolve?.(context)).rejects.toThrow("Cache read error")
+    expect(hook.resolve?.(context)).rejects.toThrow("Cache read error")
   })
 
-  test("handles cache.set errors", async () => {
+  test("handles cache.set errors", () => {
     const cache = {
-      // biome-ignore lint/nursery/noUselessUndefined: Empty function
-      get: mock(async (): Promise<Decision | undefined> => undefined),
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      set: mock(async () => {
-        throw new Error("Cache write error")
-      }),
+      get: mock(emptyCache),
+      set: mock(() => Promise.reject(new Error("Cache write error"))),
     }
 
     const hook = cacheHook(cache)
@@ -214,18 +188,16 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { value: true }
 
-    await expect(hook.after?.(context, decision)).rejects.toThrow(
-      "Cache write error"
-    )
+    expect(hook.after?.(context, decision)).rejects.toThrow("Cache write error")
   })
 
   test("full cache flow: miss then hit", async () => {
     let stored: Decision | undefined
     const cache = {
-      get: mock(async () => stored),
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      set: mock(async (_key: string, value: Decision) => {
+      get: mock((): Promise<Decision | undefined> => Promise.resolve(stored)),
+      set: mock((_key: string, value: Decision) => {
         stored = value
+        return Promise.resolve()
       }),
     }
 
@@ -253,10 +225,8 @@ describe("cacheHook", () => {
 
   test("supports additional identity properties", async () => {
     const cache = {
-      get: mock(async () => ({ value: true })),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve({ value: true })),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -369,7 +339,7 @@ describe("dedupeHook", () => {
     await hook.error?.(context, error)
 
     // Second request should reject with same error
-    await expect(secondResolvePromise).rejects.toThrow("API failed")
+    expect(secondResolvePromise).rejects.toThrow("API failed")
   })
 
   test("cleans up pending requests after success", async () => {
@@ -404,7 +374,7 @@ describe("dedupeHook", () => {
     const secondResolvePromise = hook.resolve?.(context)
 
     // Trigger error which rejects the pending promise
-    hook.error?.(context, new Error("Failed"))
+    void hook.error?.(context, new Error("Failed"))
 
     // Wait for rejection
     try {
@@ -502,7 +472,7 @@ describe("dedupeHook", () => {
     // Call after without any pending request
     // Should not throw
     expect(() => {
-      hook.after?.(context, decision)
+      void hook.after?.(context, decision)
     }).not.toThrow()
   })
 
@@ -517,7 +487,7 @@ describe("dedupeHook", () => {
     // Call error without any pending request
     // Should not throw
     expect(() => {
-      hook.error?.(context, error)
+      void hook.error?.(context, error)
     }).not.toThrow()
   })
 
@@ -585,21 +555,21 @@ describe("dedupeHook", () => {
 
     // Trigger error (don't await - let it reject the pending promises)
     const error = new Error("Failed")
-    hook.error?.(context, error)
+    void hook.error?.(context, error)
 
     // All concurrent requests should reject with the same error
     try {
       await request2
       throw new Error("Should have thrown")
-    } catch (e) {
-      expect((e as Error).message).toBe("Failed")
+    } catch (error) {
+      expect((error as Error).message).toBe("Failed")
     }
 
     try {
       await request3
       throw new Error("Should have thrown")
-    } catch (e) {
-      expect((e as Error).message).toBe("Failed")
+    } catch (error) {
+      expect((error as Error).message).toBe("Failed")
     }
   })
 

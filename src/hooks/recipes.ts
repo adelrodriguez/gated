@@ -34,6 +34,16 @@ export const cacheHook = createHook<Cache>((cache) => ({
   },
 }))
 
+function createDeferredPromise<T>() {
+  let resolveFn!: (value: T) => void
+  let rejectFn!: (error: unknown) => void
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveFn = resolve
+    rejectFn = reject
+  })
+  return { promise, reject: rejectFn, resolve: resolveFn }
+}
+
 export const dedupeHook = createHook(() => {
   type PendingRequest = {
     promise: Promise<Decision>
@@ -44,7 +54,7 @@ export const dedupeHook = createHook(() => {
   const pending = new Map<string, PendingRequest>()
 
   return {
-    async resolve(context) {
+    async resolve(context): Promise<Decision | undefined> {
       const key = getKey(context)
       const existing = pending.get(key)
 
@@ -54,25 +64,10 @@ export const dedupeHook = createHook(() => {
       }
 
       // Create a new pending promise for this request
-      let resolvePromise: (decision: Decision) => void = () => {
-        // no-op
-      }
-      let rejectPromise: (error: unknown) => void = () => {
-        // no-op
-      }
-      const promise = new Promise<Decision>((resolve, reject) => {
-        resolvePromise = resolve
-        rejectPromise = reject
-      })
+      const deferred = createDeferredPromise<Decision>()
 
-      pending.set(key, {
-        promise,
-        resolve: resolvePromise,
-        reject: rejectPromise,
-      })
-
-      // Return undefined to let the normal flow continue
-      return
+      pending.set(key, deferred)
+      return undefined
     },
 
     after(context, decision) {

@@ -1,20 +1,20 @@
 import { describe, expect, mock, test } from "bun:test"
 import { render, screen, waitFor } from "@testing-library/react"
-import { createReactHook, FeatureGate } from "../integrations/react"
 import type { Identity } from "../lib/types"
+import { createReactHook, FeatureGate } from "../integrations/react"
 
 const USE_PREFIX_REGEX = /^use/
 
 describe("createReactHook", () => {
   test("creates a hook function", () => {
-    const gateFn = mock(async () => true)
+    const gateFn = mock(() => Promise.resolve(true))
     const useFlag = createReactHook(gateFn)
 
     expect(typeof useFlag).toBe("function")
   })
 
   test("returns a function that accepts optional override identity", () => {
-    const gateFn = mock(async () => true)
+    const gateFn = mock(() => Promise.resolve(true))
     const useFlag = createReactHook(gateFn)
 
     // Hook should be a function with 0 or 1 parameters
@@ -22,7 +22,7 @@ describe("createReactHook", () => {
   })
 
   test("hook function name reflects it's a hook", () => {
-    const gateFn = mock(async () => true)
+    const gateFn = mock(() => Promise.resolve(true))
     const useFlag = createReactHook(gateFn)
 
     // Function should have a name starting with "use"
@@ -34,9 +34,7 @@ describe("createReactHook", () => {
       userId: string
     }
 
-    const gateFn = mock((identity?: CustomIdentity) =>
-      Promise.resolve(identity?.userId === "123")
-    )
+    const gateFn = mock((identity?: CustomIdentity) => Promise.resolve(identity?.userId === "123"))
     const useFlag = createReactHook(gateFn)
 
     // Verify the hook was created and can be called
@@ -81,10 +79,7 @@ describe("FeatureGate - Loading States", () => {
     const gateFn = mock(() => true)
 
     render(
-      <FeatureGate
-        gate={gateFn}
-        loading={<div data-testid="loading">Loading...</div>}
-      >
+      <FeatureGate gate={gateFn} loading={<div data-testid="loading">Loading...</div>}>
         <div data-testid="feature">Feature Content</div>
       </FeatureGate>
     )
@@ -175,10 +170,7 @@ describe("FeatureGate - Boolean Gates", () => {
     const gateFn = mock(() => false)
 
     render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">Not available</div>}
-        gate={gateFn}
-      >
+      <FeatureGate fallback={<div data-testid="fallback">Not available</div>} gate={gateFn}>
         <div data-testid="feature">Beta Feature</div>
       </FeatureGate>
     )
@@ -274,11 +266,7 @@ describe("FeatureGate - Boolean Gates", () => {
     const gateFn = mock(() => false)
 
     render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">Off</div>}
-        gate={gateFn}
-        match={true}
-      >
+      <FeatureGate fallback={<div data-testid="fallback">Off</div>} gate={gateFn} match={true}>
         <div data-testid="content">Content</div>
       </FeatureGate>
     )
@@ -306,11 +294,7 @@ describe("FeatureGate - Boolean Gates", () => {
     const gateFn = mock(() => true)
 
     render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">Off</div>}
-        gate={gateFn}
-        match={false}
-      >
+      <FeatureGate fallback={<div data-testid="fallback">Off</div>} gate={gateFn} match={false}>
         <div data-testid="content">Content</div>
       </FeatureGate>
     )
@@ -379,9 +363,7 @@ describe("FeatureGate - Variant Gates", () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId("theme").textContent).toBe(
-        "System Theme Active"
-      )
+      expect(screen.getByTestId("theme").textContent).toBe("System Theme Active")
     })
   })
 
@@ -390,9 +372,7 @@ describe("FeatureGate - Variant Gates", () => {
       preference: "dark" | "light"
     }
 
-    const gateFn = mock(
-      (identity?: CustomIdentity) => identity?.preference ?? "light"
-    )
+    const gateFn = mock((identity?: CustomIdentity) => identity?.preference ?? "light")
 
     const overrideIdentity: CustomIdentity = {
       distinctId: "user123",
@@ -400,11 +380,7 @@ describe("FeatureGate - Variant Gates", () => {
     }
 
     render(
-      <FeatureGate
-        gate={gateFn}
-        match="dark"
-        overrideIdentity={overrideIdentity}
-      >
+      <FeatureGate gate={gateFn} match="dark" overrideIdentity={overrideIdentity}>
         <div data-testid="theme">Dark Theme</div>
       </FeatureGate>
     )
@@ -461,11 +437,7 @@ describe("FeatureGate - Variant Gates", () => {
     const gateFn = mock(() => "dark-mode")
 
     render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">No match</div>}
-        gate={gateFn}
-        match="dark"
-      >
+      <FeatureGate fallback={<div data-testid="fallback">No match</div>} gate={gateFn} match="dark">
         <div data-testid="theme">Dark</div>
       </FeatureGate>
     )
@@ -512,13 +484,11 @@ describe("FeatureGate - Edge Cases", () => {
       colorScheme: "dark" | "light" | "auto"
     }
 
-    const gateFn = mock(
-      (identity?: CustomIdentity) => identity?.colorScheme ?? "light"
-    )
+    const gateFn = mock((identity?: CustomIdentity) => identity?.colorScheme ?? "light")
 
     const customIdentity: CustomIdentity = {
-      distinctId: "user123",
       colorScheme: "auto",
+      distinctId: "user123",
     }
 
     render(
@@ -555,10 +525,7 @@ describe("FeatureGate - Edge Cases", () => {
 
     render(
       <FeatureGate gate={betaGate}>
-        <FeatureGate
-          fallback={<div data-testid="fallback">Not pro</div>}
-          gate={proGate}
-        >
+        <FeatureGate fallback={<div data-testid="fallback">Not pro</div>} gate={proGate}>
           <div data-testid="feature">Pro Beta Feature</div>
         </FeatureGate>
       </FeatureGate>
@@ -655,9 +622,7 @@ describe("FeatureGate - Edge Cases", () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId("fallback-nested").textContent).toBe(
-        "Not available"
-      )
+      expect(screen.getByTestId("fallback-nested").textContent).toBe("Not available")
     })
   })
 })
@@ -683,15 +648,12 @@ describe("FeatureGate - Error Handling", () => {
     const gateFn = mock(() => undefined as unknown as boolean)
 
     render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">Fallback</div>}
-        gate={gateFn}
-      >
+      <FeatureGate fallback={<div data-testid="fallback">Fallback</div>} gate={gateFn}>
         <div data-testid="feature">Feature</div>
       </FeatureGate>
     )
 
-    // undefined !== true, so should show fallback
+    // Undefined !== true, so should show fallback
     await waitFor(() => {
       expect(screen.getByTestId("fallback").textContent).toBe("Fallback")
     })
@@ -701,15 +663,12 @@ describe("FeatureGate - Error Handling", () => {
     const gateFn = mock(() => null as unknown as boolean)
 
     render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">Fallback</div>}
-        gate={gateFn}
-      >
+      <FeatureGate fallback={<div data-testid="fallback">Fallback</div>} gate={gateFn}>
         <div data-testid="feature">Feature</div>
       </FeatureGate>
     )
 
-    // null !== true, so should show fallback
+    // Null !== true, so should show fallback
     await waitFor(() => {
       expect(screen.getByTestId("fallback").textContent).toBe("Fallback")
     })
@@ -729,10 +688,7 @@ describe("FeatureGate - Error Handling", () => {
 
     expect(() => {
       render(
-        <FeatureGate
-          gate={gateFn}
-          overrideIdentity={{ distinctId: "user1", plan: "invalid" }}
-        >
+        <FeatureGate gate={gateFn} overrideIdentity={{ distinctId: "user1", plan: "invalid" }}>
           <div data-testid="feature">Feature</div>
         </FeatureGate>
       )
@@ -745,19 +701,13 @@ describe("FeatureGate - Advanced Edge Cases", () => {
     const gateFn = mock(() => "")
 
     render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">No variant</div>}
-        gate={gateFn}
-        match=""
-      >
+      <FeatureGate fallback={<div data-testid="fallback">No variant</div>} gate={gateFn} match="">
         <div data-testid="feature">Empty string variant</div>
       </FeatureGate>
     )
 
     await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe(
-        "Empty string variant"
-      )
+      expect(screen.getByTestId("feature").textContent).toBe("Empty string variant")
     })
   })
 
@@ -827,10 +777,7 @@ describe("FeatureGate - Advanced Edge Cases", () => {
     const gateFn = mock(() => value)
 
     const { rerender } = render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">Off</div>}
-        gate={gateFn}
-      >
+      <FeatureGate fallback={<div data-testid="fallback">Off</div>} gate={gateFn}>
         <div data-testid="feature">On</div>
       </FeatureGate>
     )
@@ -841,10 +788,7 @@ describe("FeatureGate - Advanced Edge Cases", () => {
 
     value = true
     rerender(
-      <FeatureGate
-        fallback={<div data-testid="fallback">Off</div>}
-        gate={gateFn}
-      >
+      <FeatureGate fallback={<div data-testid="fallback">Off</div>} gate={gateFn}>
         <div data-testid="feature">On</div>
       </FeatureGate>
     )
@@ -859,10 +803,7 @@ describe("FeatureGate - Advanced Edge Cases", () => {
     const gateFn = mock(() => true)
 
     render(
-      <FeatureGate
-        gate={gateFn}
-        loading={<div data-testid="loading">Loading</div>}
-      >
+      <FeatureGate gate={gateFn} loading={<div data-testid="loading">Loading</div>}>
         <div data-testid="feature">Feature</div>
       </FeatureGate>
     )
@@ -877,11 +818,7 @@ describe("FeatureGate - Advanced Edge Cases", () => {
     const gateFn = mock(() => "Dark")
 
     render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">No match</div>}
-        gate={gateFn}
-        match="dark"
-      >
+      <FeatureGate fallback={<div data-testid="fallback">No match</div>} gate={gateFn} match="dark">
         <div data-testid="feature">Dark theme</div>
       </FeatureGate>
     )
@@ -896,11 +833,7 @@ describe("FeatureGate - Advanced Edge Cases", () => {
     const gateFn = mock(() => " dark ")
 
     render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">No match</div>}
-        gate={gateFn}
-        match="dark"
-      >
+      <FeatureGate fallback={<div data-testid="fallback">No match</div>} gate={gateFn} match="dark">
         <div data-testid="feature">Dark theme</div>
       </FeatureGate>
     )

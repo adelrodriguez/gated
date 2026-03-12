@@ -2,7 +2,7 @@ import type { Decision, Hook, HookContext, Identity } from "./types"
 
 export async function identify<TIdentity extends Identity>(
   fn: () => TIdentity | null | Promise<TIdentity | null>,
-  overrideIdentity: TIdentity | undefined
+  overrideIdentity?: TIdentity
 ): Promise<TIdentity> {
   if (overrideIdentity) {
     return overrideIdentity
@@ -17,10 +17,7 @@ export async function identify<TIdentity extends Identity>(
   return resolvedIdentity
 }
 
-export function extractDecisionValue(
-  decision: Decision,
-  expectedType?: "boolean" | "variant"
-) {
+export function extractDecisionValue(decision: Decision, expectedType?: "boolean" | "variant") {
   const isVariant = "variant" in decision
   const value = isVariant ? decision.variant : decision.value
 
@@ -55,7 +52,7 @@ export async function evaluateDecision<TIdentity extends Identity>(
 }
 
 export async function runBeforeHooks<TIdentity extends Identity>(
-  hooks: Hook<TIdentity>[],
+  hooks: Array<Hook<TIdentity>>,
   hookContext: HookContext<TIdentity>
 ) {
   const tasks = hooks.map((hook) => hook.before?.(hookContext))
@@ -64,27 +61,30 @@ export async function runBeforeHooks<TIdentity extends Identity>(
 }
 
 export async function runResolveHooks<TIdentity extends Identity>(
-  hooks: Hook<TIdentity>[],
+  hooks: Array<Hook<TIdentity>>,
   hookContext: HookContext<TIdentity>
 ) {
+  let result: Decision | undefined
+
   for (const hook of hooks) {
     try {
-      // biome-ignore lint/performance/noAwaitInLoops: we need to await the hook
+      // oxlint-disable-next-line no-await-in-loop -- resolve hooks must run sequentially to support short-circuiting
       const value = await hook.resolve?.(hookContext)
 
       if (value !== undefined) {
-        return value
+        result = value
+        break
       }
     } catch {
       // Continue to next hook if this one fails
     }
   }
 
-  return
+  return result
 }
 
 export async function runAfterHooks<TIdentity extends Identity>(
-  hooks: Hook<TIdentity>[],
+  hooks: Array<Hook<TIdentity>>,
   hookContext: HookContext<TIdentity>,
   decision: Decision
 ) {
@@ -93,7 +93,7 @@ export async function runAfterHooks<TIdentity extends Identity>(
 }
 
 export async function runErrorHooks<TIdentity extends Identity>(
-  hooks: Hook<TIdentity>[],
+  hooks: Array<Hook<TIdentity>>,
   hookContext: HookContext<TIdentity>,
   error: unknown
 ) {
@@ -102,7 +102,7 @@ export async function runErrorHooks<TIdentity extends Identity>(
 }
 
 export async function runFinallyHooks<TIdentity extends Identity>(
-  hooks: Hook<TIdentity>[],
+  hooks: Array<Hook<TIdentity>>,
   hookContext: HookContext<TIdentity>
 ) {
   const tasks = hooks.map((hook) => hook.finally?.(hookContext))
@@ -119,14 +119,11 @@ function validateVariant(value: string, variants?: readonly string[]) {
   }
 }
 
-export async function executeGate<
-  TIdentity extends Identity,
-  T extends string[] = string[],
->(
+export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
   config: {
     identify: () => TIdentity | null | Promise<TIdentity | null>
     decide: (key: string, identity: TIdentity) => Decision | Promise<Decision>
-    hooks?: Hook<TIdentity>[]
+    hooks?: Array<Hook<TIdentity>>
   },
   options: {
     key: string
@@ -135,7 +132,7 @@ export async function executeGate<
   },
   overrideIdentity?: TIdentity
 ): Promise<boolean | T[number]> {
-  const hooks = config?.hooks ?? []
+  const hooks = config.hooks ?? []
   let identity: TIdentity | null = null
   let result: boolean | T[number] | undefined
 
@@ -154,12 +151,7 @@ export async function executeGate<
       return extractDecisionValue(resolveResult, expectedType)
     }
 
-    const decision = await evaluateDecision(
-      config.decide,
-      options.key,
-      identity,
-      options.variants
-    )
+    const decision = await evaluateDecision(config.decide, options.key, identity, options.variants)
 
     await runAfterHooks(hooks, hookContext, decision)
 

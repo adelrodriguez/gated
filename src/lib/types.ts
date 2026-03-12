@@ -24,9 +24,7 @@ export type HookContext<
 
 export interface Hook<T extends Identity = Identity> {
   before?(hookContext: HookContext<T>): void | Promise<void>
-  resolve?(
-    hookContext: HookContext<T>
-  ): Decision | undefined | Promise<Decision | undefined>
+  resolve?(hookContext: HookContext<T>): Decision | undefined | Promise<Decision | undefined>
   after?(hookContext: HookContext<T>, decision: Decision): void | Promise<void>
   error?(hookContext: HookContext<T>, error: unknown): void | Promise<void>
   finally?(hookContext: HookContext<T>): void | Promise<void>
@@ -35,5 +33,5 @@ export interface Hook<T extends Identity = Identity> {
 export type GatedConfig<TIdentity extends Identity = Identity> = {
   identify: () => Promise<TIdentity | null>
   decide: (key: string, identity: TIdentity) => Promise<Decision>
-  hooks?: Hook<TIdentity>[]
+  hooks?: Array<Hook<TIdentity>>
 }

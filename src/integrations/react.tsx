@@ -33,10 +33,7 @@ import type { Identity } from "../lib/types"
  * }
  * ```
  */
-export function createReactHook<
-  TIdentity extends Identity,
-  TValue extends boolean | string,
->(
+export function createReactHook<TIdentity extends Identity, TValue extends boolean | string>(
   gateFn: (overrideIdentity?: TIdentity) => Promise<TValue>
 ): (overrideIdentity?: TIdentity) => TValue {
   function useGateValue(overrideIdentity?: TIdentity): TValue {

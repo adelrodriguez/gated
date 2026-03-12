@@ -1,5 +1,5 @@
-import { executeGate } from "./lib"
 import type { GatedConfig, Identity } from "./lib/types"
+import { executeGate } from "./lib"
 
 /**
  * A builder function that creates a gated function to evaluate feature flags
@@ -26,9 +26,7 @@ import type { GatedConfig, Identity } from "./lib/types"
  *
  * const result = await themeName() // "result" is type-safe and can be "light", "dark", or "system"
  */
-export function buildGate<TIdentity extends Identity>(
-  config: GatedConfig<TIdentity>
-) {
+export function buildGate<TIdentity extends Identity>(config: GatedConfig<TIdentity>) {
   function gate(options: {
     key: string
     defaultValue: boolean
@@ -43,8 +41,7 @@ export function buildGate<TIdentity extends Identity>(
     defaultValue: boolean | T[number]
     variants?: T
   }): (overrideIdentity?: TIdentity) => Promise<boolean | T[number]> {
-    return async (overrideIdentity) =>
-      executeGate(config, options, overrideIdentity)
+    return async (overrideIdentity) => executeGate(config, options, overrideIdentity)
   }
 
   return gate

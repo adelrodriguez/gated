@@ -1,13 +1,12 @@
 import { describe, expect, mock, test } from "bun:test"
-import type { Decision, HookContext, Identity } from "../../lib/types"
+import type { Decision, Hook, HookContext, Identity } from "../../lib/types"
 import { createHook } from "../index"
 
 describe("createHook", () => {
   test("returns the factory function", () => {
-    const factory = () => ({})
-    const hook = createHook(factory)
+    const hook = createHook(() => ({}))
 
-    expect(hook).toBe(factory)
+    expect(hook).toBeTypeOf("function")
   })
 
   test("creates a hook with no options", () => {
@@ -21,7 +20,7 @@ describe("createHook", () => {
     const result = hook()
 
     expect(result).toBeDefined()
-    expect(result.before).toBe(beforeFn)
+    expect(result.before === beforeFn).toBe(true)
   })
 
   test("creates a hook with options", () => {
@@ -40,40 +39,39 @@ describe("createHook", () => {
   })
 
   test("supports all hook lifecycle methods", () => {
-    const beforeFn = mock(async () => {
+    const beforeFn = mock(() => {
       // Hook function
     })
-    // biome-ignore lint/nursery/noUselessUndefined: Empty function
-    const resolveFn = mock(async (): Promise<Decision | undefined> => undefined)
-    const afterFn = mock(async () => {
+    const resolveFn = mock((): Decision | undefined => undefined)
+    const afterFn = mock(() => {
       // Hook function
     })
-    const errorFn = mock(async () => {
+    const errorFn = mock(() => {
       // Hook function
     })
-    const finallyFn = mock(async () => {
+    const finallyFn = mock(() => {
       // Hook function
     })
 
     const hook = createHook(() => ({
-      before: beforeFn,
-      resolve: resolveFn,
       after: afterFn,
+      before: beforeFn,
       error: errorFn,
       finally: finallyFn,
+      resolve: resolveFn,
     }))
 
     const result = hook()
 
-    expect(result.before).toBe(beforeFn)
-    expect(result.resolve).toBe(resolveFn)
-    expect(result.after).toBe(afterFn)
-    expect(result.error).toBe(errorFn)
-    expect(result.finally).toBe(finallyFn)
+    expect(result.before === beforeFn).toBe(true)
+    expect(result.resolve === resolveFn).toBe(true)
+    expect(result.after === afterFn).toBe(true)
+    expect(result.error === errorFn).toBe(true)
+    expect(result.finally === finallyFn).toBe(true)
   })
 
   test("hook before method receives context", async () => {
-    const beforeFn = mock(async () => {
+    const beforeFn = mock(() => {
       // Hook function
     })
     const hook = createHook(() => ({
@@ -93,7 +91,7 @@ describe("createHook", () => {
 
   test("hook resolve method receives context and returns decision", async () => {
     const decision: Decision = { value: true }
-    const resolveFn = mock(async () => decision)
+    const resolveFn = mock(() => decision)
     const hook = createHook(() => ({
       resolve: resolveFn,
     }))
@@ -111,7 +109,7 @@ describe("createHook", () => {
   })
 
   test("hook after method receives context and decision", async () => {
-    const afterFn = mock(async () => {
+    const afterFn = mock(() => {
       // Hook function
     })
     const hook = createHook(() => ({
@@ -131,7 +129,7 @@ describe("createHook", () => {
   })
 
   test("hook error method receives context and error", async () => {
-    const errorFn = mock(async () => {
+    const errorFn = mock(() => {
       // Hook function
     })
     const hook = createHook(() => ({
@@ -151,7 +149,7 @@ describe("createHook", () => {
   })
 
   test("hook finally method receives context", async () => {
-    const finallyFn = mock(async () => {
+    const finallyFn = mock(() => {
       // Hook function
     })
     const hook = createHook(() => ({
@@ -175,13 +173,13 @@ describe("createHook", () => {
       plan: "free" | "pro"
     }
 
-    const beforeFn = mock(async () => {
+    const beforeFn = mock(() => {
       // Hook function
     })
 
-    const hook = createHook<void, CustomIdentity>(() => ({
+    const hook = createHook(() => ({
       before: beforeFn,
-    }))
+    })) as () => Hook<CustomIdentity>
 
     const result = hook()
 
@@ -191,7 +189,7 @@ describe("createHook", () => {
 
   test("supports partial hook implementations", () => {
     const hook = createHook(() => ({
-      before: async () => {
+      before: () => {
         // Hook function
       },
       // Only before is implemented
@@ -199,11 +197,11 @@ describe("createHook", () => {
 
     const result = hook()
 
-    expect(result.before).toBeDefined()
-    expect(result.resolve).toBeUndefined()
-    expect(result.after).toBeUndefined()
-    expect(result.error).toBeUndefined()
-    expect(result.finally).toBeUndefined()
+    expect(result.before === undefined).toBe(false)
+    expect(result.resolve === undefined).toBe(true)
+    expect(result.after === undefined).toBe(true)
+    expect(result.error === undefined).toBe(true)
+    expect(result.finally === undefined).toBe(true)
   })
 
   test("hook with options can access options in all lifecycle methods", async () => {
@@ -211,12 +209,12 @@ describe("createHook", () => {
     const logs: string[] = []
 
     const hook = createHook<Options>((options) => ({
-      before: (ctx) => {
-        logs.push(`${options.logPrefix}:before:${ctx.flagKey}`)
-      },
       after: (ctx, dec) => {
         const value = "value" in dec ? dec.value : dec.variant
         logs.push(`${options.logPrefix}:after:${ctx.flagKey}:${value}`)
+      },
+      before: (ctx) => {
+        logs.push(`${options.logPrefix}:before:${ctx.flagKey}`)
       },
     }))
 
@@ -235,8 +233,7 @@ describe("createHook", () => {
 
   test("hook resolve can return undefined to skip resolution", async () => {
     const hook = createHook(() => ({
-      // biome-ignore lint/nursery/noUselessUndefined: Empty function
-      resolve: async (): Promise<Decision | undefined> => undefined,
+      resolve: (): Decision | undefined => undefined,
     }))
 
     const result = hook()
@@ -253,7 +250,7 @@ describe("createHook", () => {
   test("hook resolve can return a decision to short-circuit", async () => {
     const cachedDecision: Decision = { value: true }
     const hook = createHook(() => ({
-      resolve: async () => cachedDecision,
+      resolve: () => cachedDecision,
     }))
 
     const result = hook()
@@ -268,7 +265,7 @@ describe("createHook", () => {
   })
 
   test("supports variant decisions", async () => {
-    const afterFn = mock(async () => {
+    const afterFn = mock(() => {
       // Hook function
     })
     const hook = createHook(() => ({
@@ -288,7 +285,7 @@ describe("createHook", () => {
   })
 
   test("supports null identity in context", async () => {
-    const beforeFn = mock(async () => {
+    const beforeFn = mock(() => {
       // Hook function
     })
     const hook = createHook(() => ({
