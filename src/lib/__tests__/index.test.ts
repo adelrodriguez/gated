@@ -37,10 +37,15 @@ describe("identify", () => {
     expect(identifyFn).toHaveBeenCalledTimes(1)
   })
 
-  test("throws error when identify function returns null", () => {
+  test("throws error when identify function returns null", async () => {
     const identifyFn = mock(() => null)
 
-    expect(identify(identifyFn)).rejects.toThrow("Identity not found")
+    try {
+      await identify(identifyFn)
+      expect.unreachable("Should have thrown")
+    } catch (error) {
+      expect((error as Error).message).toBe("Identity not found")
+    }
   })
 
   test("handles synchronous identify function", async () => {
@@ -162,15 +167,18 @@ describe("evaluateDecision", () => {
     expect(result).toEqual(decision)
   })
 
-  test("throws error for invalid variant", () => {
+  test("throws error for invalid variant", async () => {
     const decision: Decision = { variant: "purple" }
     const decideFn = mock(() => decision)
     const identity: Identity = { distinctId: "user123" }
     const variants = ["light", "dark", "system"]
 
-    expect(evaluateDecision(decideFn, "theme", identity, variants)).rejects.toThrow(
-      "Invalid variant: purple"
-    )
+    try {
+      await evaluateDecision(decideFn, "theme", identity, variants)
+      expect.unreachable("Should have thrown")
+    } catch (error) {
+      expect((error as Error).message).toBe("Invalid variant: purple")
+    }
   })
 
   test("handles synchronous decide function", async () => {

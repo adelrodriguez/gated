@@ -160,7 +160,7 @@ describe("cacheHook", () => {
     expect(cache.get).toHaveBeenCalledWith("flag-b:user123")
   })
 
-  test("handles cache.get errors", () => {
+  test("handles cache.get errors", async () => {
     const cache = {
       get: mock(() => Promise.reject(new Error("Cache read error"))),
       set: mock(() => Promise.resolve()),
@@ -172,10 +172,15 @@ describe("cacheHook", () => {
       identity: { distinctId: "user123" },
     }
 
-    expect(hook.resolve?.(context)).rejects.toThrow("Cache read error")
+    try {
+      await hook.resolve?.(context)
+      expect.unreachable("Should have thrown")
+    } catch (error) {
+      expect((error as Error).message).toBe("Cache read error")
+    }
   })
 
-  test("handles cache.set errors", () => {
+  test("handles cache.set errors", async () => {
     const cache = {
       get: mock(emptyCache),
       set: mock(() => Promise.reject(new Error("Cache write error"))),
@@ -188,7 +193,12 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { value: true }
 
-    expect(hook.after?.(context, decision)).rejects.toThrow("Cache write error")
+    try {
+      await hook.after?.(context, decision)
+      expect.unreachable("Should have thrown")
+    } catch (error) {
+      expect((error as Error).message).toBe("Cache write error")
+    }
   })
 
   test("full cache flow: miss then hit", async () => {
@@ -339,7 +349,12 @@ describe("dedupeHook", () => {
     await hook.error?.(context, error)
 
     // Second request should reject with same error
-    expect(secondResolvePromise).rejects.toThrow("API failed")
+    try {
+      await secondResolvePromise
+      expect.unreachable("Should have thrown")
+    } catch (caughtError) {
+      expect((caughtError as Error).message).toBe("API failed")
+    }
   })
 
   test("cleans up pending requests after success", async () => {

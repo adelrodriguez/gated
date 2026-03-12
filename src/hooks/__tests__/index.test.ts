@@ -2,11 +2,13 @@ import { describe, expect, mock, test } from "bun:test"
 import type { Decision, Hook, HookContext, Identity } from "../../lib/types"
 import { createHook } from "../index"
 
+const emptyFactory = () => ({})
+
 describe("createHook", () => {
   test("returns the factory function", () => {
-    const hook = createHook(() => ({}))
+    const hook = createHook(emptyFactory)
 
-    expect(hook).toBeTypeOf("function")
+    expect(hook === emptyFactory).toBe(true)
   })
 
   test("creates a hook with no options", () => {
