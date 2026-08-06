@@ -6,10 +6,8 @@ describe("cacheHook", () => {
   test("resolves from cache if available", async () => {
     const cachedDecision: Decision = { value: true }
     const cache = {
-      get: mock(async () => cachedDecision),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve(cachedDecision)),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -18,7 +16,7 @@ describe("cacheHook", () => {
       identity: { distinctId: "user123" },
     }
 
-    const result = await hook.resolve?.(context)
+    const result = await Promise.resolve(hook.resolve?.(context))
 
     expect(result).toEqual(cachedDecision)
     expect(cache.get).toHaveBeenCalledWith("test-flag:user123")
@@ -26,11 +24,8 @@ describe("cacheHook", () => {
 
   test("returns undefined if cache is empty", async () => {
     const cache = {
-      // biome-ignore lint/nursery/noUselessUndefined: Empty function
-      get: mock(async (): Promise<Decision | undefined> => undefined),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve<Decision | undefined>(void 0)),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -39,18 +34,15 @@ describe("cacheHook", () => {
       identity: { distinctId: "user123" },
     }
 
-    const result = await hook.resolve?.(context)
+    const result = await Promise.resolve(hook.resolve?.(context))
 
     expect(result).toBeUndefined()
   })
 
   test("stores decision to cache after evaluation", async () => {
     const cache = {
-      // biome-ignore lint/nursery/noUselessUndefined: Empty function
-      get: mock(async (): Promise<Decision | undefined> => undefined),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve<Decision | undefined>(void 0)),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -60,17 +52,15 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { value: false }
 
-    await hook.after?.(context, decision)
+    await Promise.resolve(hook.after?.(context, decision))
 
     expect(cache.set).toHaveBeenCalledWith("test-flag:user123", decision)
   })
 
   test("handles missing identity in resolve", async () => {
     const cache = {
-      get: mock(async () => ({ value: true })),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve({ value: true })),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -79,7 +69,7 @@ describe("cacheHook", () => {
       identity: null,
     }
 
-    const result = await hook.resolve?.(context)
+    const result = await Promise.resolve(hook.resolve?.(context))
 
     expect(result).toBeUndefined()
     expect(cache.get).not.toHaveBeenCalled()
@@ -87,11 +77,8 @@ describe("cacheHook", () => {
 
   test("handles missing identity in after", async () => {
     const cache = {
-      // biome-ignore lint/nursery/noUselessUndefined: Empty function
-      get: mock(async (): Promise<Decision | undefined> => undefined),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve<Decision | undefined>(void 0)),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -101,18 +88,15 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { value: true }
 
-    await hook.after?.(context, decision)
+    await Promise.resolve(hook.after?.(context, decision))
 
     expect(cache.set).not.toHaveBeenCalled()
   })
 
   test("uses correct cache key format with variant decision", async () => {
     const cache = {
-      // biome-ignore lint/nursery/noUselessUndefined: Empty function
-      get: mock(async (): Promise<Decision | undefined> => undefined),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve<Decision | undefined>(void 0)),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -122,17 +106,15 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { variant: "dark" }
 
-    await hook.after?.(context, decision)
+    await Promise.resolve(hook.after?.(context, decision))
 
     expect(cache.set).toHaveBeenCalledWith("theme-flag:456", decision)
   })
 
   test("creates different cache keys for different identities", async () => {
     const cache = {
-      get: mock(async () => ({ value: true })),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve({ value: true })),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -145,8 +127,8 @@ describe("cacheHook", () => {
       identity: { distinctId: "user456" },
     }
 
-    await hook.resolve?.(context1)
-    await hook.resolve?.(context2)
+    await Promise.resolve(hook.resolve?.(context1))
+    await Promise.resolve(hook.resolve?.(context2))
 
     expect(cache.get).toHaveBeenCalledWith("test-flag:user123")
     expect(cache.get).toHaveBeenCalledWith("test-flag:user456")
@@ -154,10 +136,8 @@ describe("cacheHook", () => {
 
   test("creates different cache keys for different flags", async () => {
     const cache = {
-      get: mock(async () => ({ value: true })),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve({ value: true })),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -170,8 +150,8 @@ describe("cacheHook", () => {
       identity: { distinctId: "user123" },
     }
 
-    await hook.resolve?.(context1)
-    await hook.resolve?.(context2)
+    await Promise.resolve(hook.resolve?.(context1))
+    await Promise.resolve(hook.resolve?.(context2))
 
     expect(cache.get).toHaveBeenCalledWith("flag-a:user123")
     expect(cache.get).toHaveBeenCalledWith("flag-b:user123")
@@ -179,13 +159,8 @@ describe("cacheHook", () => {
 
   test("handles cache.get errors", async () => {
     const cache = {
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      get: mock(async () => {
-        throw new Error("Cache read error")
-      }),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.reject(new Error("Cache read error"))),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -194,17 +169,20 @@ describe("cacheHook", () => {
       identity: { distinctId: "user123" },
     }
 
-    await expect(hook.resolve?.(context)).rejects.toThrow("Cache read error")
+    await Promise.resolve(hook.resolve?.(context)).then(
+      () => {
+        throw new Error("Expected cache read to fail")
+      },
+      (error: unknown) => {
+        expect((error as Error).message).toBe("Cache read error")
+      }
+    )
   })
 
   test("handles cache.set errors", async () => {
     const cache = {
-      // biome-ignore lint/nursery/noUselessUndefined: Empty function
-      get: mock(async (): Promise<Decision | undefined> => undefined),
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      set: mock(async () => {
-        throw new Error("Cache write error")
-      }),
+      get: mock(() => Promise.resolve<Decision | undefined>(void 0)),
+      set: mock(() => Promise.reject(new Error("Cache write error"))),
     }
 
     const hook = cacheHook(cache)
@@ -214,18 +192,23 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { value: true }
 
-    await expect(hook.after?.(context, decision)).rejects.toThrow(
-      "Cache write error"
+    await Promise.resolve(hook.after?.(context, decision)).then(
+      () => {
+        throw new Error("Expected cache write to fail")
+      },
+      (error: unknown) => {
+        expect((error as Error).message).toBe("Cache write error")
+      }
     )
   })
 
   test("full cache flow: miss then hit", async () => {
     let stored: Decision | undefined
     const cache = {
-      get: mock(async () => stored),
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      set: mock(async (_key: string, value: Decision) => {
+      get: mock(() => Promise.resolve(stored)),
+      set: mock((_key: string, value: Decision) => {
         stored = value
+        return Promise.resolve()
       }),
     }
 
@@ -236,27 +219,25 @@ describe("cacheHook", () => {
     }
 
     // First resolve: cache miss
-    const firstResult = await hook.resolve?.(context)
+    const firstResult = await Promise.resolve(hook.resolve?.(context))
     expect(firstResult).toBeUndefined()
     expect(cache.get).toHaveBeenCalledTimes(1)
 
     // Store to cache
     const decision: Decision = { value: true }
-    await hook.after?.(context, decision)
+    await Promise.resolve(hook.after?.(context, decision))
     expect(cache.set).toHaveBeenCalledWith("test-flag:user123", decision)
 
     // Second resolve: cache hit
-    const secondResult = await hook.resolve?.(context)
+    const secondResult = await Promise.resolve(hook.resolve?.(context))
     expect(secondResult).toEqual(decision)
     expect(cache.get).toHaveBeenCalledTimes(2)
   })
 
   test("supports additional identity properties", async () => {
     const cache = {
-      get: mock(async () => ({ value: true })),
-      set: mock(async () => {
-        // Store to cache
-      }),
+      get: mock(() => Promise.resolve({ value: true })),
+      set: mock(() => Promise.resolve()),
     }
 
     const hook = cacheHook(cache)
@@ -269,7 +250,7 @@ describe("cacheHook", () => {
       },
     }
 
-    await hook.resolve?.(context)
+    await Promise.resolve(hook.resolve?.(context))
 
     // Cache key should only use distinctId, not other properties
     expect(cache.get).toHaveBeenCalledWith("test-flag:user123")
@@ -284,7 +265,7 @@ describe("dedupeHook", () => {
       identity: { distinctId: "user123" },
     }
 
-    const result = await hook.resolve?.(context)
+    const result = await Promise.resolve(hook.resolve?.(context))
 
     // First request should return undefined (let flow continue)
     expect(result).toBeUndefined()
@@ -298,15 +279,15 @@ describe("dedupeHook", () => {
     }
 
     // Start first request
-    const firstResolve = hook.resolve?.(context)
+    const firstResolve = Promise.resolve(hook.resolve?.(context))
     expect(await firstResolve).toBeUndefined()
 
     // Start second concurrent request (should dedupe)
-    const secondResolvePromise = hook.resolve?.(context)
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
 
     // Complete first request
     const decision: Decision = { value: true }
-    await hook.after?.(context, decision)
+    await Promise.resolve(hook.after?.(context, decision))
 
     // Second request should get the same decision
     const secondResult = await secondResolvePromise
@@ -324,8 +305,8 @@ describe("dedupeHook", () => {
       identity: { distinctId: "user123" },
     }
 
-    const result1 = await hook.resolve?.(context1)
-    const result2 = await hook.resolve?.(context2)
+    const result1 = await Promise.resolve(hook.resolve?.(context1))
+    const result2 = await Promise.resolve(hook.resolve?.(context2))
 
     // Both should return undefined (not deduplicated)
     expect(result1).toBeUndefined()
@@ -343,8 +324,8 @@ describe("dedupeHook", () => {
       identity: { distinctId: "user456" },
     }
 
-    const result1 = await hook.resolve?.(context1)
-    const result2 = await hook.resolve?.(context2)
+    const result1 = await Promise.resolve(hook.resolve?.(context1))
+    const result2 = await Promise.resolve(hook.resolve?.(context2))
 
     // Both should return undefined (not deduplicated)
     expect(result1).toBeUndefined()
@@ -359,17 +340,24 @@ describe("dedupeHook", () => {
     }
 
     // Start first request
-    await hook.resolve?.(context)
+    await Promise.resolve(hook.resolve?.(context))
 
     // Start second concurrent request
-    const secondResolvePromise = hook.resolve?.(context)
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
 
     // Trigger error on first request
     const error = new Error("API failed")
-    await hook.error?.(context, error)
+    await Promise.resolve(hook.error?.(context, error))
 
     // Second request should reject with same error
-    await expect(secondResolvePromise).rejects.toThrow("API failed")
+    await secondResolvePromise.then(
+      () => {
+        throw new Error("Expected deduplicated request to fail")
+      },
+      (error: unknown) => {
+        expect((error as Error).message).toBe("API failed")
+      }
+    )
   })
 
   test("cleans up pending requests after success", async () => {
@@ -380,12 +368,12 @@ describe("dedupeHook", () => {
     }
 
     // First request
-    await hook.resolve?.(context)
+    await Promise.resolve(hook.resolve?.(context))
     const decision: Decision = { value: true }
-    await hook.after?.(context, decision)
+    await Promise.resolve(hook.after?.(context, decision))
 
     // New request should not be deduplicated (previous cleaned up)
-    const newResult = await hook.resolve?.(context)
+    const newResult = await Promise.resolve(hook.resolve?.(context))
     expect(newResult).toBeUndefined()
   })
 
@@ -397,14 +385,14 @@ describe("dedupeHook", () => {
     }
 
     // Start first request
-    const firstResolve = hook.resolve?.(context)
+    const firstResolve = Promise.resolve(hook.resolve?.(context))
     expect(await firstResolve).toBeUndefined()
 
     // Start second concurrent request to have a pending promise
-    const secondResolvePromise = hook.resolve?.(context)
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
 
     // Trigger error which rejects the pending promise
-    hook.error?.(context, new Error("Failed"))
+    void hook.error?.(context, new Error("Failed"))
 
     // Wait for rejection
     try {
@@ -414,7 +402,7 @@ describe("dedupeHook", () => {
     }
 
     // New request should not be deduplicated (previous cleaned up)
-    const newResult = await hook.resolve?.(context)
+    const newResult = await Promise.resolve(hook.resolve?.(context))
     expect(newResult).toBeUndefined()
   })
 
@@ -430,14 +418,14 @@ describe("dedupeHook", () => {
     }
 
     // Start first request
-    await hook.resolve?.(context1)
+    await Promise.resolve(hook.resolve?.(context1))
 
     // Start second concurrent request (should dedupe by flagKey only)
-    const secondResolvePromise = hook.resolve?.(context2)
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(context2))
 
     // Complete first request
     const decision: Decision = { value: false }
-    await hook.after?.(context1, decision)
+    await Promise.resolve(hook.after?.(context1, decision))
 
     // Second request should get the same decision
     const secondResult = await secondResolvePromise
@@ -452,14 +440,14 @@ describe("dedupeHook", () => {
     }
 
     // Start first request
-    await hook.resolve?.(context)
+    await Promise.resolve(hook.resolve?.(context))
 
     // Start second concurrent request
-    const secondResolvePromise = hook.resolve?.(context)
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
 
     // Complete first request with variant
     const decision: Decision = { variant: "dark" }
-    await hook.after?.(context, decision)
+    await Promise.resolve(hook.after?.(context, decision))
 
     // Second request should get the same decision
     const secondResult = await secondResolvePromise
@@ -474,16 +462,16 @@ describe("dedupeHook", () => {
     }
 
     // Start first request
-    await hook.resolve?.(context)
+    await Promise.resolve(hook.resolve?.(context))
 
     // Start multiple concurrent requests
-    const request2 = hook.resolve?.(context)
-    const request3 = hook.resolve?.(context)
-    const request4 = hook.resolve?.(context)
+    const request2 = Promise.resolve(hook.resolve?.(context))
+    const request3 = Promise.resolve(hook.resolve?.(context))
+    const request4 = Promise.resolve(hook.resolve?.(context))
 
     // Complete first request
     const decision: Decision = { value: true }
-    await hook.after?.(context, decision)
+    await Promise.resolve(hook.after?.(context, decision))
 
     // All concurrent requests should get the same decision
     expect(await request2).toEqual(decision)
@@ -499,10 +487,8 @@ describe("dedupeHook", () => {
     }
     const decision: Decision = { value: true }
 
-    // Call after without any pending request
-    // Should not throw
     expect(() => {
-      hook.after?.(context, decision)
+      void hook.after?.(context, decision)
     }).not.toThrow()
   })
 
@@ -514,10 +500,8 @@ describe("dedupeHook", () => {
     }
     const error = new Error("Test error")
 
-    // Call error without any pending request
-    // Should not throw
     expect(() => {
-      hook.error?.(context, error)
+      void hook.error?.(context, error)
     }).not.toThrow()
   })
 
@@ -533,14 +517,14 @@ describe("dedupeHook", () => {
     }
 
     // Start first request with string distinctId
-    await hook.resolve?.(context1)
+    await Promise.resolve(hook.resolve?.(context1))
 
     // Start second request with number distinctId - should dedupe
-    const secondResolvePromise = hook.resolve?.(context2)
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(context2))
 
     // Complete first request
     const decision: Decision = { value: true }
-    await hook.after?.(context1, decision)
+    await Promise.resolve(hook.after?.(context1, decision))
 
     // Second request should get the same decision (treated as same key)
     const secondResult = await secondResolvePromise
@@ -555,14 +539,14 @@ describe("dedupeHook", () => {
     }
 
     // Start first request
-    await hook.resolve?.(context)
+    await Promise.resolve(hook.resolve?.(context))
 
     // Start second concurrent request
-    const secondResolvePromise = hook.resolve?.(context)
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
 
     // Complete first request
     const decision: Decision = { value: true }
-    await hook.after?.(context, decision)
+    await Promise.resolve(hook.after?.(context, decision))
 
     // Second request should get the same decision
     const secondResult = await secondResolvePromise
@@ -577,29 +561,29 @@ describe("dedupeHook", () => {
     }
 
     // Start first request
-    await hook.resolve?.(context)
+    await Promise.resolve(hook.resolve?.(context))
 
     // Start multiple concurrent requests
-    const request2 = hook.resolve?.(context)
-    const request3 = hook.resolve?.(context)
+    const request2 = Promise.resolve(hook.resolve?.(context))
+    const request3 = Promise.resolve(hook.resolve?.(context))
 
     // Trigger error (don't await - let it reject the pending promises)
     const error = new Error("Failed")
-    hook.error?.(context, error)
+    void hook.error?.(context, error)
 
     // All concurrent requests should reject with the same error
     try {
       await request2
       throw new Error("Should have thrown")
-    } catch (e) {
-      expect((e as Error).message).toBe("Failed")
+    } catch (error) {
+      expect((error as Error).message).toBe("Failed")
     }
 
     try {
       await request3
       throw new Error("Should have thrown")
-    } catch (e) {
-      expect((e as Error).message).toBe("Failed")
+    } catch (error) {
+      expect((error as Error).message).toBe("Failed")
     }
   })
 
@@ -611,14 +595,14 @@ describe("dedupeHook", () => {
     }
 
     // Start first request
-    await hook.resolve?.(context)
+    await Promise.resolve(hook.resolve?.(context))
 
     // Start second concurrent request with same flag but null identity
-    const secondResolvePromise = hook.resolve?.(context)
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
 
     // Complete first request
     const decision: Decision = { value: true }
-    await hook.after?.(context, decision)
+    await Promise.resolve(hook.after?.(context, decision))
 
     // Second request should get the same decision
     const secondResult = await secondResolvePromise
@@ -636,8 +620,8 @@ describe("dedupeHook", () => {
       identity: null,
     }
 
-    const result1 = await hook.resolve?.(context1)
-    const result2 = await hook.resolve?.(context2)
+    const result1 = await Promise.resolve(hook.resolve?.(context1))
+    const result2 = await Promise.resolve(hook.resolve?.(context2))
 
     // Both should return undefined (not deduplicated)
     expect(result1).toBeUndefined()
@@ -656,19 +640,19 @@ describe("dedupeHook", () => {
     }
 
     // Start first request for flag-a
-    await hook.resolve?.(contextA)
+    await Promise.resolve(hook.resolve?.(contextA))
 
     // Start concurrent requests for both flags
-    const requestA2 = hook.resolve?.(contextA)
-    const requestB1 = hook.resolve?.(contextB)
-    const requestB2 = hook.resolve?.(contextB)
+    const requestA2 = Promise.resolve(hook.resolve?.(contextA))
+    const requestB1 = Promise.resolve(hook.resolve?.(contextB))
+    const requestB2 = Promise.resolve(hook.resolve?.(contextB))
 
     // Complete both flags
     const decisionA: Decision = { value: true }
     const decisionB: Decision = { value: false }
 
-    await hook.after?.(contextA, decisionA)
-    await hook.after?.(contextB, decisionB)
+    await Promise.resolve(hook.after?.(contextA, decisionA))
+    await Promise.resolve(hook.after?.(contextB, decisionB))
 
     // Each flag's requests should get their respective decisions
     expect(await requestA2).toEqual(decisionA)

@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from "bun:test"
+import type { Decision, Hook, HookContext, Identity } from "../types"
 import {
   evaluateDecision,
   executeGate,
@@ -10,12 +11,24 @@ import {
   runFinallyHooks,
   runResolveHooks,
 } from "../index"
-import type { Decision, Hook, HookContext, Identity } from "../types"
+
+async function expectRejection(promise: Promise<unknown>, message: string) {
+  let caughtError: unknown
+
+  try {
+    await promise
+  } catch (error) {
+    caughtError = error
+  }
+
+  expect(caughtError).toBeInstanceOf(Error)
+  expect(caughtError).toMatchObject({ message })
+}
 
 describe("identify", () => {
   test("returns override identity when provided", async () => {
-    const identifyFn = mock(
-      async (): Promise<Identity> => ({
+    const identifyFn = mock(() =>
+      Promise.resolve<Identity>({
         distinctId: "default",
       })
     )
@@ -29,27 +42,25 @@ describe("identify", () => {
 
   test("calls identify function when no override provided", async () => {
     const identity: Identity = { distinctId: "user123" }
-    const identifyFn = mock(async () => identity)
+    const identifyFn = mock(() => Promise.resolve(identity))
 
-    const result = await identify(identifyFn, undefined)
+    const result = await identify(identifyFn)
 
     expect(result).toEqual(identity)
     expect(identifyFn).toHaveBeenCalledTimes(1)
   })
 
   test("throws error when identify function returns null", async () => {
-    const identifyFn = mock(async () => null)
+    const identifyFn = mock(() => Promise.resolve(null))
 
-    await expect(identify(identifyFn, undefined)).rejects.toThrow(
-      "Identity not found"
-    )
+    await expectRejection(identify(identifyFn), "Identity not found")
   })
 
   test("handles synchronous identify function", async () => {
     const identity: Identity = { distinctId: "user123" }
     const identifyFn = mock(() => identity)
 
-    const result = await identify(identifyFn, undefined)
+    const result = await identify(identifyFn)
 
     expect(result).toEqual(identity)
   })
@@ -65,9 +76,9 @@ describe("identify", () => {
       email: "user@example.com",
       plan: "pro",
     }
-    const identifyFn = mock(async () => identity)
+    const identifyFn = mock(() => Promise.resolve(identity))
 
-    const result = await identify(identifyFn, undefined)
+    const result = await identify(identifyFn)
 
     expect(result).toEqual(identity)
   })
@@ -134,7 +145,7 @@ describe("extractDecisionValue", () => {
 describe("evaluateDecision", () => {
   test("evaluates boolean decision", async () => {
     const decision: Decision = { value: true }
-    const decideFn = mock(async () => decision)
+    const decideFn = mock(() => Promise.resolve(decision))
     const identity: Identity = { distinctId: "user123" }
 
     const result = await evaluateDecision(decideFn, "test-flag", identity)
@@ -145,7 +156,7 @@ describe("evaluateDecision", () => {
 
   test("evaluates variant decision without validation when no variants provided", async () => {
     const decision: Decision = { variant: "dark" }
-    const decideFn = mock(async () => decision)
+    const decideFn = mock(() => Promise.resolve(decision))
     const identity: Identity = { distinctId: "user123" }
 
     const result = await evaluateDecision(decideFn, "theme", identity)
@@ -155,7 +166,7 @@ describe("evaluateDecision", () => {
 
   test("validates variant against allowed variants", async () => {
     const decision: Decision = { variant: "dark" }
-    const decideFn = mock(async () => decision)
+    const decideFn = mock(() => Promise.resolve(decision))
     const identity: Identity = { distinctId: "user123" }
     const variants = ["light", "dark", "system"]
 
@@ -166,13 +177,14 @@ describe("evaluateDecision", () => {
 
   test("throws error for invalid variant", async () => {
     const decision: Decision = { variant: "purple" }
-    const decideFn = mock(async () => decision)
+    const decideFn = mock(() => Promise.resolve(decision))
     const identity: Identity = { distinctId: "user123" }
     const variants = ["light", "dark", "system"]
 
-    await expect(
-      evaluateDecision(decideFn, "theme", identity, variants)
-    ).rejects.toThrow("Invalid variant: purple")
+    await expectRejection(
+      evaluateDecision(decideFn, "theme", identity, variants),
+      "Invalid variant: purple"
+    )
   })
 
   test("handles synchronous decide function", async () => {
@@ -188,12 +200,8 @@ describe("evaluateDecision", () => {
 
 describe("runBeforeHooks", () => {
   test("runs all before hooks", async () => {
-    const beforeFn1 = mock(async () => {
-      // Hook function
-    })
-    const beforeFn2 = mock(async () => {
-      // Hook function
-    })
+    const beforeFn1 = mock(() => Promise.resolve())
+    const beforeFn2 = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ before: beforeFn1 }, { before: beforeFn2 }]
     const context: HookContext = {
@@ -208,9 +216,7 @@ describe("runBeforeHooks", () => {
   })
 
   test("handles hooks without before method", async () => {
-    const afterFn = mock(async () => {
-      // Hook function
-    })
+    const afterFn = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ after: afterFn }, {}]
     const context: HookContext = {
@@ -224,13 +230,8 @@ describe("runBeforeHooks", () => {
   })
 
   test("continues execution even if hook fails", async () => {
-    // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-    const beforeFn1 = mock(async () => {
-      throw new Error("Hook error")
-    })
-    const beforeFn2 = mock(async () => {
-      // Hook function
-    })
+    const beforeFn1 = mock(() => Promise.reject(new Error("Hook error")))
+    const beforeFn2 = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ before: beforeFn1 }, { before: beforeFn2 }]
     const context: HookContext = {
@@ -251,21 +252,16 @@ describe("runBeforeHooks", () => {
       identity: { distinctId: "user123" },
     }
 
-    await expect(runBeforeHooks(hooks, context)).resolves.toBeUndefined()
+    await runBeforeHooks(hooks, context)
   })
 })
 
 describe("runResolveHooks", () => {
   test("returns first non-undefined value", async () => {
-    const resolveFn1 = mock(
-      // biome-ignore lint/nursery/noUselessUndefined: Explicit undefined needed for type
-      async (): Promise<Decision | undefined> => undefined
-    )
+    const resolveFn1 = mock(() => Promise.resolve<Decision | undefined>(void 0))
     const decision: Decision = { value: true }
-    const resolveFn2 = mock(async (): Promise<Decision | undefined> => decision)
-    const resolveFn3 = mock(
-      async (): Promise<Decision | undefined> => ({ value: false })
-    )
+    const resolveFn2 = mock(() => Promise.resolve<Decision | undefined>(decision))
+    const resolveFn3 = mock(() => Promise.resolve<Decision | undefined>({ value: false }))
 
     const hooks: Hook[] = [
       { resolve: resolveFn1 },
@@ -286,14 +282,8 @@ describe("runResolveHooks", () => {
   })
 
   test("returns undefined if all hooks return undefined", async () => {
-    const resolveFn1 = mock(
-      // biome-ignore lint/nursery/noUselessUndefined: Explicit undefined needed for type
-      async (): Promise<Decision | undefined> => undefined
-    )
-    const resolveFn2 = mock(
-      // biome-ignore lint/nursery/noUselessUndefined: Explicit undefined needed for type
-      async (): Promise<Decision | undefined> => undefined
-    )
+    const resolveFn1 = mock(() => Promise.resolve<Decision | undefined>(void 0))
+    const resolveFn2 = mock(() => Promise.resolve<Decision | undefined>(void 0))
 
     const hooks: Hook[] = [{ resolve: resolveFn1 }, { resolve: resolveFn2 }]
     const context: HookContext = {
@@ -307,9 +297,7 @@ describe("runResolveHooks", () => {
   })
 
   test("handles hooks without resolve method", async () => {
-    const beforeFn = mock(async () => {
-      // Hook function
-    })
+    const beforeFn = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ before: beforeFn }, {}]
     const context: HookContext = {
@@ -323,12 +311,9 @@ describe("runResolveHooks", () => {
   })
 
   test("continues to next hook if one throws error", async () => {
-    // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-    const resolveFn1 = mock(async () => {
-      throw new Error("Hook error")
-    })
+    const resolveFn1 = mock(() => Promise.reject(new Error("Hook error")))
     const decision: Decision = { value: true }
-    const resolveFn2 = mock(async () => decision)
+    const resolveFn2 = mock(() => Promise.resolve(decision))
 
     const hooks: Hook[] = [{ resolve: resolveFn1 }, { resolve: resolveFn2 }]
     const context: HookContext = {
@@ -356,12 +341,8 @@ describe("runResolveHooks", () => {
 
 describe("runAfterHooks", () => {
   test("runs all after hooks with decision", async () => {
-    const afterFn1 = mock(async () => {
-      // Hook function
-    })
-    const afterFn2 = mock(async () => {
-      // Hook function
-    })
+    const afterFn1 = mock(() => Promise.resolve())
+    const afterFn2 = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ after: afterFn1 }, { after: afterFn2 }]
     const context: HookContext = {
@@ -377,9 +358,7 @@ describe("runAfterHooks", () => {
   })
 
   test("handles hooks without after method", async () => {
-    const beforeFn = mock(async () => {
-      // Hook function
-    })
+    const beforeFn = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ before: beforeFn }, {}]
     const context: HookContext = {
@@ -394,13 +373,8 @@ describe("runAfterHooks", () => {
   })
 
   test("continues execution even if hook fails", async () => {
-    // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-    const afterFn1 = mock(async () => {
-      throw new Error("Hook error")
-    })
-    const afterFn2 = mock(async () => {
-      // Hook function
-    })
+    const afterFn1 = mock(() => Promise.reject(new Error("Hook error")))
+    const afterFn2 = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ after: afterFn1 }, { after: afterFn2 }]
     const context: HookContext = {
@@ -423,20 +397,14 @@ describe("runAfterHooks", () => {
     }
     const decision: Decision = { value: true }
 
-    await expect(
-      runAfterHooks(hooks, context, decision)
-    ).resolves.toBeUndefined()
+    await runAfterHooks(hooks, context, decision)
   })
 })
 
 describe("runErrorHooks", () => {
   test("runs all error hooks with error", async () => {
-    const errorFn1 = mock(async () => {
-      // Hook function
-    })
-    const errorFn2 = mock(async () => {
-      // Hook function
-    })
+    const errorFn1 = mock(() => Promise.resolve())
+    const errorFn2 = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ error: errorFn1 }, { error: errorFn2 }]
     const context: HookContext = {
@@ -452,9 +420,7 @@ describe("runErrorHooks", () => {
   })
 
   test("handles hooks without error method", async () => {
-    const beforeFn = mock(async () => {
-      // Hook function
-    })
+    const beforeFn = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ before: beforeFn }, {}]
     const context: HookContext = {
@@ -469,13 +435,8 @@ describe("runErrorHooks", () => {
   })
 
   test("continues execution even if hook fails", async () => {
-    // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-    const errorFn1 = mock(async () => {
-      throw new Error("Hook processing error")
-    })
-    const errorFn2 = mock(async () => {
-      // Hook function
-    })
+    const errorFn1 = mock(() => Promise.reject(new Error("Hook processing error")))
+    const errorFn2 = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ error: errorFn1 }, { error: errorFn2 }]
     const context: HookContext = {
@@ -498,18 +459,14 @@ describe("runErrorHooks", () => {
     }
     const error = new Error("Test error")
 
-    await expect(runErrorHooks(hooks, context, error)).resolves.toBeUndefined()
+    await runErrorHooks(hooks, context, error)
   })
 })
 
 describe("runFinallyHooks", () => {
   test("runs all finally hooks", async () => {
-    const finallyFn1 = mock(async () => {
-      // Hook function
-    })
-    const finallyFn2 = mock(async () => {
-      // Hook function
-    })
+    const finallyFn1 = mock(() => Promise.resolve())
+    const finallyFn2 = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ finally: finallyFn1 }, { finally: finallyFn2 }]
     const context: HookContext = {
@@ -524,9 +481,7 @@ describe("runFinallyHooks", () => {
   })
 
   test("handles hooks without finally method", async () => {
-    const beforeFn = mock(async () => {
-      // Hook function
-    })
+    const beforeFn = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ before: beforeFn }, {}]
     const context: HookContext = {
@@ -540,13 +495,8 @@ describe("runFinallyHooks", () => {
   })
 
   test("continues execution even if hook fails", async () => {
-    // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-    const finallyFn1 = mock(async () => {
-      throw new Error("Hook error")
-    })
-    const finallyFn2 = mock(async () => {
-      // Hook function
-    })
+    const finallyFn1 = mock(() => Promise.reject(new Error("Hook error")))
+    const finallyFn2 = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ finally: finallyFn1 }, { finally: finallyFn2 }]
     const context: HookContext = {
@@ -567,7 +517,7 @@ describe("runFinallyHooks", () => {
       identity: { distinctId: "user123" },
     }
 
-    await expect(runFinallyHooks(hooks, context)).resolves.toBeUndefined()
+    await runFinallyHooks(hooks, context)
   })
 })
 
@@ -577,14 +527,14 @@ describe("executeGate", () => {
     const decision: Decision = { value: true }
 
     const config = {
-      identify: mock(async () => identity),
-      decide: mock(async () => decision),
+      decide: mock(() => Promise.resolve(decision)),
       hooks: [],
+      identify: mock(() => Promise.resolve(identity)),
     }
 
     const options = {
-      key: "test-flag",
       defaultValue: false,
+      key: "test-flag",
     }
 
     const result = await executeGate(config, options)
@@ -599,14 +549,14 @@ describe("executeGate", () => {
     const decision: Decision = { variant: "dark" }
 
     const config = {
-      identify: mock(async () => identity),
-      decide: mock(async () => decision),
+      decide: mock(() => Promise.resolve(decision)),
       hooks: [],
+      identify: mock(() => Promise.resolve(identity)),
     }
 
     const options = {
-      key: "theme",
       defaultValue: "light",
+      key: "theme",
       variants: ["light", "dark", "system"],
     }
 
@@ -621,13 +571,13 @@ describe("executeGate", () => {
     const decision: Decision = { value: true }
 
     const config = {
-      identify: mock(async () => defaultIdentity),
-      decide: mock(async () => decision),
+      decide: mock(() => Promise.resolve(decision)),
+      identify: mock(() => Promise.resolve(defaultIdentity)),
     }
 
     const options = {
-      key: "test-flag",
       defaultValue: false,
+      key: "test-flag",
     }
 
     const result = await executeGate(config, options, overrideIdentity)
@@ -639,16 +589,13 @@ describe("executeGate", () => {
 
   test("returns default value on error", async () => {
     const config = {
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      identify: mock(async () => {
-        throw new Error("Identity error")
-      }),
-      decide: mock(async () => ({ value: true })),
+      decide: mock(() => Promise.resolve({ value: true })),
+      identify: mock(() => Promise.reject(new Error("Identity error"))),
     }
 
     const options = {
-      key: "test-flag",
       defaultValue: false,
+      key: "test-flag",
     }
 
     const result = await executeGate(config, options)
@@ -660,38 +607,29 @@ describe("executeGate", () => {
     const identity: Identity = { distinctId: "user123" }
     const decision: Decision = { value: true }
 
-    const beforeFn = mock(async () => {
-      // Hook function
-    })
-    const resolveFn = mock(
-      // biome-ignore lint/nursery/noUselessUndefined: Explicit undefined needed for type
-      async (): Promise<Decision | undefined> => undefined
-    )
-    const afterFn = mock(async () => {
-      // Hook function
-    })
-    const finallyFn = mock(async () => {
-      // Hook function
-    })
+    const beforeFn = mock(() => Promise.resolve())
+    const resolveFn = mock(() => Promise.resolve<Decision | undefined>(void 0))
+    const afterFn = mock(() => Promise.resolve())
+    const finallyFn = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [
       {
-        before: beforeFn,
-        resolve: resolveFn,
         after: afterFn,
+        before: beforeFn,
         finally: finallyFn,
+        resolve: resolveFn,
       },
     ]
 
     const config = {
-      identify: mock(async () => identity),
-      decide: mock(async () => decision),
+      decide: mock(() => Promise.resolve(decision)),
       hooks,
+      identify: mock(() => Promise.resolve(identity)),
     }
 
     const options = {
-      key: "test-flag",
       defaultValue: false,
+      key: "test-flag",
     }
 
     await executeGate(config, options)
@@ -706,19 +644,19 @@ describe("executeGate", () => {
     const identity: Identity = { distinctId: "user123" }
     const cachedDecision: Decision = { value: true }
 
-    const resolveFn = mock(async () => cachedDecision)
+    const resolveFn = mock(() => Promise.resolve(cachedDecision))
 
     const hooks: Hook[] = [{ resolve: resolveFn }]
 
     const config = {
-      identify: mock(async () => identity),
-      decide: mock(async () => ({ value: false })),
+      decide: mock(() => Promise.resolve({ value: false })),
       hooks,
+      identify: mock(() => Promise.resolve(identity)),
     }
 
     const options = {
-      key: "test-flag",
       defaultValue: false,
+      key: "test-flag",
     }
 
     const result = await executeGate(config, options)
@@ -730,27 +668,20 @@ describe("executeGate", () => {
   test("runs error hooks when error occurs", async () => {
     const error = new Error("Decision error")
 
-    const errorFn = mock(async () => {
-      // Hook function
-    })
-    const finallyFn = mock(async () => {
-      // Hook function
-    })
+    const errorFn = mock(() => Promise.resolve())
+    const finallyFn = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ error: errorFn, finally: finallyFn }]
 
     const config = {
-      identify: mock(async () => ({ distinctId: "user123" })),
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      decide: mock(async () => {
-        throw error
-      }),
+      decide: mock(() => Promise.reject(error)),
       hooks,
+      identify: mock(() => Promise.resolve({ distinctId: "user123" })),
     }
 
     const options = {
-      key: "test-flag",
       defaultValue: false,
+      key: "test-flag",
     }
 
     const result = await executeGate(config, options)
@@ -771,13 +702,13 @@ describe("executeGate", () => {
     const decision: Decision = { variant: "invalid" }
 
     const config = {
-      identify: mock(async () => identity),
-      decide: mock(async () => decision),
+      decide: mock(() => Promise.resolve(decision)),
+      identify: mock(() => Promise.resolve(identity)),
     }
 
     const options = {
-      key: "theme",
       defaultValue: "light",
+      key: "theme",
       variants: ["light", "dark"],
     }
 
@@ -791,13 +722,13 @@ describe("executeGate", () => {
     const decision: Decision = { value: true }
 
     const config = {
-      identify: mock(async () => identity),
-      decide: mock(async () => decision),
+      decide: mock(() => Promise.resolve(decision)),
+      identify: mock(() => Promise.resolve(identity)),
     }
 
     const options = {
-      key: "test-flag",
       defaultValue: false,
+      key: "test-flag",
     }
 
     const result = await executeGate(config, options)
@@ -806,24 +737,19 @@ describe("executeGate", () => {
   })
 
   test("handles null identity in hook context on error", async () => {
-    const errorFn = mock(async () => {
-      // Hook function
-    })
+    const errorFn = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ error: errorFn }]
 
     const config = {
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      identify: mock(async () => {
-        throw new Error("Identity error")
-      }),
-      decide: mock(async () => ({ value: true })),
+      decide: mock(() => Promise.resolve({ value: true })),
       hooks,
+      identify: mock(() => Promise.reject(new Error("Identity error"))),
     }
 
     const options = {
-      key: "test-flag",
       defaultValue: false,
+      key: "test-flag",
     }
 
     await executeGate(config, options)

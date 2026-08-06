@@ -1,17 +1,18 @@
 {
-  "extends": "adamantite/tsconfig",
+  "extends": "adamantite/typescript",
   "compilerOptions": {
     "allowJs": true,
-    "declaration": true,
-    "declarationMap": true,
-    "emitDeclarationOnly": true,
+    "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "module": "Preserve",
     "moduleDetection": "force",
     "moduleResolution": "bundler",
-    "target": "ESNext"
+    "noEmit": true,
+    "target": "ESNext",
+    "types": ["bun"],
+    "verbatimModuleSyntax": true
   },
-  "exclude": ["node_modules", "dist"],
-  "include": ["src", "scripts"]
+  "exclude": ["node_modules", "dist", ".packref"],
+  "include": ["src", "test", "*.config.ts"]
 }

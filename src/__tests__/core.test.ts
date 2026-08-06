@@ -1,12 +1,12 @@
 import { describe, expect, mock, test } from "bun:test"
-import { buildGate } from "../core"
 import type { Decision, Hook, Identity } from "../lib/types"
+import { buildGate } from "../core"
 
 describe("buildGate", () => {
   test("creates a gate factory function", () => {
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      decide: async () => ({ value: true }),
+      decide: () => Promise.resolve({ value: true }),
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
     expect(typeof gate).toBe("function")
@@ -17,11 +17,11 @@ describe("buildGate", () => {
     const decision: Decision = { value: true }
 
     const gate = buildGate({
-      identify: mock(async () => identity),
-      decide: mock(async () => decision),
+      decide: mock(() => Promise.resolve(decision)),
+      identify: mock(() => Promise.resolve(identity)),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     const result = await betaFlag()
 
     expect(result).toBe(true)
@@ -32,11 +32,11 @@ describe("buildGate", () => {
     const decision: Decision = { value: false }
 
     const gate = buildGate({
-      identify: mock(async () => identity),
-      decide: mock(async () => decision),
+      decide: mock(() => Promise.resolve(decision)),
+      identify: mock(() => Promise.resolve(identity)),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: true })
+    const betaFlag = gate({ defaultValue: true, key: "beta-access" })
     const result = await betaFlag()
 
     expect(result).toBe(false)
@@ -47,13 +47,13 @@ describe("buildGate", () => {
     const decision: Decision = { variant: "dark" }
 
     const gate = buildGate({
-      identify: mock(async () => identity),
-      decide: mock(async () => decision),
+      decide: mock(() => Promise.resolve(decision)),
+      identify: mock(() => Promise.resolve(identity)),
     })
 
     const themeFlag = gate({
-      key: "theme",
       defaultValue: "light",
+      key: "theme",
       variants: ["light", "dark", "system"],
     })
 
@@ -64,11 +64,11 @@ describe("buildGate", () => {
 
   test("returns default value when identity not found", async () => {
     const gate = buildGate({
-      identify: async () => null,
-      decide: async () => ({ value: true }),
+      decide: () => Promise.resolve({ value: true }),
+      identify: () => Promise.resolve(null),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     const result = await betaFlag()
 
     expect(result).toBe(false)
@@ -76,14 +76,11 @@ describe("buildGate", () => {
 
   test("returns default value when decide throws error", async () => {
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      decide: async () => {
-        throw new Error("Provider error")
-      },
+      decide: () => Promise.reject(new Error("Provider error")),
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     const result = await betaFlag()
 
     expect(result).toBe(false)
@@ -93,17 +90,17 @@ describe("buildGate", () => {
     const defaultIdentity: Identity = { distinctId: "default" }
     const overrideIdentity: Identity = { distinctId: "override" }
 
-    const identifyFn = mock(async () => defaultIdentity)
-    const decideFn = mock(async (_key: string, identity: Identity) => ({
-      value: identity.distinctId === "override",
-    }))
+    const identifyFn = mock(() => Promise.resolve(defaultIdentity))
+    const decideFn = mock((_key: string, identity: Identity) =>
+      Promise.resolve({ value: identity.distinctId === "override" })
+    )
 
     const gate = buildGate({
-      identify: identifyFn,
       decide: decideFn,
+      identify: identifyFn,
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     const result = await betaFlag(overrideIdentity)
 
     expect(result).toBe(true)
@@ -112,22 +109,18 @@ describe("buildGate", () => {
   })
 
   test("passes hooks to gate execution", async () => {
-    const beforeFn = mock(async () => {
-      // Hook function
-    })
-    const afterFn = mock(async () => {
-      // Hook function
-    })
+    const beforeFn = mock(() => Promise.resolve())
+    const afterFn = mock(() => Promise.resolve())
 
-    const hooks: Hook[] = [{ before: beforeFn, after: afterFn }]
+    const hooks: Hook[] = [{ after: afterFn, before: beforeFn }]
 
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      decide: async () => ({ value: true }),
+      decide: () => Promise.resolve({ value: true }),
       hooks,
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     await betaFlag()
 
     expect(beforeFn).toHaveBeenCalled()
@@ -136,19 +129,19 @@ describe("buildGate", () => {
 
   test("hook can short-circuit evaluation", async () => {
     const cachedDecision: Decision = { value: true }
-    const resolveFn = mock(async () => cachedDecision)
+    const resolveFn = mock(() => Promise.resolve(cachedDecision))
 
     const hooks: Hook[] = [{ resolve: resolveFn }]
 
-    const decideFn = mock(async () => ({ value: false }))
+    const decideFn = mock(() => Promise.resolve({ value: false }))
 
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
       decide: decideFn,
       hooks,
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     const result = await betaFlag()
 
     expect(result).toBe(true)
@@ -157,12 +150,12 @@ describe("buildGate", () => {
 
   test("multiple flags from same gate", async () => {
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      decide: async (key) => ({ value: key === "flag1" }),
+      decide: (key) => Promise.resolve({ value: key === "flag1" }),
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
-    const flag1 = gate({ key: "flag1", defaultValue: false })
-    const flag2 = gate({ key: "flag2", defaultValue: false })
+    const flag1 = gate({ defaultValue: false, key: "flag1" })
+    const flag2 = gate({ defaultValue: false, key: "flag2" })
 
     const result1 = await flag1()
     const result2 = await flag2()
@@ -173,13 +166,13 @@ describe("buildGate", () => {
 
   test("validates variant decision against variants list", async () => {
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      decide: async () => ({ variant: "invalid" }),
+      decide: () => Promise.resolve({ variant: "invalid" }),
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
     const themeFlag = gate({
-      key: "theme",
       defaultValue: "light",
+      key: "theme",
       variants: ["light", "dark"],
     })
 
@@ -191,13 +184,13 @@ describe("buildGate", () => {
 
   test("accepts valid variant from variants list", async () => {
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      decide: async () => ({ variant: "dark" }),
+      decide: () => Promise.resolve({ variant: "dark" }),
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
     const themeFlag = gate({
-      key: "theme",
       defaultValue: "light",
+      key: "theme",
       variants: ["light", "dark", "system"],
     })
 
@@ -219,13 +212,11 @@ describe("buildGate", () => {
     }
 
     const gate = buildGate<CustomIdentity>({
-      identify: async () => customIdentity,
-      decide: async (_key, identity) => ({
-        value: identity.plan === "pro",
-      }),
+      decide: (_key, identity) => Promise.resolve({ value: identity.plan === "pro" }),
+      identify: () => Promise.resolve(customIdentity),
     })
 
-    const proFlag = gate({ key: "pro-feature", defaultValue: false })
+    const proFlag = gate({ defaultValue: false, key: "pro-feature" })
     const result = await proFlag()
 
     expect(result).toBe(true)
@@ -233,11 +224,11 @@ describe("buildGate", () => {
 
   test("handles identify function that returns Promise", async () => {
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      decide: async () => ({ value: true }),
+      decide: () => Promise.resolve({ value: true }),
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     const result = await betaFlag()
 
     expect(result).toBe(true)
@@ -245,11 +236,11 @@ describe("buildGate", () => {
 
   test("handles decide function that returns Promise", async () => {
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      decide: async () => ({ value: true }),
+      decide: () => Promise.resolve({ value: true }),
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     const result = await betaFlag()
 
     expect(result).toBe(true)
@@ -257,22 +248,17 @@ describe("buildGate", () => {
 
   test("error hooks are called on failure", async () => {
     const error = new Error("Test error")
-    const errorFn = mock(async () => {
-      // Hook function
-    })
+    const errorFn = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ error: errorFn }]
 
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      decide: async () => {
-        throw error
-      },
+      decide: () => Promise.reject(error),
       hooks,
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     await betaFlag()
 
     expect(errorFn).toHaveBeenCalledWith(
@@ -285,41 +271,34 @@ describe("buildGate", () => {
   })
 
   test("finally hooks always run", async () => {
-    const finallyFn = mock(async () => {
-      // Hook function
-    })
+    const finallyFn = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ finally: finallyFn }]
 
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      decide: async () => ({ value: true }),
+      decide: () => Promise.resolve({ value: true }),
       hooks,
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     await betaFlag()
 
     expect(finallyFn).toHaveBeenCalled()
   })
 
   test("finally hooks run even on error", async () => {
-    const finallyFn = mock(async () => {
-      // Hook function
-    })
+    const finallyFn = mock(() => Promise.resolve())
 
     const hooks: Hook[] = [{ finally: finallyFn }]
 
     const gate = buildGate({
-      // biome-ignore lint/suspicious/useAwait: Mock must be async to match type signature
-      identify: async () => {
-        throw new Error("Identity error")
-      },
-      decide: async () => ({ value: true }),
+      decide: () => Promise.resolve({ value: true }),
       hooks,
+      identify: () => Promise.reject(new Error("Identity error")),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     await betaFlag()
 
     expect(finallyFn).toHaveBeenCalled()
@@ -327,11 +306,11 @@ describe("buildGate", () => {
 
   test("works without hooks configuration", async () => {
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      decide: async () => ({ value: true }),
+      decide: () => Promise.resolve({ value: true }),
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     const result = await betaFlag()
 
     expect(result).toBe(true)
@@ -339,12 +318,12 @@ describe("buildGate", () => {
 
   test("works with empty hooks array", async () => {
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      decide: async () => ({ value: true }),
+      decide: () => Promise.resolve({ value: true }),
       hooks: [],
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     const result = await betaFlag()
 
     expect(result).toBe(true)
@@ -353,15 +332,14 @@ describe("buildGate", () => {
   test("flag function can be called multiple times", async () => {
     let callCount = 0
     const gate = buildGate({
-      identify: async () => ({ distinctId: "user123" }),
-      // biome-ignore lint/suspicious/useAwait: Increments counter then returns value
-      decide: async () => {
-        callCount++
-        return { value: true }
+      decide: () => {
+        callCount += 1
+        return Promise.resolve({ value: true })
       },
+      identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
 
     await betaFlag()
     await betaFlag()
@@ -371,16 +349,16 @@ describe("buildGate", () => {
   })
 
   test("different flags are independent", async () => {
-    const identifyFn = mock(async () => ({ distinctId: "user123" }))
-    const decideFn = mock(async (_key: string) => ({ value: true }))
+    const identifyFn = mock(() => Promise.resolve({ distinctId: "user123" }))
+    const decideFn = mock((_key: string) => Promise.resolve({ value: true }))
 
     const gate = buildGate({
-      identify: identifyFn,
       decide: decideFn,
+      identify: identifyFn,
     })
 
-    const flag1 = gate({ key: "flag1", defaultValue: false })
-    const flag2 = gate({ key: "flag2", defaultValue: false })
+    const flag1 = gate({ defaultValue: false, key: "flag1" })
+    const flag2 = gate({ defaultValue: false, key: "flag2" })
 
     await flag1()
     await flag2()
@@ -393,11 +371,11 @@ describe("buildGate", () => {
     const identity: Identity = { distinctId: 12_345 }
 
     const gate = buildGate({
-      identify: async () => identity,
-      decide: async () => ({ value: true }),
+      decide: () => Promise.resolve({ value: true }),
+      identify: () => Promise.resolve(identity),
     })
 
-    const betaFlag = gate({ key: "beta-access", defaultValue: false })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     const result = await betaFlag()
 
     expect(result).toBe(true)
@@ -415,16 +393,16 @@ describe("buildGate", () => {
       role: "admin",
     }
 
-    const decideFn = mock(async (_key: string, identity: CustomIdentity) => ({
-      value: identity.role === "admin",
-    }))
+    const decideFn = mock((_key: string, identity: CustomIdentity) =>
+      Promise.resolve({ value: identity.role === "admin" })
+    )
 
     const gate = buildGate<CustomIdentity>({
-      identify: async () => customIdentity,
       decide: decideFn,
+      identify: () => Promise.resolve(customIdentity),
     })
 
-    const adminFlag = gate({ key: "admin-feature", defaultValue: false })
+    const adminFlag = gate({ defaultValue: false, key: "admin-feature" })
     const result = await adminFlag()
 
     expect(result).toBe(true)
