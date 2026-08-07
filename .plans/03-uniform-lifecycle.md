@@ -45,7 +45,7 @@ Build the hook context once from this record. Plan 07 exposes it publicly; keep 
 ## Recipe updates
 
 - `cacheHook.after` — skip writes when `meta.source === "hook"` (don't re-cache cache hits or other hooks' resolutions).
-- `dedupeHook` — with after hooks now always running, the primary settle path works in any ordering. Add a `finally` backstop: if a pending entry for the key still exists, reject it with a descriptive error and delete it, so no contract violation can ever orphan followers again.
+- `dedupeHook` — with after hooks now always running, the primary settle path works in any ordering. Mark every pending promise as rejection-handled when it is created so a leader failure with zero followers cannot produce an unhandled rejection; followers awaiting the original promise must still observe the rejection internally. Give each pending entry an owner token and add a `finally` backstop that rejects and deletes the entry only when the finalizing evaluation owns it. A follower timeout or cancellation must never settle the leader's entry.
 - Document hook ordering guidance in README's recipes section (ordering now affects efficiency, not correctness — state that explicitly).
 
 ## Tests
@@ -54,7 +54,9 @@ New integration suite `src/__tests__/lifecycle.test.ts` running `buildGate` end-
 
 - **Regression (H1):** `[dedupeHook(), cacheHook(cache)]` — three sequential calls resolve; third call must not hang (guard with a timeout race).
 - Same suite with `[cacheHook(cache), dedupeHook()]` — both orderings correct.
-- Concurrent calls with dedupe: provider called once; all callers get the value; error case rejects all followers and the next call starts fresh.
+- Concurrent calls with dedupe: provider called once; all callers get the value; on provider error, the internal pending promise rejects to release followers while every public gate call returns its configured default, and the next call starts fresh.
+- Provider error with no followers: gate returns its default and no `unhandledRejection` is emitted.
+- A follower that times out or is cancelled does not reject, delete, or otherwise corrupt the leader's pending entry.
 - After hooks fire on hook-resolved decisions with `source: "hook"`, and on provider decisions with `source: "provider"`.
 - Cache is NOT rewritten on a cache hit (`cache.set` not called when resolve hook supplied the decision).
 - **Regression (H4):** resolve hook returns `{ value: true }` for a variant gate → after hooks never see the invalid decision, `cache.set` not called, gate returns default.

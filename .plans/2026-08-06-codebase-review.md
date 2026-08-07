@@ -1,6 +1,6 @@
 # Codebase Review — 2026-08-06
 
-Full review of gated v0.1.1 covering logic holes, API design, architecture, and testing. Findings H1 and H2 were confirmed with executable repros. This report is the reference for the plan series in this directory (`01-*.md` through `13-*.md`).
+Full review of gated v0.1.1 covering logic holes, API design, architecture, and testing. Findings H1 and H2 were confirmed with executable repros. This report is the reference for the plan series in this directory (`01-*.md` through `14-*.md`).
 
 ## 1. Confirmed logic holes
 
@@ -70,7 +70,7 @@ The overloads force TS users to pass `match` for string gates, but a JS consumer
 - **No integration tests of core + recipes.** Recipe tests invoke hook methods manually, re-implementing core's calling convention — they'd keep passing even if `executeGate` changed. The H1 hang lives precisely in that untested seam.
 - **React tests never suspend.** All gates are sync. Need genuinely async gates asserting the loading fallback appears and no re-suspend loop occurs.
 - **Missing hostile-hook tests.** A hook that throws in each phase; a resolve hook returning a mismatched decision type; a provider returning a variant not in the list after an `after` hook caches it.
-- **Docs aren't verified.** H7's drift suggests adding type-checked doc snippets, or at minimum fixing both now.
+- **Docs aren't verified.** H7's drift calls for an explicit LLM-assisted review of README/JSDoc examples against the public declarations and implementation whenever public behavior changes, plus targeted compile-time and behavioral tests for the most important public surfaces.
 
 ## Suggested priority
 

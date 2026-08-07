@@ -1,6 +1,6 @@
 # 08 — Evaluator options object
 
-Delivers: API opportunity #3. No dependency on other slices (but coordinate with 07's `details` and 05's React props). Breaking (evaluator call signature).
+Delivers: API opportunity #3. Depends on: 07. Coordinate with 05's React props. Breaking (evaluator call signature).
 
 ## Goal
 

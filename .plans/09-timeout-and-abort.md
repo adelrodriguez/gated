@@ -1,6 +1,6 @@
 # 09 — Timeout and abort support
 
-Delivers: API opportunity #4. Depends on: 08 (options object carries `signal`). Additive, non-breaking.
+Delivers: API opportunity #4. Depends on: 03, 04, 06, 07, 08. Additive, non-breaking.
 
 ## Goal
 
@@ -20,15 +20,17 @@ const flag = gate({ key: "x", defaultValue: false, timeoutMs: 100 }) // per-gate
 await flag({ signal: controller.signal }) // caller-supplied abort
 ```
 
-- Timeout covers the full evaluation (identify + hooks + decide), implemented in `executeGate` as a race against `AbortSignal.timeout(ms)`; combine with a caller `signal` via `AbortSignal.any`.
-- On timeout/abort: treat as a gate error — error hooks fire with a `GateTimeoutError` / the abort reason, default value returned, `details()` shows `source: "default"` with the error. Finally hooks still run.
+- Timeout covers the operational evaluation stages (identify + before/resolve/after hooks + decide). Combine `AbortSignal.timeout(ms)` with a caller signal via `AbortSignal.any`, then guard each awaited stage inside one pipeline and check for cancellation before starting the next stage. Do not race a complete evaluation pipeline against a second timeout/fallback pipeline.
+- On timeout/abort: transition the single evaluation record to its error path exactly once — invoke error hooks with a `GateTimeoutError` / the abort reason, return the default value, record `source: "default"` with the error in `details()`, and invoke finally hooks exactly once.
+- The caller's deadline is a hard latency bound. After cancellation, error/finally handlers are invoked once with the aborted signal, but asynchronous cleanup is consumed safely rather than allowed to delay the result beyond the deadline. Tests distinguish handler invocation from asynchronous cleanup completion.
+- A provider or hook that ignores the signal may continue its own already-started work, but the evaluation pipeline must never start another lifecycle stage after cancellation.
 - Pass the combined signal to the provider: `decide(key, identity, { signal })` — additive third parameter so providers can cancel in-flight fetches. Also add `signal` to `HookContext` so hooks can cancel their own work.
 - No default timeout (opt-in only) — do not change behavior for existing consumers.
 
 ## Changes
 
 - `src/lib/types.ts` — `timeoutMs?` on `GatedConfig` and on gate options; `signal?: AbortSignal` in `GateCallOptions`; `decide` gains optional `{ signal }` param; export `GateTimeoutError`.
-- `src/lib/index.ts` — signal plumbing in `executeGate`; ensure losing branches of the race don't produce unhandled rejections (attach a noop catch to the abandoned promise).
+- `src/lib/index.ts` — signal plumbing and a reusable `raceWithSignal`/cancellation guard around each awaited operational stage in `executeGate`; use one catch/finally transition and consume the abandoned stage's eventual rejection.
 - README — "Timeouts and cancellation" section.
 
 ## Tests
@@ -37,6 +39,8 @@ await flag({ signal: controller.signal }) // caller-supplied abort
 - Per-gate `timeoutMs` overrides factory-level.
 - Caller abort mid-flight → default + abort reason in error hooks.
 - `decide` receives a signal that is aborted after timeout (spy asserts `signal.aborted`).
+- A signal-ignoring provider that resolves after timeout cannot trigger validation, after hooks, cache writes, or a second finally pass.
+- Timeout during a hook prevents every later lifecycle stage from starting; error/finally handlers are each invoked once without extending the hard deadline.
 - No timeout configured → no signal-related behavior change; no unhandled rejection warnings in the run (assert via process listener in test).
 
 ## Verification

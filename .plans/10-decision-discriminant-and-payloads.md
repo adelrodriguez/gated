@@ -1,6 +1,6 @@
 # 10 — Decision discriminant + variant payloads
 
-Delivers: API opportunity #5. Depends on: 03. Breaking (`Decision` shape).
+Delivers: API opportunity #5. Depends on: 03, 06, 07. Breaking (`Decision` shape).
 
 ## Goal
 

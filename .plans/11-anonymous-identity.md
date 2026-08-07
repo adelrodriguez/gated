@@ -1,6 +1,6 @@
 # 11 — Anonymous identity support
 
-Delivers: API opportunity #6. Depends on: 03. Behavioral (opt-in; default preserves current behavior).
+Delivers: API opportunity #6. Depends on: 03, 06, 07. Behavioral (opt-in; default preserves current behavior).
 
 ## Goal
 
@@ -21,13 +21,13 @@ const gate = buildGate({
 - `anonymous: "reject"` (default): unchanged — null identity is an error, error hooks fire, default returned.
 - `anonymous: "allow"`: evaluation proceeds with `identity: null`; `decide` and hooks receive `null`.
 - Type-level: when `anonymous: "allow"`, `decide`'s identity parameter is `TIdentity | null`. Implement via `buildGate` overloads on the config literal type so the strict default keeps the non-null signature. If the conditional typing gets gnarly, fall back to `TIdentity | null` in `decide` only for the `"allow"` overload — never widen the default path.
-- Recipes already handle null identity (`getKey` falls back to flagKey-only at src/hooks/recipes.ts:39-44) — but note the cache implication in docs: anonymous cache entries are shared across all anonymous users; with `HookContext.kind` present that is acceptable for boolean gates but consumers may want to disable caching for anonymous traffic. Document it.
+- Recipe policy is explicit and conservative: `cacheHook` continues to bypass reads and writes when `identity === null`, so anonymous decisions are never retained or shared by default. `dedupeHook` may coalesce concurrent anonymous evaluations by flag key, but retains nothing after they settle. A future explicit `cacheHook(cache, { anonymous: "shared" })` option can enable flag-key-only anonymous caching if demand justifies it; it is out of scope here.
 
 ## Changes
 
 - `src/lib/types.ts` / `src/core.ts` — `anonymous?: "reject" | "allow"` config + overloads.
 - `src/lib/index.ts` — `identify()` returns `TIdentity | null` when allowed instead of throwing.
-- README — anonymous evaluation section with the cache-sharing caveat.
+- README — anonymous evaluation section documenting cache bypass and in-flight-only anonymous deduplication.
 
 ## Tests
 
@@ -35,6 +35,8 @@ const gate = buildGate({
 - `anonymous: "allow"` + null identity: `decide` called with `null`; provider decision returned (not the default).
 - `anonymous: "allow"` + resolved identity: identity passed through unchanged.
 - `details()` for anonymous evaluation: `source: "provider"`, no error.
+- Anonymous evaluation with `cacheHook`: no cache read or write; sequential calls consult the provider independently.
+- Concurrent anonymous evaluations with `dedupeHook`: one provider call, all callers settle, and a later call starts a fresh evaluation.
 - Compile-time: with default config, `decide: (key, identity: TIdentity) => ...` type-checks; with `"allow"`, a non-null-expecting `decide` is a type error.
 
 ## Verification
