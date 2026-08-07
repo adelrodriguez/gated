@@ -1,0 +1,26 @@
+{
+  "packages": [
+    {
+      "name": "adamantite",
+      "registry": "npm",
+      "source": {
+        "host": "github.com",
+        "type": "repository",
+        "url": "https://github.com/adelrodriguez/adamantite"
+      },
+      "tracking": "dependency",
+      "version": "0.34.2"
+    },
+    {
+      "name": "packref",
+      "registry": "npm",
+      "source": {
+        "host": "github.com",
+        "type": "repository",
+        "url": "https://github.com/metaideas/packref"
+      },
+      "tracking": "manual",
+      "version": "0.2.0"
+    }
+  ]
+}

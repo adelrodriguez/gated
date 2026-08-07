@@ -5,38 +5,33 @@ import type { Identity } from "../lib/types"
  * Wraps an async gate function to work as a React hook using React.use()
  *
  * @example
- * ```typescript
- * import { buildGate } from "gated"
- * import { createReactHook } from "gated/react"
+ *   import { buildGate } from "gated"
+ *   import { createReactHook } from "gated/react"
  *
- * const gate = buildGate({
- *   identify: async () => ({ distinctId: userId }),
- *   decide: async (key, identity) => api.evaluateFlag(key, identity),
- *   hooks: [cacheHook(cache)],
- * })
+ *   const gate = buildGate({
+ *     identify: async () => ({ distinctId: userId }),
+ *     decide: async (key, identity) => api.evaluateFlag(key, identity),
+ *     hooks: [cacheHook(cache)],
+ *   })
  *
- * const betaAccess = gate({ key: "beta-access", defaultValue: false })
- * export const useBetaAccess = createReactHook(betaAccess)
+ *   const betaAccess = gate({ key: "beta-access", defaultValue: false })
+ *   export const useBetaAccess = createReactHook(betaAccess)
  *
- * const themeFlag = gate({
- *   key: "theme",
- *   defaultValue: "light",
- *   variants: ["light", "dark", "system"],
- * })
- * export const useTheme = createReactHook(themeFlag)
+ *   const themeFlag = gate({
+ *     key: "theme",
+ *     defaultValue: "light",
+ *     variants: ["light", "dark", "system"],
+ *   })
+ *   export const useTheme = createReactHook(themeFlag)
  *
- * // In component:
- * function MyComponent() {
- *   const isBeta = useBetaAccess()
- *   const theme = useTheme()
- *   return <div className={theme}>{isBeta && <BetaFeature />}</div>
- * }
- * ```
+ *   // In component:
+ *   function MyComponent() {
+ *     const isBeta = useBetaAccess()
+ *     const theme = useTheme()
+ *     return <div className={theme}>{isBeta && <BetaFeature />}</div>
+ *   }
  */
-export function createReactHook<
-  TIdentity extends Identity,
-  TValue extends boolean | string,
->(
+export function createReactHook<TIdentity extends Identity, TValue extends boolean | string>(
   gateFn: (overrideIdentity?: TIdentity) => Promise<TValue>
 ): (overrideIdentity?: TIdentity) => TValue {
   function useGateValue(overrideIdentity?: TIdentity): TValue {

@@ -1,10 +1,39 @@
 // Recipes for common and useful hooks
-import type { Decision, HookContext } from "../lib/types"
+import type { Decision, Hook, HookContext } from "../lib/types"
 import { createHook } from "./index"
 
 export interface Cache {
   get: (key: string) => Promise<Decision | undefined>
   set: (key: string, value: Decision) => Promise<void>
+}
+
+interface PendingRequest {
+  promise: Promise<Decision>
+  reject: (error: unknown) => void
+  resolve: (decision: Decision) => void
+}
+
+function createPendingRequest(): PendingRequest {
+  let controls:
+    | {
+        reject: (error: unknown) => void
+        resolve: (decision: Decision) => void
+      }
+    | undefined
+
+  const promise = new Promise<Decision>((resolve, reject) => {
+    controls = { reject, resolve }
+  })
+
+  return {
+    promise,
+    reject(error) {
+      controls?.reject(error)
+    },
+    resolve(decision) {
+      controls?.resolve(decision)
+    },
+  }
 }
 
 function getKey(context: HookContext) {
@@ -14,7 +43,7 @@ function getKey(context: HookContext) {
   return context.flagKey
 }
 
-export const cacheHook = createHook<Cache>((cache) => ({
+export const cacheHook: (cache: Cache) => Hook = createHook<Cache>((cache) => ({
   async resolve(context) {
     if (!context.identity) {
       return
@@ -34,45 +63,24 @@ export const cacheHook = createHook<Cache>((cache) => ({
   },
 }))
 
-export const dedupeHook = createHook(() => {
-  type PendingRequest = {
-    promise: Promise<Decision>
-    resolve: (decision: Decision) => void
-    reject: (error: unknown) => void
-  }
-
+export const dedupeHook: () => Hook = createHook(() => {
   const pending = new Map<string, PendingRequest>()
 
   return {
     async resolve(context) {
       const key = getKey(context)
       const existing = pending.get(key)
+      const result = existing?.promise
 
-      if (existing) {
+      if (result) {
         // Wait for the in-flight request to complete
-        return await existing.promise
+        return await result
       }
 
-      // Create a new pending promise for this request
-      let resolvePromise: (decision: Decision) => void = () => {
-        // no-op
-      }
-      let rejectPromise: (error: unknown) => void = () => {
-        // no-op
-      }
-      const promise = new Promise<Decision>((resolve, reject) => {
-        resolvePromise = resolve
-        rejectPromise = reject
-      })
-
-      pending.set(key, {
-        promise,
-        resolve: resolvePromise,
-        reject: rejectPromise,
-      })
+      pending.set(key, createPendingRequest())
 
       // Return undefined to let the normal flow continue
-      return
+      return result
     },
 
     after(context, decision) {

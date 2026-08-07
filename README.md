@@ -29,25 +29,25 @@ npm install gated
 ## Quick Start
 
 ```typescript
-import { buildGate } from "gated";
+import { buildGate } from "gated"
 
 // Create a gate factory with your provider's logic
 const gate = buildGate({
   identify: async () => ({ distinctId: getCurrentUserId() }),
   decide: async (key, identity) => {
     // Your provider's API call
-    const enabled = await yourProvider.isEnabled(key, identity.distinctId);
-    return { value: enabled };
+    const enabled = await yourProvider.isEnabled(key, identity.distinctId)
+    return { value: enabled }
   },
-});
+})
 
 // Create type-safe feature flags
-const betaAccess = gate({ key: "beta-access", defaultValue: false });
-const newDashboard = gate({ key: "new-dashboard", defaultValue: false });
+const betaAccess = gate({ key: "beta-access", defaultValue: false })
+const newDashboard = gate({ key: "new-dashboard", defaultValue: false })
 
 // Evaluate flags
-const hasBetaAccess = await betaAccess(); // false
-const hasNewDashboard = await newDashboard(); // true
+const hasBetaAccess = await betaAccess() // false
+const hasNewDashboard = await newDashboard() // true
 ```
 
 ## Usage
@@ -58,10 +58,10 @@ Boolean flags represent true/false feature toggles:
 
 ```typescript
 // Using the gate from Quick Start
-const darkMode = gate({ key: "dark-mode", defaultValue: false });
+const darkMode = gate({ key: "dark-mode", defaultValue: false })
 
 if (await darkMode()) {
-  enableDarkMode();
+  enableDarkMode()
 }
 ```
 
@@ -74,9 +74,9 @@ const themeFlag = gate({
   key: "theme",
   defaultValue: "light", // Type-safe based on the variants array
   variants: ["light", "dark", "system"],
-});
+})
 
-const theme = await themeFlag(); // Type: "light" | "dark" | "system"
+const theme = await themeFlag() // Type: "light" | "dark" | "system"
 ```
 
 ### Hook System
@@ -90,27 +90,27 @@ Intercept the flag evaluation lifecycle with hooks. Gated supports five lifecycl
 - **`finally`** - Always runs after evaluation completes
 
 ```typescript
-import { createHook } from "gated";
+import { createHook } from "gated"
 
 // Create a custom logging hook
 const loggingHook = createHook(() => ({
   before: async (context) => {
-    console.log(`Evaluating flag: ${context.flagKey}`);
+    console.log(`Evaluating flag: ${context.flagKey}`)
   },
   after: async (context, decision) => {
-    console.log(`Result for ${context.flagKey}:`, decision);
+    console.log(`Result for ${context.flagKey}:`, decision)
   },
   error: async (context, error) => {
-    console.error(`Error evaluating ${context.flagKey}:`, error);
+    console.error(`Error evaluating ${context.flagKey}:`, error)
   },
-}));
+}))
 
 // Add hooks when building your gate
 const gate = buildGate({
   identify: async () => ({ distinctId: userId }),
   decide: async (key, identity) => provider.evaluate(key, identity),
   hooks: [loggingHook()],
-});
+})
 ```
 
 ### Built-in Recipes
@@ -122,19 +122,19 @@ Two hook implementations are included:
 Caches flag decisions by identity:
 
 ```typescript
-import { cacheHook } from "gated/hooks";
+import { cacheHook } from "gated/hooks"
 
 const cache = {
   get: async (key: string) => await redis.get(key),
   set: async (key: string, value: Decision) => await redis.set(key, value),
-};
+}
 
 // Add to your gate's hooks array
 const gate = buildGate({
   identify: async () => ({ distinctId: userId }),
   decide: async (key, identity) => provider.evaluate(key, identity),
   hooks: [cacheHook(cache)],
-});
+})
 ```
 
 #### Dedupe Hook
@@ -142,17 +142,17 @@ const gate = buildGate({
 Deduplicates concurrent requests for the same flag:
 
 ```typescript
-import { dedupeHook } from "gated/hooks";
+import { dedupeHook } from "gated/hooks"
 
 // Add to your gate's hooks array
 const gate = buildGate({
   identify: async () => ({ distinctId: userId }),
   decide: async (key, identity) => provider.evaluate(key, identity),
   hooks: [dedupeHook()],
-});
+})
 
 // Only one API call will be made even with concurrent evaluations
-const [result1, result2] = await Promise.all([betaFlag(), betaFlag()]);
+const [result1, result2] = await Promise.all([betaFlag(), betaFlag()])
 ```
 
 ### React Integration
@@ -274,9 +274,9 @@ Gated provides full type inference for variant flags and supports custom identit
 ```typescript
 // Custom identity types
 interface UserIdentity extends Identity {
-  distinctId: string;
-  email: string;
-  plan: "free" | "pro" | "enterprise";
+  distinctId: string
+  email: string
+  plan: "free" | "pro" | "enterprise"
 }
 
 const gate = buildGate<UserIdentity>({
@@ -287,9 +287,9 @@ const gate = buildGate<UserIdentity>({
   }),
   decide: async (key, identity) => {
     // identity is fully typed as UserIdentity
-    return provider.evaluate(key, identity);
+    return provider.evaluate(key, identity)
   },
-});
+})
 ```
 
 Variant flag return types are automatically inferred from the `variants` array (see Variant Flags section).
@@ -301,25 +301,25 @@ Gated works with any feature flag provider by implementing the `decide` function
 ### LaunchDarkly
 
 ```typescript
-import * as LaunchDarkly from "launchdarkly-js-client-sdk";
+import * as LaunchDarkly from "launchdarkly-js-client-sdk"
 
-const ldClient = LaunchDarkly.initialize("client-id", { key: "user-key" });
+const ldClient = LaunchDarkly.initialize("client-id", { key: "user-key" })
 
 const gate = buildGate({
   identify: async () => ({ distinctId: getCurrentUserId() }),
   decide: async (key) => ({ value: await ldClient.variation(key, false) }),
-});
+})
 ```
 
 ### PostHog
 
 ```typescript
-import posthog from "posthog-js";
+import posthog from "posthog-js"
 
 const gate = buildGate({
   identify: async () => ({ distinctId: getCurrentUserId() }),
   decide: async (key) => ({ value: posthog.isFeatureEnabled(key) }),
-});
+})
 ```
 
 ### Custom API
@@ -335,10 +335,10 @@ const gate = buildGate({
     const res = await fetch(`/api/features/${key}`, {
       method: "POST",
       body: JSON.stringify(identity),
-    });
-    return { value: (await res.json()).enabled };
+    })
+    return { value: (await res.json()).enabled }
   },
-});
+})
 ```
 
 ## Testing
@@ -346,16 +346,16 @@ const gate = buildGate({
 Override identities when testing:
 
 ```typescript
-const betaFlag = gate({ key: "beta-access", defaultValue: false });
+const betaFlag = gate({ key: "beta-access", defaultValue: false })
 
 // Test with specific identity
-const result = await betaFlag({ distinctId: "test-user-123" });
+const result = await betaFlag({ distinctId: "test-user-123" })
 
 // Or use a test gate with mocked decide function
 const testGate = buildGate({
   identify: async () => ({ distinctId: "test" }),
   decide: async (key) => ({ value: key === "beta-access" }),
-});
+})
 ```
 
 ## Contributing
