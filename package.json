@@ -59,6 +59,7 @@
     "build": "bunup",
     "bump:deps": "bun update --interactive",
     "check": "adamantite check",
+    "check:exports": "tsc --project test/package-exports/tsconfig.json",
     "dev": "bunup --watch",
     "fix": "adamantite fix",
     "format": "adamantite format",

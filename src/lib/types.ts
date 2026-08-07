@@ -14,6 +14,10 @@ export type Decision =
     }
   | { variant: string }
 
+export type GateEvaluator<TIdentity extends Identity, TValue extends boolean | string> = (
+  overrideIdentity?: TIdentity
+) => Promise<TValue>
+
 export type HookContext<
   TIdentity extends Identity = Identity,
   TOptions extends Record<string, unknown> = Record<string, unknown>,

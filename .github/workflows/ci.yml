@@ -62,5 +62,8 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Validate package exports
+        run: bun run check:exports
+
       - name: Validate package
         run: npm pack --dry-run

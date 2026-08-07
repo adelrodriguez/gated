@@ -9,6 +9,7 @@ const config = {
     "src/hooks/index.ts",
     "src/hooks/recipes.ts",
     "src/integrations/react.tsx",
+    "test/package-exports/consumer.ts",
   ],
   ignore: [],
   ignoreFiles: [],

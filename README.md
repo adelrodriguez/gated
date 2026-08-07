@@ -122,7 +122,8 @@ Two hook implementations are included:
 Caches flag decisions by identity:
 
 ```typescript
-import { cacheHook } from "gated/hooks"
+import type { Decision } from "gated"
+import { cacheHook } from "gated/hooks/recipes"
 
 const cache = {
   get: async (key: string) => await redis.get(key),
@@ -142,7 +143,7 @@ const gate = buildGate({
 Deduplicates concurrent requests for the same flag:
 
 ```typescript
-import { dedupeHook } from "gated/hooks"
+import { dedupeHook } from "gated/hooks/recipes"
 
 // Add to your gate's hooks array
 const gate = buildGate({

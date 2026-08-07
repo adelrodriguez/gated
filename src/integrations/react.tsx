@@ -1,5 +1,5 @@
 import { type ReactNode, Suspense, use } from "react"
-import type { Identity } from "../lib/types"
+import type { GateEvaluator, Identity } from "../lib/types"
 
 /**
  * Wraps an async gate function to work as a React hook using React.use()
@@ -32,7 +32,7 @@ import type { Identity } from "../lib/types"
  *   }
  */
 export function createReactHook<TIdentity extends Identity, TValue extends boolean | string>(
-  gateFn: (overrideIdentity?: TIdentity) => Promise<TValue>
+  gateFn: GateEvaluator<TIdentity, TValue>
 ): (overrideIdentity?: TIdentity) => TValue {
   function useGateValue(overrideIdentity?: TIdentity): TValue {
     return use(gateFn(overrideIdentity))
