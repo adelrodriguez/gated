@@ -1,10 +1,10 @@
 # 13 — Define hook authoring
 
-Delivers: a class-free, contextually typed hook-authoring interface. Depends on: 04 (hook error contract), 06 (final context shape), 09 (signal), 10 (final decision shape). Additive with a deprecation; no immediate break.
+Delivers: a class-free, contextually typed hook-authoring interface. Depends on: 04 (hook error contract), 06 (final context shape), 09 (signal), 10 (final decision shape). Breaking (`createHook` is removed).
 
 ## Goal
 
-Consumers can define a hook as an object without writing a class or repeating an explicit `Hook<TIdentity>` annotation. Configured and stateful hooks use an ordinary factory whose closure is isolated per invocation. `defineHook` replaces the shallowly named `createHook` while preserving a migration path to 1.0.
+Consumers can define a hook as an object without writing a class or repeating an explicit `Hook<TIdentity>` annotation. Configured and stateful hooks use an ordinary factory whose closure is isolated per invocation. `defineHook` fully replaces the shallowly named `createHook`, leaving one hook-authoring interface.
 
 ## Interface
 
@@ -71,9 +71,9 @@ Each factory invocation owns fresh closure state. A direct hook object is shared
 ## Migration
 
 - Export `defineHook` from both `gated` and `gated/hooks`.
-- Keep `createHook` as a deprecated alias of `defineHook` through the remaining 0.x releases so existing consumers do not break immediately.
+- Remove `createHook` from both public entry points. Do not retain an alias or a second implementation.
 - Update first-party recipes and documentation to use `defineHook`.
-- Remove `createHook` at 1.0 or in a separately planned breaking release; do not maintain two implementations.
+- Document the direct mechanical migration from `createHook(factory)` to `defineHook(factory)`. This is an acceptable pre-1.0 break and requires a changeset with a clear migration note.
 
 ```ts
 // Before
@@ -95,8 +95,8 @@ hooks: [loggingHook({ logger })]
 
 ## Changes
 
-- `src/hooks/index.ts` — add the direct-object and factory overloads for `defineHook`; implement `createHook` as a deprecated alias with the same callable type.
-- `src/index.ts` — export `defineHook` alongside the deprecated alias.
+- `src/hooks/index.ts` — replace `createHook` with the direct-object and factory overloads for `defineHook`; export no compatibility alias.
+- `src/index.ts` — replace the `createHook` export with `defineHook`.
 - `src/hooks/recipes.ts` — migrate `cacheHook` and `dedupeHook` to `defineHook`; keep their closure state and public call shapes unchanged.
 - README/JSDoc — use direct definitions for stateless hooks and factory definitions for configured/stateful hooks; document shared-object versus per-factory-invocation state.
 
@@ -107,14 +107,14 @@ hooks: [loggingHook({ logger })]
 - Factory definition infers its options and produces a hook accepted by `buildGate`.
 - Two factory invocations have isolated mutable state.
 - Partial lifecycle definitions remain valid.
-- `createHook` remains type-compatible and runtime-compatible as a deprecated alias.
+- Compile-time assertion: `createHook` is no longer exported from `gated` or `gated/hooks`.
 - Do not restore the old suite of per-method identity/`typeof`/function-name assertions; test the authoring interface through real gate behavior.
 
 ## Verification
 
 - `bun test`, `bun run build`, `bun run check`, `bun run analyze`
-- Inspect the built declarations for both overloads and the `createHook` deprecation annotation.
+- Inspect the built declarations for both `defineHook` overloads and confirm `createHook` is absent from every public entry point.
 
 ## Release
 
-- Changeset: minor. "Add `defineHook` for class-free direct and factory hook definitions. `createHook` remains as a deprecated alias and will be removed at 1.0."
+- Changeset: minor (pre-1.0 breaking). "Replace `createHook` with `defineHook`, which supports class-free direct and factory hook definitions. Migrate `createHook(factory)` calls mechanically to `defineHook(factory)`."

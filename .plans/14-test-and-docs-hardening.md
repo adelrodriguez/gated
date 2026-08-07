@@ -11,7 +11,7 @@ The suite tests behavior, not shape. Docs cannot silently drift. Every bug class
 Delete or replace assertions that test JavaScript rather than gated:
 
 - `src/__tests__/react.test.tsx:9-59` — `typeof`, `.name` prefix, `.length` checks (superseded by plan 05's behavioral tests).
-- `src/hooks/__tests__/index.test.ts` — remove the old `createHook` shape assertions superseded by plan 13. Keep the focused `defineHook` interface, state-isolation, and gate-integration coverage introduced there.
+- `src/hooks/__tests__/index.test.ts` — remove the old `createHook` suite superseded by plan 13. Keep the focused `defineHook` interface, state-isolation, public-export, and gate-integration coverage introduced there.
 - `src/__tests__/core.test.ts` — collapse duplicates ("handles identify function that returns Promise" and "handles decide function that returns Promise" are the same test as the basic boolean case).
 
 ## 2. Consolidate the integration suite
