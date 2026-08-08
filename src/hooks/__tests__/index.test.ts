@@ -2,6 +2,8 @@ import { describe, expect, mock, test } from "bun:test"
 import type { Decision, HookContext, Identity } from "../../lib/types"
 import { createHook } from "../index"
 
+const providerMeta = { source: "provider" } as const
+
 const factory = () => ({})
 const noDecision = (): Decision | undefined => undefined
 
@@ -120,9 +122,9 @@ describe("createHook", () => {
     }
     const decision: Decision = { value: false }
 
-    await result.after?.(context, decision)
+    await result.after?.(context, decision, providerMeta)
 
-    expect(afterFn).toHaveBeenCalledWith(context, decision)
+    expect(afterFn).toHaveBeenCalledWith(context, decision, providerMeta)
   })
 
   test("hook error method receives context and error", async () => {
@@ -221,7 +223,7 @@ describe("createHook", () => {
     const decision: Decision = { value: true }
 
     await result.before?.(context)
-    await result.after?.(context, decision)
+    await result.after?.(context, decision, providerMeta)
 
     expect(logs).toEqual(["TEST:before:my-flag", "TEST:after:my-flag:true"])
   })
@@ -272,9 +274,9 @@ describe("createHook", () => {
     }
     const decision: Decision = { variant: "dark" }
 
-    await result.after?.(context, decision)
+    await result.after?.(context, decision, providerMeta)
 
-    expect(afterFn).toHaveBeenCalledWith(context, decision)
+    expect(afterFn).toHaveBeenCalledWith(context, decision, providerMeta)
   })
 
   test("supports null identity in context", async () => {

@@ -1,4 +1,34 @@
-import type { Decision, GatedConfig, Hook, HookContext, Identity, MaybePromise } from "./types"
+import type {
+  AfterHookMeta,
+  Decision,
+  DecisionSource,
+  GatedConfig,
+  Hook,
+  HookContext,
+  Identity,
+  MaybePromise,
+} from "./types"
+import { HookResolutionAbortError } from "./hook-control"
+
+type Evaluation<TIdentity extends Identity> = {
+  key: string
+  identity: TIdentity | null
+  decision?: Decision
+  source?: DecisionSource | "default"
+  resolver?: Hook<TIdentity>
+  error?: unknown
+}
+
+type HookResolution<TIdentity extends Identity> = {
+  decision: Decision
+  resolver: Hook<TIdentity>
+}
+
+type GateOptions<T extends string[]> = {
+  key: string
+  defaultValue: boolean | T[number]
+  variants?: T
+}
 
 export async function identify<TIdentity extends Identity>(
   fn: () => MaybePromise<TIdentity | null>,
@@ -17,38 +47,17 @@ export async function identify<TIdentity extends Identity>(
   return resolvedIdentity
 }
 
-export function extractDecisionValue(decision: Decision, expectedType?: "boolean" | "variant") {
+export function extractDecisionValue(decision: Decision) {
   const isVariant = "variant" in decision
-  const value = isVariant ? decision.variant : decision.value
-
-  if (expectedType === "boolean" && isVariant) {
-    throw new Error(
-      `Type mismatch: expected boolean decision but received variant "${decision.variant}"`
-    )
-  }
-
-  if (expectedType === "variant" && !isVariant) {
-    throw new Error(
-      `Type mismatch: expected variant decision but received boolean "${decision.value}"`
-    )
-  }
-
-  return value
+  return isVariant ? decision.variant : decision.value
 }
 
 export async function evaluateDecision<TIdentity extends Identity>(
   decide: (key: string, identity: TIdentity) => MaybePromise<Decision>,
   gateKey: string,
-  gateIdentity: TIdentity,
-  variants?: readonly string[]
+  gateIdentity: TIdentity
 ): Promise<Decision> {
-  const decision = await decide(gateKey, gateIdentity)
-
-  if ("variant" in decision) {
-    validateVariant(decision.variant, variants)
-  }
-
-  return decision
+  return await decide(gateKey, gateIdentity)
 }
 
 export async function runBeforeHooks<TIdentity extends Identity>(
@@ -62,34 +71,39 @@ export async function runBeforeHooks<TIdentity extends Identity>(
 
 export async function runResolveHooks<TIdentity extends Identity>(
   hooks: Array<Hook<TIdentity>>,
-  hookContext: HookContext<TIdentity>
-) {
-  let resolved: Decision | undefined
-
+  hookContext: HookContext<TIdentity>,
+  validate: (decision: Decision) => void
+): Promise<HookResolution<TIdentity> | undefined> {
   for (const hook of hooks) {
     try {
       // Hooks resolve in registration order and short-circuit on the first decision.
       // oxlint-disable-next-line no-await-in-loop
       const value = await hook.resolve?.(hookContext)
 
-      if (value !== undefined) {
-        resolved = value
-        break
+      if (value !== undefined && value !== null) {
+        validate(value)
+        return { decision: value, resolver: hook }
       }
-    } catch {
-      // Continue to next hook if this one fails
+    } catch (error) {
+      if (error instanceof HookResolutionAbortError) {
+        throw error.originalError instanceof Error ? error.originalError : error
+      }
+
+      // Thrown and invalid hook decisions are isolated to their resolver.
+      // Continue to later hooks and then the provider.
     }
   }
 
-  return resolved
+  return undefined
 }
 
 export async function runAfterHooks<TIdentity extends Identity>(
   hooks: Array<Hook<TIdentity>>,
   hookContext: HookContext<TIdentity>,
-  decision: Decision
+  decision: Decision,
+  meta: AfterHookMeta<TIdentity>
 ) {
-  const tasks = hooks.map((hook) => Promise.resolve(hook.after?.(hookContext, decision)))
+  const tasks = hooks.map((hook) => Promise.resolve(hook.after?.(hookContext, decision, meta)))
   await Promise.allSettled(tasks)
 }
 
@@ -110,53 +124,100 @@ export async function runFinallyHooks<TIdentity extends Identity>(
   await Promise.allSettled(tasks)
 }
 
-function validateVariant(value: string, variants?: readonly string[]) {
-  if (!variants) {
+export function validateDecision<T extends string[]>(decision: Decision, options: GateOptions<T>) {
+  const isVariant = "variant" in decision
+
+  if (options.variants && !isVariant) {
+    throw new Error(
+      `Type mismatch: expected variant decision but received boolean "${decision.value}"`
+    )
+  }
+
+  if (!options.variants && isVariant) {
+    throw new Error(
+      `Type mismatch: expected boolean decision but received variant "${decision.variant}"`
+    )
+  }
+
+  if (!isVariant || !options.variants) {
     return
   }
 
-  if (!variants.includes(value)) {
-    throw new Error(`Invalid variant: ${value}`)
+  if (!options.variants.includes(decision.variant)) {
+    throw new Error(`Invalid variant: ${decision.variant}`)
   }
 }
 
 export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
   config: GatedConfig<TIdentity>,
-  options: {
-    key: string
-    defaultValue: boolean | T[number]
-    variants?: T
-  },
+  options: GateOptions<T>,
   overrideIdentity?: TIdentity
 ): Promise<boolean | T[number]> {
   const hooks = config.hooks ?? []
-  let identity: TIdentity | null = null
+  const evaluation: Evaluation<TIdentity> = {
+    identity: null,
+    key: options.key,
+  }
+  // A single context object must span every phase: stateful hooks use its identity as an
+  // ownership token so followers cannot settle or delete another evaluation's work.
+  const hookContext: HookContext<TIdentity> = {
+    get flagKey() {
+      return evaluation.key
+    },
+    get identity() {
+      return evaluation.identity
+    },
+  }
   let result: boolean | T[number] | undefined
 
-  const expectedType = options.variants ? "variant" : "boolean"
-
   try {
-    identity = await identify(config.identify, overrideIdentity)
-
-    const hookContext = { flagKey: options.key, identity }
+    evaluation.identity = await identify(config.identify, overrideIdentity)
 
     await runBeforeHooks(hooks, hookContext)
 
-    const resolveResult = await runResolveHooks(hooks, hookContext)
+    const resolution = await runResolveHooks(hooks, hookContext, (decision) => {
+      validateDecision(decision, options)
+    })
 
-    if (resolveResult) {
-      return extractDecisionValue(resolveResult, expectedType)
+    if (resolution === undefined) {
+      evaluation.decision = await evaluateDecision(
+        config.decide,
+        evaluation.key,
+        evaluation.identity
+      )
+      evaluation.source = "provider"
+    } else {
+      evaluation.decision = resolution.decision
+      evaluation.source = "hook"
+      evaluation.resolver = resolution.resolver
     }
 
-    const decision = await evaluateDecision(config.decide, options.key, identity, options.variants)
+    validateDecision(evaluation.decision, options)
 
-    await runAfterHooks(hooks, hookContext, decision)
+    let afterMeta: AfterHookMeta<TIdentity>
 
-    result = extractDecisionValue(decision, expectedType)
+    if (evaluation.source === "hook") {
+      const resolver = evaluation.resolver
+
+      if (!resolver) {
+        throw new Error("Hook-resolved decision is missing its resolver")
+      }
+
+      afterMeta = { resolver, source: "hook" }
+    } else {
+      afterMeta = { source: "provider" }
+    }
+
+    await runAfterHooks(hooks, hookContext, evaluation.decision, afterMeta)
+
+    result = extractDecisionValue(evaluation.decision)
   } catch (error) {
-    await runErrorHooks(hooks, { flagKey: options.key, identity }, error)
+    // Plan 07 exposes these forward-looking evaluation details to package consumers.
+    evaluation.error = error
+    evaluation.source = "default"
+    await runErrorHooks(hooks, hookContext, error)
   } finally {
-    await runFinallyHooks(hooks, { flagKey: options.key, identity })
+    await runFinallyHooks(hooks, hookContext)
   }
 
   return result ?? options.defaultValue

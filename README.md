@@ -85,7 +85,7 @@ Intercept the flag evaluation lifecycle with hooks. Gated supports five lifecycl
 
 - **`before`** - Runs before flag evaluation
 - **`resolve`** - Can short-circuit evaluation by returning a decision
-- **`after`** - Runs after successful evaluation
+- **`after`** - Runs after every successful, validated decision and receives its provider source or the exact resolving hook
 - **`error`** - Runs when evaluation throws an error
 - **`finally`** - Always runs after evaluation completes
 
@@ -97,8 +97,8 @@ const loggingHook = createHook(() => ({
   before: async (context) => {
     console.log(`Evaluating flag: ${context.flagKey}`)
   },
-  after: async (context, decision) => {
-    console.log(`Result for ${context.flagKey}:`, decision)
+  after: async (context, decision, meta) => {
+    console.log(`Result for ${context.flagKey} from ${meta.source}:`, decision)
   },
   error: async (context, error) => {
     console.error(`Error evaluating ${context.flagKey}:`, error)
@@ -112,6 +112,10 @@ const gate = buildGate({
   hooks: [loggingHook()],
 })
 ```
+
+Resolve-hook errors are skipped by default so later hooks or the provider can run. A custom
+single-flight hook can throw `HookResolutionAbortError` from `gated/hooks` when a shared failure
+must abort the resolve chain.
 
 ### Built-in Recipes
 
@@ -155,6 +159,10 @@ const gate = buildGate({
 // Only one API call will be made even with concurrent evaluations
 const [result1, result2] = await Promise.all([betaFlag(), betaFlag()])
 ```
+
+Recipe ordering can affect efficiency, but not correctness. For example, placing the cache hook before the dedupe hook may avoid creating a pending request for cache hits; either ordering is safe.
+When several cache hooks are layered, a hit in a later cache warms earlier caches while the
+resolving cache avoids rewriting its own entry.
 
 ### React Integration
 

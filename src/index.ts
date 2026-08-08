@@ -1,8 +1,10 @@
 export { buildGate } from "./core"
 export type { GateFactory } from "./core"
-export { createHook } from "./hooks"
+export { createHook, HookResolutionAbortError } from "./hooks"
 export type {
+  AfterHookMeta,
   Decision,
+  DecisionSource,
   GateEvaluator,
   GatedConfig,
   Hook,

@@ -2,6 +2,8 @@ import { describe, expect, mock, test } from "bun:test"
 import type { Decision, HookContext } from "../../lib/types"
 import { cacheHook, dedupeHook } from "../recipes"
 
+const providerMeta = { source: "provider" } as const
+
 describe("cacheHook", () => {
   test("resolves from cache if available", async () => {
     const cachedDecision: Decision = { value: true }
@@ -52,7 +54,7 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { value: false }
 
-    await Promise.resolve(hook.after?.(context, decision))
+    await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     expect(cache.set).toHaveBeenCalledWith("test-flag:user123", decision)
   })
@@ -88,7 +90,7 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { value: true }
 
-    await Promise.resolve(hook.after?.(context, decision))
+    await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     expect(cache.set).not.toHaveBeenCalled()
   })
@@ -106,7 +108,7 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { variant: "dark" }
 
-    await Promise.resolve(hook.after?.(context, decision))
+    await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     expect(cache.set).toHaveBeenCalledWith("theme-flag:456", decision)
   })
@@ -192,7 +194,7 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { value: true }
 
-    await Promise.resolve(hook.after?.(context, decision)).then(
+    await Promise.resolve(hook.after?.(context, decision, providerMeta)).then(
       () => {
         throw new Error("Expected cache write to fail")
       },
@@ -225,7 +227,7 @@ describe("cacheHook", () => {
 
     // Store to cache
     const decision: Decision = { value: true }
-    await Promise.resolve(hook.after?.(context, decision))
+    await Promise.resolve(hook.after?.(context, decision, providerMeta))
     expect(cache.set).toHaveBeenCalledWith("test-flag:user123", decision)
 
     // Second resolve: cache hit
@@ -287,7 +289,7 @@ describe("dedupeHook", () => {
 
     // Complete first request
     const decision: Decision = { value: true }
-    await Promise.resolve(hook.after?.(context, decision))
+    await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // Second request should get the same decision
     const secondResult = await secondResolvePromise
@@ -370,7 +372,7 @@ describe("dedupeHook", () => {
     // First request
     await Promise.resolve(hook.resolve?.(context))
     const decision: Decision = { value: true }
-    await Promise.resolve(hook.after?.(context, decision))
+    await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // New request should not be deduplicated (previous cleaned up)
     const newResult = await Promise.resolve(hook.resolve?.(context))
@@ -425,7 +427,7 @@ describe("dedupeHook", () => {
 
     // Complete first request
     const decision: Decision = { value: false }
-    await Promise.resolve(hook.after?.(context1, decision))
+    await Promise.resolve(hook.after?.(context1, decision, providerMeta))
 
     // Second request should get the same decision
     const secondResult = await secondResolvePromise
@@ -447,7 +449,7 @@ describe("dedupeHook", () => {
 
     // Complete first request with variant
     const decision: Decision = { variant: "dark" }
-    await Promise.resolve(hook.after?.(context, decision))
+    await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // Second request should get the same decision
     const secondResult = await secondResolvePromise
@@ -471,7 +473,7 @@ describe("dedupeHook", () => {
 
     // Complete first request
     const decision: Decision = { value: true }
-    await Promise.resolve(hook.after?.(context, decision))
+    await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // All concurrent requests should get the same decision
     expect(await request2).toEqual(decision)
@@ -488,7 +490,7 @@ describe("dedupeHook", () => {
     const decision: Decision = { value: true }
 
     expect(() => {
-      void hook.after?.(context, decision)
+      void hook.after?.(context, decision, providerMeta)
     }).not.toThrow()
   })
 
@@ -524,7 +526,7 @@ describe("dedupeHook", () => {
 
     // Complete first request
     const decision: Decision = { value: true }
-    await Promise.resolve(hook.after?.(context1, decision))
+    await Promise.resolve(hook.after?.(context1, decision, providerMeta))
 
     // Second request should get the same decision (treated as same key)
     const secondResult = await secondResolvePromise
@@ -546,7 +548,7 @@ describe("dedupeHook", () => {
 
     // Complete first request
     const decision: Decision = { value: true }
-    await Promise.resolve(hook.after?.(context, decision))
+    await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // Second request should get the same decision
     const secondResult = await secondResolvePromise
@@ -602,7 +604,7 @@ describe("dedupeHook", () => {
 
     // Complete first request
     const decision: Decision = { value: true }
-    await Promise.resolve(hook.after?.(context, decision))
+    await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // Second request should get the same decision
     const secondResult = await secondResolvePromise
@@ -651,8 +653,8 @@ describe("dedupeHook", () => {
     const decisionA: Decision = { value: true }
     const decisionB: Decision = { value: false }
 
-    await Promise.resolve(hook.after?.(contextA, decisionA))
-    await Promise.resolve(hook.after?.(contextB, decisionB))
+    await Promise.resolve(hook.after?.(contextA, decisionA, providerMeta))
+    await Promise.resolve(hook.after?.(contextB, decisionB, providerMeta))
 
     // Each flag's requests should get their respective decisions
     expect(await requestA2).toEqual(decisionA)

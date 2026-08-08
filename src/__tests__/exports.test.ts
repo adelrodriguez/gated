@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test"
 import type {
+  AfterHookMeta,
   Decision,
+  DecisionSource,
   GateEvaluator,
   GateFactory,
   GatedConfig,
@@ -9,13 +11,14 @@ import type {
   Identity,
   MaybePromise,
 } from "../index"
-import { buildGate } from "../index"
+import { buildGate, HookResolutionAbortError } from "../index"
 
 interface TestIdentity extends Identity {
   plan: "free" | "pro"
 }
 
 const decision: Decision = { value: true }
+const decisionSource: DecisionSource = "provider"
 const maybeDecision: MaybePromise<Decision> = decision
 const hookContext: HookContext<TestIdentity> = {
   flagKey: "beta-access",
@@ -24,6 +27,7 @@ const hookContext: HookContext<TestIdentity> = {
 const hook: Hook<TestIdentity> = {
   resolve: () => decision,
 }
+const afterMeta: AfterHookMeta<TestIdentity> = { source: decisionSource }
 const config: GatedConfig<TestIdentity> = {
   decide: () => Promise.resolve(decision),
   hooks: [hook],
@@ -41,7 +45,9 @@ const variantEvaluator: GateEvaluator<TestIdentity, "dark" | "light"> = gate({
 })
 
 test("exports consumer-facing root types", () => {
+  expect(afterMeta.source).toBe("provider")
   expect(maybeDecision).toBe(decision)
   expect(typeof evaluator).toBe("function")
   expect(typeof variantEvaluator).toBe("function")
+  expect(new HookResolutionAbortError(new Error("stop"))).toBeInstanceOf(Error)
 })
