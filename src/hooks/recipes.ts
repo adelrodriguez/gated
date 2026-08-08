@@ -47,6 +47,10 @@ function getKey(context: HookContext) {
   return context.flagKey
 }
 
+function matchesGateKind(context: HookContext, decision: Decision): boolean {
+  return context.kind === ("variant" in decision ? "variant" : "boolean")
+}
+
 export const cacheHook: (cache: Cache) => Hook = createHook<Cache>((cache) => {
   const consulted = new WeakSet<HookContext>()
   const hook: Hook = {
@@ -57,7 +61,10 @@ export const cacheHook: (cache: Cache) => Hook = createHook<Cache>((cache) => {
 
       consulted.add(context)
       const cacheKey = getKey(context)
-      return await cache.get(cacheKey)
+      const cachedDecision = await cache.get(cacheKey)
+      return cachedDecision && matchesGateKind(context, cachedDecision)
+        ? cachedDecision
+        : undefined
     },
 
     async after(context, decision, meta) {

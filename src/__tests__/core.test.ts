@@ -274,8 +274,11 @@ describe("buildGate", () => {
 
     expect(errorFn).toHaveBeenCalledWith(
       {
+        defaultValue: false,
         flagKey: "beta-access",
         identity: { distinctId: "user123" },
+        kind: "boolean",
+        variants: undefined,
       },
       error
     )

@@ -28,8 +28,10 @@ const decision: Decision = { value: true }
 const decisionSource: DecisionSource = "provider"
 const maybeDecision: MaybePromise<Decision> = decision
 const hookContext: HookContext<TestIdentity> = {
+  defaultValue: false,
   flagKey: "beta-access",
   identity: { distinctId: "test-user", plan: "pro" },
+  kind: "boolean",
 }
 const hook: Hook<TestIdentity> = {
   resolve: () => decision,
@@ -61,6 +63,9 @@ const variantEvaluator: GateEvaluator<TestIdentity, "dark" | "light"> = gate({
 })
 
 test("exports consumer-facing root types", () => {
+  // @ts-expect-error -- HookContext no longer accepts an options type argument.
+  const legacyContext: HookContext<TestIdentity, { custom: boolean }> = hookContext
+
   expect(afterMeta.source).toBe("provider")
   expect(hookAfterMeta.resolver).toBe(hook)
   expect(hookErrorReport.context).toBe(hookContext)
@@ -68,6 +73,7 @@ test("exports consumer-facing root types", () => {
   expect(maybeDecision).toBe(decision)
   expect(typeof evaluator).toBe("function")
   expect(typeof variantEvaluator).toBe("function")
+  expect(legacyContext).toBe(hookContext)
   expect(new IdentityNotFoundError()).toBeInstanceOf(GatedError)
   expect(new DecisionTypeMismatchError("boolean", { variant: "dark" })).toBeInstanceOf(GatedError)
   expect(new InvalidVariantError("purple", ["light", "dark"])).toBeInstanceOf(GatedError)

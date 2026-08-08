@@ -13,11 +13,14 @@ import { DecisionTypeMismatchError, IdentityNotFoundError, InvalidVariantError }
 import { HookResolutionAbortError } from "./internal"
 
 type Evaluation<TIdentity extends Identity> = {
+  defaultValue: boolean | string
   key: string
+  kind: "boolean" | "variant"
   identity: TIdentity | null
   decision?: Decision
   source?: DecisionSource | "default"
   error?: unknown
+  variants?: readonly string[]
 }
 
 type HookResolution<TIdentity extends Identity> = {
@@ -205,18 +208,30 @@ export async function executeGate<TIdentity extends Identity, T extends string[]
 ): Promise<boolean | T[number]> {
   const hooks = config.hooks ?? []
   const evaluation: Evaluation<TIdentity> = {
+    defaultValue: options.defaultValue,
     identity: null,
     key: options.key,
+    kind: options.variants ? "variant" : "boolean",
+    variants: options.variants,
   }
   // A single context object must span every phase: stateful hooks use this object's reference
   // (not its `identity` field) as an ownership token so followers cannot settle or delete
   // another evaluation's work.
   const hookContext: HookContext<TIdentity> = {
+    get defaultValue() {
+      return evaluation.defaultValue
+    },
     get flagKey() {
       return evaluation.key
     },
     get identity() {
       return evaluation.identity
+    },
+    get kind() {
+      return evaluation.kind
+    },
+    get variants() {
+      return evaluation.variants
     },
   }
   let result: boolean | T[number] | undefined

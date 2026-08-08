@@ -15,6 +15,8 @@ import {
 } from "../index"
 import { HookResolutionAbortError } from "../internal"
 
+const BOOLEAN_HOOK_CONTEXT = { defaultValue: false, kind: "boolean" } as const
+
 async function expectRejection(promise: Promise<unknown>, message: string) {
   let caughtError: unknown
 
@@ -214,6 +216,7 @@ describe("runBeforeHooks", () => {
 
     const hooks: Hook[] = [{ before: beforeFn1 }, { before: beforeFn2 }]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -229,6 +232,7 @@ describe("runBeforeHooks", () => {
 
     const hooks: Hook[] = [{ after: afterFn }, {}]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -244,6 +248,7 @@ describe("runBeforeHooks", () => {
 
     const hooks: Hook[] = [{ before: beforeFn1 }, { before: beforeFn2 }]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -257,6 +262,7 @@ describe("runBeforeHooks", () => {
   test("runs with empty hooks array", async () => {
     const hooks: Hook[] = []
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -275,6 +281,7 @@ describe("runResolveHooks", () => {
 
     const hooks: Hook[] = [{ resolve: resolveFn1 }, resolver, { resolve: resolveFn3 }]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -293,6 +300,7 @@ describe("runResolveHooks", () => {
 
     const hooks: Hook[] = [{ resolve: resolveFn1 }, { resolve: resolveFn2 }]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -307,6 +315,7 @@ describe("runResolveHooks", () => {
 
     const hooks: Hook[] = [{ before: beforeFn }, {}]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -324,6 +333,7 @@ describe("runResolveHooks", () => {
 
     const hooks: Hook[] = [{ resolve: resolveFn1 }, resolver]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -370,6 +380,7 @@ describe("runResolveHooks", () => {
   test("returns undefined with empty hooks array", async () => {
     const hooks: Hook[] = []
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -389,6 +400,7 @@ describe("runAfterHooks", () => {
 
     const hooks: Hook[] = [{ after: afterFn1 }, { after: afterFn2 }]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -405,6 +417,7 @@ describe("runAfterHooks", () => {
 
     const hooks: Hook[] = [{ before: beforeFn }, {}]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -421,6 +434,7 @@ describe("runAfterHooks", () => {
 
     const hooks: Hook[] = [{ after: afterFn1 }, { after: afterFn2 }]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -435,6 +449,7 @@ describe("runAfterHooks", () => {
   test("runs with empty hooks array", async () => {
     const hooks: Hook[] = []
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -451,6 +466,7 @@ describe("runErrorHooks", () => {
 
     const hooks: Hook[] = [{ error: errorFn1 }, { error: errorFn2 }]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -467,6 +483,7 @@ describe("runErrorHooks", () => {
 
     const hooks: Hook[] = [{ before: beforeFn }, {}]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -483,6 +500,7 @@ describe("runErrorHooks", () => {
 
     const hooks: Hook[] = [{ error: errorFn1 }, { error: errorFn2 }]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -497,6 +515,7 @@ describe("runErrorHooks", () => {
   test("runs with empty hooks array", async () => {
     const hooks: Hook[] = []
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -513,6 +532,7 @@ describe("runFinallyHooks", () => {
 
     const hooks: Hook[] = [{ finally: finallyFn1 }, { finally: finallyFn2 }]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -528,6 +548,7 @@ describe("runFinallyHooks", () => {
 
     const hooks: Hook[] = [{ before: beforeFn }, {}]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -543,6 +564,7 @@ describe("runFinallyHooks", () => {
 
     const hooks: Hook[] = [{ finally: finallyFn1 }, { finally: finallyFn2 }]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -556,6 +578,7 @@ describe("runFinallyHooks", () => {
   test("runs with empty hooks array", async () => {
     const hooks: Hook[] = []
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -732,8 +755,11 @@ describe("executeGate", () => {
     expect(result).toBe(false)
     expect(errorFn).toHaveBeenCalledWith(
       {
+        defaultValue: false,
         flagKey: "test-flag",
         identity: { distinctId: "user123" },
+        kind: "boolean",
+        variants: undefined,
       },
       error
     )
@@ -799,8 +825,11 @@ describe("executeGate", () => {
 
     expect(errorFn).toHaveBeenCalledWith(
       {
+        defaultValue: false,
         flagKey: "test-flag",
         identity: null,
+        kind: "boolean",
+        variants: undefined,
       },
       expect.any(Error)
     )

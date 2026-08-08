@@ -163,15 +163,81 @@ describe("uniform hook lifecycle", () => {
 
     expect(await hookGate({ defaultValue: false, key: "hook" })()).toBe(true)
     expect(await providerGate({ defaultValue: false, key: "provider" })()).toBe(true)
-    expect(hookAfter).toHaveBeenCalledWith({ flagKey: "hook", identity }, hookDecision, {
-      resolver,
-      source: "hook",
-    })
+    expect(hookAfter).toHaveBeenCalledWith(
+      {
+        defaultValue: false,
+        flagKey: "hook",
+        identity,
+        kind: "boolean",
+        variants: undefined,
+      },
+      hookDecision,
+      { resolver, source: "hook" }
+    )
     expect(providerAfter).toHaveBeenCalledWith(
-      { flagKey: "provider", identity },
+      {
+        defaultValue: false,
+        flagKey: "provider",
+        identity,
+        kind: "boolean",
+        variants: undefined,
+      },
       { value: true },
       { source: "provider" }
     )
+  })
+
+  test("provides gate configuration to hooks for boolean and variant gates", async () => {
+    const contexts: HookContext[] = []
+    const identity = { distinctId: "user123" }
+    const gate = buildGate({
+      decide: (key) => (key === "theme" ? { variant: "dark" } : { value: true }),
+      hooks: [
+        {
+          before(context) {
+            contexts.push(context)
+          },
+        },
+      ],
+      identify: () => identity,
+    })
+
+    await gate({ defaultValue: false, key: "beta-access" })()
+    await gate({ defaultValue: "light", key: "theme", variants: ["light", "dark"] })()
+
+    expect(contexts).toEqual([
+      {
+        defaultValue: false,
+        flagKey: "beta-access",
+        identity,
+        kind: "boolean",
+        variants: undefined,
+      },
+      {
+        defaultValue: "light",
+        flagKey: "theme",
+        identity,
+        kind: "variant",
+        variants: ["light", "dark"],
+      },
+    ])
+  })
+
+  test("cacheHook replaces a cached decision whose shape does not match the gate", async () => {
+    const cache = createMemoryCache({ value: true })
+    const decide = mock(() => Promise.resolve<Decision>({ variant: "dark" }))
+    const gate = buildGate({
+      decide,
+      hooks: [cacheHook(cache)],
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const theme = gate({ defaultValue: "light", key: "theme", variants: ["light", "dark"] })
+
+    expect(await theme()).toBe("dark")
+    expect(await theme()).toBe("dark")
+    expect(decide).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledWith("theme:user123", { variant: "dark" })
   })
 
   test("continues to the provider after an invalid hook decision", async () => {
@@ -403,7 +469,13 @@ describe("hook error policy", () => {
         await Bun.sleep(0)
         expect(reporter).toHaveBeenCalledTimes(1)
         expect(reporter).toHaveBeenCalledWith({
-          context: { flagKey: "beta-access", identity },
+          context: {
+            defaultValue: false,
+            flagKey: "beta-access",
+            identity,
+            kind: "boolean",
+            variants: undefined,
+          },
           error: hookError,
           hookIndex: 1,
           phase,

@@ -20,13 +20,13 @@ export type GateEvaluator<TIdentity extends Identity, TValue extends boolean | s
 
 export type MaybePromise<T> = T | Promise<T>
 
-export type HookContext<
-  TIdentity extends Identity = Identity,
-  TOptions extends Record<string, unknown> = Record<string, unknown>,
-> = {
-  flagKey: string
-  identity: TIdentity | null
-} & TOptions
+export type HookContext<TIdentity extends Identity = Identity> = {
+  readonly defaultValue: boolean | string
+  readonly flagKey: string
+  readonly identity: TIdentity | null
+  readonly kind: "boolean" | "variant"
+  readonly variants?: readonly string[]
+}
 
 export type DecisionSource = "hook" | "provider"
 

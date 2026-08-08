@@ -3,6 +3,7 @@ import type { Decision, HookContext } from "../../lib/types"
 import { cacheHook, dedupeHook } from "../recipes"
 
 const providerMeta = { source: "provider" } as const
+const BOOLEAN_HOOK_CONTEXT = { defaultValue: false, kind: "boolean" } as const
 
 describe("cacheHook", () => {
   test("resolves from cache if available", async () => {
@@ -14,6 +15,7 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -32,6 +34,7 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -39,6 +42,26 @@ describe("cacheHook", () => {
     const result = await Promise.resolve(hook.resolve?.(context))
 
     expect(result).toBeUndefined()
+  })
+
+  test("ignores a cached decision whose shape does not match the gate", async () => {
+    const cache = {
+      get: mock(() => Promise.resolve<Decision>({ value: true })),
+      set: mock(() => Promise.resolve()),
+    }
+    const hook = cacheHook(cache)
+    const context: HookContext = {
+      defaultValue: "light",
+      flagKey: "theme",
+      identity: { distinctId: "user123" },
+      kind: "variant",
+      variants: ["light", "dark"],
+    }
+
+    const result = await Promise.resolve(hook.resolve?.(context))
+
+    expect(result).toBeUndefined()
+    expect(cache.get).toHaveBeenCalledWith("theme:user123")
   })
 
   test("stores decision to cache after evaluation", async () => {
@@ -49,6 +72,7 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -68,6 +92,7 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: null,
     }
@@ -86,6 +111,7 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: null,
     }
@@ -104,6 +130,7 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "theme-flag",
       identity: { distinctId: 456 },
     }
@@ -123,10 +150,12 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context1: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
     const context2: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user456" },
     }
@@ -146,10 +175,12 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context1: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "flag-a",
       identity: { distinctId: "user123" },
     }
     const context2: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "flag-b",
       identity: { distinctId: "user123" },
     }
@@ -169,6 +200,7 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -191,6 +223,7 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -219,6 +252,7 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -247,6 +281,7 @@ describe("cacheHook", () => {
 
     const hook = cacheHook(cache)
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: {
         distinctId: "user123",
@@ -266,6 +301,7 @@ describe("dedupeHook", () => {
   test("allows first request to proceed normally", async () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -279,6 +315,7 @@ describe("dedupeHook", () => {
   test("deduplicates concurrent requests for same flag+identity", async () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -302,10 +339,12 @@ describe("dedupeHook", () => {
   test("does not dedupe different flags", async () => {
     const hook = dedupeHook()
     const context1: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "flag-1",
       identity: { distinctId: "user123" },
     }
     const context2: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "flag-2",
       identity: { distinctId: "user123" },
     }
@@ -321,10 +360,12 @@ describe("dedupeHook", () => {
   test("does not dedupe different identities", async () => {
     const hook = dedupeHook()
     const context1: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
     const context2: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user456" },
     }
@@ -340,6 +381,7 @@ describe("dedupeHook", () => {
   test("handles errors in deduplicated requests", async () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -368,6 +410,7 @@ describe("dedupeHook", () => {
   test("cleans up pending requests after success", async () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -385,6 +428,7 @@ describe("dedupeHook", () => {
   test("cleans up pending requests after error", async () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -414,10 +458,12 @@ describe("dedupeHook", () => {
   test("handles null identity", async () => {
     const hook = dedupeHook()
     const context1: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: null,
     }
     const context2: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: null,
     }
@@ -440,6 +486,7 @@ describe("dedupeHook", () => {
   test("supports variant decisions", async () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "theme-flag",
       identity: { distinctId: "user123" },
     }
@@ -462,6 +509,7 @@ describe("dedupeHook", () => {
   test("handles multiple concurrent requests (more than 2)", async () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -487,6 +535,7 @@ describe("dedupeHook", () => {
   test("after is no-op when no pending request exists", () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -500,6 +549,7 @@ describe("dedupeHook", () => {
   test("error is no-op when no pending request exists", () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -513,10 +563,12 @@ describe("dedupeHook", () => {
   test("treats string and number distinctId as same key", async () => {
     const hook = dedupeHook()
     const context1: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "123" },
     }
     const context2: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: 123 },
     }
@@ -539,6 +591,7 @@ describe("dedupeHook", () => {
   test("deduplicates requests with same numeric distinctId", async () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: 12_345 },
     }
@@ -561,6 +614,7 @@ describe("dedupeHook", () => {
   test("handles errors with multiple concurrent requests", async () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -595,6 +649,7 @@ describe("dedupeHook", () => {
   test("correctly deduplicates with null identity using flagKey only", async () => {
     const hook = dedupeHook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: null,
     }
@@ -617,10 +672,12 @@ describe("dedupeHook", () => {
   test("does not deduplicate different flags with null identity", async () => {
     const hook = dedupeHook()
     const context1: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "flag-a",
       identity: null,
     }
     const context2: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "flag-b",
       identity: null,
     }
@@ -636,10 +693,12 @@ describe("dedupeHook", () => {
   test("interleaved requests for different flags work independently", async () => {
     const hook = dedupeHook()
     const contextA: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "flag-a",
       identity: { distinctId: "user123" },
     }
     const contextB: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "flag-b",
       identity: { distinctId: "user123" },
     }
