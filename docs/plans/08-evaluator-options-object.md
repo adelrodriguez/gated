@@ -27,7 +27,7 @@ export type GateCallOptions<TIdentity extends Identity> = {
 - `src/core.ts` / `src/lib/index.ts` — evaluator signature `(options?: GateCallOptions<TIdentity>) => Promise<TValue>`; `executeGate` reads `options?.identity` where it currently takes `overrideIdentity`.
 - `src/lib/index.ts` `identify()` — unchanged semantics; note the existing truthiness check (lib/index.ts:7) becomes `!== undefined` while touching it.
 - `details()` (plan 07) takes the same options type.
-- React (`src/integrations/react.tsx`) — `createReactGate` (see plan 05 rename) passes `{ identity }` and uses the serialized identity as its cache key; `FeatureGate`'s `overrideIdentity` prop forwards as `{ identity: overrideIdentity }`. Optionally rename the prop to `identity` in the same break (recommended; one migration instead of two).
+- React (`src/integrations/react.tsx`) — `createReactGate` mirrors its supplied evaluator's parameter tuple (plan 05), so changing `GateEvaluator` automatically changes the React binding and `invalidate` call to `{ identity }` without maintaining a second calling convention. Use the serialized `options.identity` as the semantic cache key rather than serializing future non-identity options such as `signal`. Rename `FeatureGate`'s `overrideIdentity` prop to `identity` in the same break and forward `{ identity }` (one migration instead of two).
 - Update every doc example (README testing section, JSDoc from plan 01).
 
 ## Migration note (for changeset)
