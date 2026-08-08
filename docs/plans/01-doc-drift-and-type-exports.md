@@ -23,7 +23,7 @@ All documented APIs actually exist; all types a consumer needs to implement `Gat
 - `src/index.ts` — additionally export:
   - `Decision` (type) from `./lib/types`
   - `GateFactory` (type) from `./core` — export the currently-private gate factory interface using the repository's domain vocabulary
-  - A named evaluator type, e.g. `type GateEvaluator<TIdentity, TValue> = (overrideIdentity?: TIdentity) => Promise<TValue>` in `src/lib/types.ts`, used by `GateFactory` and `createReactHook` instead of inline function types
+  - A named evaluator type, e.g. `type GateEvaluator<TIdentity, TValue> = (overrideIdentity?: TIdentity) => Promise<TValue>` in `src/lib/types.ts`, used by `GateFactory` and `createReactGate` (named `createReactHook` until plan 05 lands) instead of inline function types
 - `src/hooks/recipes.ts` — `Cache` is already exported; confirm it appears in the built d.ts.
 
 ## Tests
