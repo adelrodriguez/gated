@@ -25,6 +25,7 @@ await flag({ signal: controller.signal }) // caller-supplied abort
 - The caller's deadline is a hard latency bound. After cancellation, error/finally handlers are invoked once with the aborted signal, but asynchronous cleanup is consumed safely rather than allowed to delay the result beyond the deadline. Tests distinguish handler invocation from asynchronous cleanup completion.
 - A provider or hook that ignores the signal may continue its own already-started work, but the evaluation pipeline must never start another lifecycle stage after cancellation.
 - Pass the combined signal to the provider: `decide(key, identity, { signal })` — additive third parameter so providers can cancel in-flight fetches. Also add `signal` to `HookContext` so hooks can cancel their own work.
+- React cache identity remains the serialized evaluation identity: use plan 05's `cacheKey` projection established by plan 08, so caller `signal` is operational input and never participates in cache keys. Calls that differ only by signal reuse the same in-flight/cached evaluation; invalidation projects the same identity-only key.
 - No default timeout (opt-in only) — do not change behavior for existing consumers.
 
 ## Changes
@@ -42,6 +43,7 @@ await flag({ signal: controller.signal }) // caller-supplied abort
 - A signal-ignoring provider that resolves after timeout cannot trigger validation, after hooks, cache writes, or a second finally pass.
 - Timeout during a hook prevents every later lifecycle stage from starting; error/finally handlers are each invoked once without extending the hard deadline.
 - No timeout configured → no signal-related behavior change; no unhandled rejection warnings in the run (assert via process listener in test).
+- React binding calls with the same identity and different signals share one cache entry, while different identities remain isolated; `invalidate({ identity })` evicts that identity regardless of the signal used to populate it.
 
 ## Verification
 

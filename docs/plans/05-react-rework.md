@@ -19,16 +19,27 @@ Rename `createReactHook` → `createReactGate` (no deprecated alias; the semanti
 ```ts
 type AsyncGate<TArgs extends unknown[], TValue> = (...args: TArgs) => Promise<TValue>
 
+function trimTrailingUndefined<TArgs extends unknown[]>(args: TArgs): TArgs {
+  const normalized = [...args]
+  while (normalized.length > 0 && normalized.at(-1) === undefined) normalized.pop()
+  return normalized as TArgs
+}
+
 export function createReactGate<TArgs extends unknown[], TValue extends boolean | string>(
   gateFn: AsyncGate<TArgs, TValue>,
   options?: {
     cache?: ReactGateCache
+    cacheKey?: (...args: TArgs) => unknown
     maxEntries?: number
     ttlMs?: number
   }
 ) {
   const cache = options?.cache ?? createReactGateCache(options)
-  const keyOf = (args: TArgs) => stableSerialize(args)
+  const keyOf = (args: TArgs) => {
+    const normalizedArgs = trimTrailingUndefined(args)
+    const semanticKey = options?.cacheKey ? options.cacheKey(...normalizedArgs) : normalizedArgs
+    return stableSerialize(semanticKey)
+  }
 
   function useGateValue(...args: TArgs): TValue {
     const key = keyOf(args)
@@ -52,7 +63,9 @@ export function createReactGate<TArgs extends unknown[], TValue extends boolean 
 ```
 
 - The React binding mirrors the supplied gate's call parameters via `TArgs` rather than hard-coding the current bare-identity convention. When plan 08 changes `GateEvaluator` to an options object, the React call and `invalidate` signatures follow it automatically. The callable part of plan 07's `GateEvaluator` intersection and bare async functions are both assignable to `AsyncGate`.
-- `stableSerialize`: JSON.stringify with sorted keys. Cache-key arguments must be JSON-serializable; plan 09 must explicitly exclude non-semantic objects such as `AbortSignal` from the key projection.
+- Before deriving a key, trim trailing `undefined` arguments so omitted optional arguments and explicitly undefined optional arguments are the same invocation (`useGateValue()` and `useGateValue(undefined)` share an entry, and either spelling can invalidate it).
+- `stableSerialize`: JSON.stringify with sorted keys. By default it serializes the normalized argument tuple. Cache-key inputs must be JSON-serializable.
+- `cacheKey` is the explicit seam for functions whose call arguments contain operational, non-semantic values. It receives the normalized arguments and projects the JSON-serializable value that identifies an evaluation. Plan 08 uses `(options) => options?.identity ?? null` for `GateEvaluator`, so plan 09 can add `signal` without changing cache identity or redesigning this binding. Bare async functions may keep the normalized full-tuple default or provide their own projection.
 - The cache namespace is the gate function identity plus the serialized call arguments. An injected request cache may therefore be shared by multiple gates without one gate returning another gate's promise for the same identity.
 - Successful entries remain stable across suspension and immediate re-renders but are bounded by configurable TTL and LRU size. TTL starts when a promise settles successfully, and only settled entries participate in TTL/LRU eviction. Pending promises are pinned, so the cache may temporarily exceed `maxEntries`; this is required to avoid recreating promises and re-entering a suspension loop. Expiration causes re-evaluation on the next render and does not schedule its own render.
 - A promise that never settles remains pinned until explicit `invalidate`/`clear`; TTL and LRU cannot bound it without recreating the suspension loop. Plan 09's evaluation timeouts provide the automatic bound once that plan lands.
@@ -99,6 +112,8 @@ Replace the shallow assertions (src/**tests**/react.test.tsx:9-59 test `.name`/`
 - **Regression (H2):** async gate (`new Promise` + `setTimeout`) — `loading` node IS in the document while suspended; feature appears after resolution. This is the review's failing repro, inverted into a passing test.
 - **Regression (H3):** async gate — count `gateFn` invocations across the suspend/resolve/re-render cycle; must be exactly 1. Re-render the parent; still 1.
 - Two identities → two evaluations; same identity twice → one evaluation. Two different gates sharing one injected request cache and receiving the same identity remain isolated.
+- Omitted and explicitly undefined trailing optional arguments share one evaluation: `useGateValue()` and `useGateValue(undefined)` produce one cache entry, and `invalidate()` evicts it regardless of which spelling populated it.
+- A custom `cacheKey` projection excludes a non-semantic argument from cache identity: calls that differ only by that argument reuse one evaluation, and invalidation derives the same key.
 - Rejected gate promise: error propagates to an error boundary; a subsequent render retries (cache entry evicted).
 - `invalidate(...gateArgs)` evicts only that invocation's entry (other identities still cached); `invalidate()` evicts the no-argument/default-identity entry; the binding's `clear()` evicts that gate's entries without flushing other gates in a shared request cache — each triggers re-evaluation on next render, as do TTL expiry and LRU eviction.
 - A gate promise that takes longer than `ttlMs` remains pinned and is invoked once across suspension retries. More than `maxEntries` concurrently pending identities likewise invoke once each; LRU enforcement begins only as they settle.
