@@ -1,5 +1,18 @@
-import type { GateEvaluator, GatedConfig, Identity } from "./lib/types"
+import type { GateCallOptions, GateEvaluator, GatedConfig, Identity } from "./lib/types"
 import { executeGate, executeGateDetails } from "./lib"
+
+function assertCallOptions(callOptions: unknown): void {
+  if (
+    callOptions !== null &&
+    typeof callOptions === "object" &&
+    Object.hasOwn(callOptions, "distinctId") &&
+    !Object.hasOwn(callOptions, "identity")
+  ) {
+    throw new TypeError(
+      "Gate evaluators now accept an options object; pass the identity as { identity }."
+    )
+  }
+}
 
 export interface GateFactory<TIdentity extends Identity> {
   (options: { key: string; defaultValue: boolean }): GateEvaluator<TIdentity, boolean>
@@ -22,7 +35,7 @@ export interface GateFactory<TIdentity extends Identity> {
  *   const betaAccess = gate({ key: "beta-access", defaultValue: false })
  *
  *   await betaAccess()
- *   await betaAccess({ distinctId: "test-user" }) // Evaluate for a specific identity
+ *   await betaAccess({ identity: { distinctId: "test-user" } }) // Evaluate for a specific identity
  *
  *   const theme = gate({
  *     key: "theme",
@@ -46,12 +59,16 @@ export function buildGate<TIdentity extends Identity>(
     defaultValue: boolean | T[number]
     variants?: T
   }): GateEvaluator<TIdentity, boolean | T[number]> {
-    const evaluator = async (overrideIdentity?: TIdentity) =>
-      executeGate(config, options, overrideIdentity)
+    const evaluator = async (callOptions?: GateCallOptions<TIdentity>) => {
+      assertCallOptions(callOptions)
+      return executeGate(config, options, callOptions)
+    }
 
     return Object.assign(evaluator, {
-      details: async (overrideIdentity?: TIdentity) =>
-        executeGateDetails(config, options, overrideIdentity),
+      details: async (callOptions?: GateCallOptions<TIdentity>) => {
+        assertCallOptions(callOptions)
+        return executeGateDetails(config, options, callOptions)
+      },
     })
   }
 

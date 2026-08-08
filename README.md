@@ -94,7 +94,7 @@ if (details.source === "default") {
 }
 ```
 
-Details include the evaluated `value`, `flagKey`, and `source` (`"hook"`, `"provider"`, or `"default"`). When evaluation falls back because of a failure, `error` contains the underlying error. Like plain evaluation, `details()` accepts an optional override identity and never rejects.
+Details include the evaluated `value`, `flagKey`, and `source` (`"hook"`, `"provider"`, or `"default"`). When evaluation falls back because of a failure, `error` contains the underlying error. Like plain evaluation, `details()` accepts an optional call-options object and never rejects.
 
 ### Hook System
 
@@ -259,6 +259,19 @@ const useInternalTools = createReactGate(internalToolsFlag, { cache: requestCach
 
 The returned React hook accepts a bare identity (`useBetaAccess(identity)`) even when the core evaluator uses an options object. This is intentional: a cached evaluation can be shared by several components, so attaching a per-consumer `AbortSignal` would let one component cancel work used by the others. Use the core evaluator directly when a caller-owned signal is required.
 
+Custom async functions retain their own argument tuple and require a `cacheKey` projection so operational arguments do not fragment semantic cache entries. The projection must return a `ReactGateCacheKey`: a scalar, array, or string-keyed record composed recursively from strings, numbers, booleans, `null`, and `undefined`. The same projection is used by lookup and `invalidate()`:
+
+```typescript
+const customAsyncGate = async (accountId: string, traceId: string) =>
+  provider.evaluateAccount(accountId, { traceId })
+const useAccountGate = createReactGate(customAsyncGate, {
+  cacheKey: (accountId) => accountId,
+})
+
+useAccountGate("account-1", crypto.randomUUID())
+useAccountGate.invalidate("account-1", "ignored-for-cache-key")
+```
+
 #### `<FeatureGate>` Component
 
 A convenience component for conditionally rendering children based on flag evaluation. When `loading` is provided, the component adds a Suspense boundary with that fallback. When it is omitted, suspension propagates to the nearest ancestor boundary:
@@ -318,13 +331,13 @@ gate({
 type GateEvaluator<
   TIdentity extends Identity,
   TValue extends boolean | string,
-> = ((overrideIdentity?: TIdentity) => Promise<TValue>) & {
-  details(overrideIdentity?: TIdentity): Promise<EvaluationDetails<TValue>>
+> = ((options?: { identity?: TIdentity }) => Promise<TValue>) & {
+  details(options?: { identity?: TIdentity }): Promise<EvaluationDetails<TValue>>
 }
 ```
 
 See [Evaluation Details](#evaluation-details) for the result shape returned by `details()`.
-Evaluators optionally accept an identity override for testing.
+Both the evaluator and `details()` accept an optional options object. Override identity resolution with `{ identity }`.
 
 #### `createHook<TOptions>(factory)`
 
@@ -344,7 +357,7 @@ const myHook = createHook((options: TOptions) => ({
 
 #### `createReactGate(gateFn, options?)`
 
-Converts an evaluator into a React hook using React 19's `use()` primitive and a bounded gate-and-identity promise cache. Configure either `maxEntries`/`ttlMs` or an injected `cache`; injected caches own their bounds. Pending evaluations remain pinned until settlement. The returned hook exposes `invalidate(identity?)` and `clear()`; these controls take effect on the next render.
+Converts an evaluator into a React hook using React 19's `use()` primitive and a bounded promise cache. Gated evaluators use their identity automatically. Custom async functions retain their argument tuple and require `cacheKey`. Configure either `maxEntries`/`ttlMs` or an injected `cache`; injected caches own their bounds. Pending evaluations remain pinned until settlement. The returned hook exposes invocation-specific `invalidate(...)` and `clear()`; these controls take effect on the next render.
 
 #### `createReactGateCache(options?)`
 
@@ -354,7 +367,7 @@ Creates a bounded TTL/LRU cache for injection into `createReactGate`. TTL starts
 
 Conditionally renders children based on flag evaluation. Adds a Suspense boundary when `loading` is provided; otherwise it uses the nearest ancestor boundary.
 
-**Props:** `gate`, `loading?`, `fallback?`, `overrideIdentity?`, `match?`
+**Props:** `gate`, `loading?`, `fallback?`, `identity?`, `match?`
 
 ## TypeScript Support
 
@@ -438,7 +451,7 @@ Override identities when testing:
 const betaFlag = gate({ key: "beta-access", defaultValue: false })
 
 // Test with specific identity
-const result = await betaFlag({ distinctId: "test-user-123" })
+const result = await betaFlag({ identity: { distinctId: "test-user-123" } })
 
 // Or use a test gate with mocked decide function
 const testGate = buildGate({

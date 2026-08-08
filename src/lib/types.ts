@@ -33,10 +33,14 @@ export type EvaluationDetails<TValue> = EvaluationDetailsBase<TValue> &
       }
   )
 
+export type GateCallOptions<TIdentity extends Identity> = {
+  identity?: TIdentity
+}
+
 export type GateEvaluator<TIdentity extends Identity, TValue extends boolean | string> = ((
-  overrideIdentity?: TIdentity
+  options?: GateCallOptions<TIdentity>
 ) => Promise<TValue>) & {
-  details: (overrideIdentity?: TIdentity) => Promise<EvaluationDetails<TValue>>
+  details: (options?: GateCallOptions<TIdentity>) => Promise<EvaluationDetails<TValue>>
 }
 
 export type MaybePromise<T> = T | Promise<T>

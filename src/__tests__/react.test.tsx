@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import { act, Component, createRef, type ReactNode, Suspense } from "react"
-import type { Identity } from "../lib/types"
+import type { GateCallOptions, GateEvaluator, Identity } from "../lib/types"
 import {
   createReactGate,
   createReactGateCache,
   FeatureGate,
+  type ReactGateCacheKey,
   type ReactGate,
 } from "../integrations/react"
 
@@ -60,6 +61,25 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
 }
 
 const resolvingTrueGate = () => Promise.resolve(true)
+const customGateTypeTest = (accountId: string, traceId: string): Promise<boolean> =>
+  Promise.resolve(accountId === traceId)
+
+function assertCreateReactGateTypes(evaluator: GateEvaluator<Identity, boolean>): void {
+  const gatedReactGate = createReactGate(evaluator)
+
+  gatedReactGate({ distinctId: "user-1" })
+  // @ts-expect-error -- Custom async functions require an explicit semantic cache projection.
+  createReactGate(customGateTypeTest)
+  const customReactGate = createReactGate(customGateTypeTest, {
+    cacheKey: (accountId) => accountId,
+  })
+  // @ts-expect-error -- Cache projections only accept the supported recursive key domain.
+  createReactGate(customGateTypeTest, { cacheKey: () => 1n })
+  customReactGate("account-1", "trace-1")
+  customReactGate.invalidate("account-1", "trace-2")
+}
+
+void assertCreateReactGateTypes
 
 describe("createReactGateCache", () => {
   test("uses least-recently-used eviction after evaluations settle", async () => {
@@ -162,9 +182,30 @@ describe("createReactGate", () => {
     expect(gateFn).toHaveBeenCalledTimes(1)
   })
 
+  test("omits evaluator options when no identity is provided", async () => {
+    const gateFn = mock((_options?: GateCallOptions<Identity>) => Promise.resolve(true))
+    const useBetaAccess = createReactGate(gateFn)
+
+    await act(async () => {
+      render(
+        <Suspense fallback="Loading">
+          <GateValue gate={useBetaAccess} />
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId("value").textContent).toBe("true")
+    })
+
+    expect(gateFn.mock.calls[0]).toEqual([])
+  })
+
   test("uses stable identity keys", async () => {
     type TestIdentity = Identity & { plan: string }
-    const gateFn = mock((identity?: TestIdentity) => Promise.resolve(identity?.plan === "pro"))
+    const gateFn = mock((options?: GateCallOptions<TestIdentity>) =>
+      Promise.resolve(options?.identity?.plan === "pro")
+    )
     const useBetaAccess = createReactGate(gateFn)
     const firstIdentity = { distinctId: "user-1", plan: "pro" }
     const sameIdentity = Object.fromEntries([
@@ -188,9 +229,112 @@ describe("createReactGate", () => {
     expect(gateFn).toHaveBeenCalledTimes(1)
   })
 
+  test("uses a custom cache projection for lookup and invalidation", async () => {
+    const gateFn = mock((_accountId: string, _traceId: string) => Promise.resolve(true))
+    const useAccountGate = createReactGate(gateFn, {
+      cacheKey: (accountId) => accountId,
+    })
+
+    function AccountGateValue({ revision, traceId }: { revision: number; traceId: string }) {
+      return (
+        <div data-revision={revision} data-testid="custom-value">
+          {String(useAccountGate("account-1", traceId))}
+        </div>
+      )
+    }
+
+    let rendered!: ReturnType<typeof render>
+    await act(async () => {
+      rendered = render(
+        <Suspense fallback="Loading">
+          <AccountGateValue revision={0} traceId="trace-1" />
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId("custom-value").textContent).toBe("true")
+    })
+
+    await act(async () => {
+      rendered.rerender(
+        <Suspense fallback="Loading">
+          <AccountGateValue revision={1} traceId="trace-2" />
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
+    expect(gateFn).toHaveBeenCalledTimes(1)
+
+    useAccountGate.invalidate("account-1", "ignored-trace")
+    await act(async () => {
+      rendered.rerender(
+        <Suspense fallback="Loading">
+          <AccountGateValue revision={2} traceId="trace-3" />
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(gateFn).toHaveBeenCalledTimes(2)
+    })
+    expect(gateFn).toHaveBeenLastCalledWith("account-1", "trace-3")
+  })
+
+  test("keeps undefined record values distinct in custom cache keys", async () => {
+    const gateFn = mock((_key: "empty" | "undefined") => Promise.resolve(true))
+    const useCustomGate = createReactGate(gateFn, {
+      cacheKey: (key) => (key === "empty" ? {} : { value: undefined }),
+    })
+
+    function CustomGateValue({ cacheKey }: { cacheKey: "empty" | "undefined" }) {
+      return <div data-testid="custom-key-value">{String(useCustomGate(cacheKey))}</div>
+    }
+
+    await act(async () => {
+      render(
+        <Suspense fallback="Loading">
+          <CustomGateValue cacheKey="empty" />
+          <CustomGateValue cacheKey="undefined" />
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(screen.getAllByTestId("custom-key-value")).toHaveLength(2)
+    })
+
+    expect(gateFn).toHaveBeenCalledTimes(2)
+  })
+
+  test("serializes recursive custom cache keys", async () => {
+    const recursiveKey: { self?: ReactGateCacheKey } = {}
+    recursiveKey.self = recursiveKey
+    const gateFn = mock(() => Promise.resolve(true))
+    const useCustomGate = createReactGate(gateFn, { cacheKey: () => recursiveKey })
+
+    function RecursiveKeyValue() {
+      return <div data-testid="recursive-key-value">{String(useCustomGate())}</div>
+    }
+
+    await act(async () => {
+      render(
+        <Suspense fallback="Loading">
+          <RecursiveKeyValue />
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId("recursive-key-value").textContent).toBe("true")
+    })
+
+    expect(gateFn).toHaveBeenCalledTimes(1)
+  })
+
   test("evaluates different identities independently", async () => {
-    const gateFn = mock((identity?: Identity) =>
-      Promise.resolve(identity?.distinctId === "enabled")
+    const gateFn = mock((options?: GateCallOptions<Identity>) =>
+      Promise.resolve(options?.identity?.distinctId === "enabled")
     )
     const useBetaAccess = createReactGate(gateFn)
 
@@ -213,8 +357,8 @@ describe("createReactGate", () => {
   test("keeps concurrent pending identities stable beyond the settled-entry bound", async () => {
     const first = deferred<boolean>()
     const second = deferred<boolean>()
-    const gateFn = mock((identity?: Identity) =>
-      identity?.distinctId === "first" ? first.promise : second.promise
+    const gateFn = mock((options?: GateCallOptions<Identity>) =>
+      options?.identity?.distinctId === "first" ? first.promise : second.promise
     )
     const useBetaAccess = createReactGate(gateFn, { maxEntries: 1 })
 
@@ -546,13 +690,13 @@ describe("FeatureGate", () => {
     expect(screen.getByTestId("feature").textContent).toBe("Dark")
   })
 
-  test("passes the override identity to the gate", () => {
+  test("passes the identity to the gate", () => {
     type TestIdentity = Identity & { plan: "free" | "pro" }
     const gate = mock((identity?: TestIdentity) => identity?.plan === "pro")
     const identity: TestIdentity = { distinctId: "user-1", plan: "pro" }
 
     render(
-      <FeatureGate gate={gate} overrideIdentity={identity}>
+      <FeatureGate gate={gate} identity={identity}>
         <div data-testid="feature">Pro</div>
       </FeatureGate>
     )

@@ -153,7 +153,7 @@ describe("buildGate", () => {
     })
     const betaFlag = gate({ defaultValue: false, key: "beta-access" })
 
-    expect(await betaFlag.details(overrideIdentity)).toEqual({
+    expect(await betaFlag.details({ identity: overrideIdentity })).toEqual({
       flagKey: "beta-access",
       source: "provider",
       value: true,
@@ -251,11 +251,33 @@ describe("buildGate", () => {
     })
 
     const betaFlag = gate({ defaultValue: false, key: "beta-access" })
-    const result = await betaFlag(overrideIdentity)
+    const result = await betaFlag({ identity: overrideIdentity })
 
     expect(result).toBe(true)
     expect(identifyFn).not.toHaveBeenCalled()
     expect(decideFn).toHaveBeenCalledWith("beta-access", overrideIdentity)
+  })
+
+  test("rejects the legacy bare-identity call shape", async () => {
+    const gate = buildGate({
+      decide: () => Promise.reject(new Error("unreachable")),
+      identify: () => ({ distinctId: "default" }),
+    })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+
+    const evaluationError = await betaFlag({ distinctId: "legacy" } as never).catch(
+      (error: unknown) => error
+    )
+    const detailsError = await betaFlag
+      .details({ distinctId: "legacy" } as never)
+      .catch((error: unknown) => error)
+
+    expect(evaluationError).toBeInstanceOf(TypeError)
+    expect(evaluationError).toHaveProperty(
+      "message",
+      "Gate evaluators now accept an options object; pass the identity as { identity }."
+    )
+    expect(detailsError).toBeInstanceOf(TypeError)
   })
 
   test("passes hooks to gate execution", async () => {

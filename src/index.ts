@@ -12,6 +12,7 @@ export type {
   Decision,
   DecisionSource,
   EvaluationDetails,
+  GateCallOptions,
   GateEvaluator,
   GatedConfig,
   Hook,
