@@ -5,6 +5,19 @@ import { cacheHook, dedupeHook } from "../recipes"
 const providerMeta = { source: "provider" } as const
 const BOOLEAN_HOOK_CONTEXT = { defaultValue: false, kind: "boolean" } as const
 
+async function expectRejection(promise: Promise<unknown>, message: string) {
+  let caughtError: unknown
+
+  try {
+    await promise
+  } catch (error) {
+    caughtError = error
+  }
+
+  expect(caughtError).toBeInstanceOf(Error)
+  expect(caughtError).toMatchObject({ message })
+}
+
 describe("cacheHook", () => {
   test("resolves from cache if available", async () => {
     const cachedDecision: Decision = { value: true }
@@ -44,7 +57,7 @@ describe("cacheHook", () => {
     expect(result).toBeUndefined()
   })
 
-  test("ignores a cached decision whose shape does not match the gate", async () => {
+  test("rejects a cached decision whose shape does not match the gate", async () => {
     const cache = {
       get: mock(() => Promise.resolve<Decision>({ value: true })),
       set: mock(() => Promise.resolve()),
@@ -58,9 +71,31 @@ describe("cacheHook", () => {
       variants: ["light", "dark"],
     }
 
-    const result = await Promise.resolve(hook.resolve?.(context))
+    await expectRejection(
+      Promise.resolve(hook.resolve?.(context)),
+      "Cached decision type mismatch: expected variant decision but received boolean"
+    )
+    expect(cache.get).toHaveBeenCalledWith("theme:user123")
+  })
 
-    expect(result).toBeUndefined()
+  test("rejects a cached variant that the gate no longer supports", async () => {
+    const cache = {
+      get: mock(() => Promise.resolve<Decision>({ variant: "dark" })),
+      set: mock(() => Promise.resolve()),
+    }
+    const hook = cacheHook(cache)
+    const context: HookContext = {
+      defaultValue: "light",
+      flagKey: "theme",
+      identity: { distinctId: "user123" },
+      kind: "variant",
+      variants: ["light", "system"],
+    }
+
+    await expectRejection(
+      Promise.resolve(hook.resolve?.(context)),
+      "Cached decision contains invalid variant: dark"
+    )
     expect(cache.get).toHaveBeenCalledWith("theme:user123")
   })
 

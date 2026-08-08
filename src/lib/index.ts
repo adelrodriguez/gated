@@ -34,6 +34,12 @@ type GateOptions<T extends string[]> = {
   variants?: T
 }
 
+function getGateConfiguration(
+  variants?: readonly string[]
+): { kind: "boolean" } | { kind: "variant"; variants: readonly string[] } {
+  return variants ? { kind: "variant", variants } : { kind: "boolean" }
+}
+
 type HookErrorReporter<TIdentity extends Identity> = GatedConfig<TIdentity>["onHookError"]
 
 function reportHookError<TIdentity extends Identity>(
@@ -183,21 +189,22 @@ export async function runFinallyHooks<TIdentity extends Identity>(
 
 export function validateDecision<T extends string[]>(decision: Decision, options: GateOptions<T>) {
   const isVariant = "variant" in decision
+  const gateConfiguration = getGateConfiguration(options.variants)
 
-  if (options.variants && !isVariant) {
+  if (gateConfiguration.kind === "variant" && !isVariant) {
     throw new DecisionTypeMismatchError("variant", decision)
   }
 
-  if (!options.variants && isVariant) {
+  if (gateConfiguration.kind === "boolean" && isVariant) {
     throw new DecisionTypeMismatchError("boolean", decision)
   }
 
-  if (!isVariant || !options.variants) {
+  if (!isVariant || gateConfiguration.kind === "boolean") {
     return
   }
 
-  if (!options.variants.includes(decision.variant)) {
-    throw new InvalidVariantError(decision.variant, options.variants)
+  if (!gateConfiguration.variants.includes(decision.variant)) {
+    throw new InvalidVariantError(decision.variant, gateConfiguration.variants)
   }
 }
 
@@ -207,33 +214,47 @@ export async function executeGate<TIdentity extends Identity, T extends string[]
   overrideIdentity?: TIdentity
 ): Promise<boolean | T[number]> {
   const hooks = config.hooks ?? []
+  const gateConfiguration = getGateConfiguration(options.variants)
   const evaluation: Evaluation<TIdentity> = {
     defaultValue: options.defaultValue,
     identity: null,
     key: options.key,
-    kind: options.variants ? "variant" : "boolean",
-    variants: options.variants,
+    kind: gateConfiguration.kind,
+    variants: gateConfiguration.kind === "variant" ? gateConfiguration.variants : undefined,
   }
   // A single context object must span every phase: stateful hooks use this object's reference
   // (not its `identity` field) as an ownership token so followers cannot settle or delete
   // another evaluation's work.
-  const hookContext: HookContext<TIdentity> = {
-    get defaultValue() {
-      return evaluation.defaultValue
-    },
-    get flagKey() {
-      return evaluation.key
-    },
-    get identity() {
-      return evaluation.identity
-    },
-    get kind() {
-      return evaluation.kind
-    },
-    get variants() {
-      return evaluation.variants
-    },
-  }
+  const hookContext: HookContext<TIdentity> =
+    gateConfiguration.kind === "variant"
+      ? {
+          get defaultValue() {
+            return evaluation.defaultValue as string
+          },
+          get flagKey() {
+            return evaluation.key
+          },
+          get identity() {
+            return evaluation.identity
+          },
+          kind: "variant",
+          get variants() {
+            return gateConfiguration.variants
+          },
+        }
+      : {
+          get defaultValue() {
+            return evaluation.defaultValue as boolean
+          },
+          get flagKey() {
+            return evaluation.key
+          },
+          get identity() {
+            return evaluation.identity
+          },
+          kind: "boolean",
+          variants: undefined,
+        }
   let result: boolean | T[number] | undefined
 
   try {

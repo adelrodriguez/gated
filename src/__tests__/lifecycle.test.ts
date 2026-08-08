@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test"
-import type { Decision, Hook, HookErrorReport } from "../lib/types"
+import type { Decision, Hook, HookContext, HookErrorReport } from "../lib/types"
 import { buildGate } from "../core"
 import { cacheHook, dedupeHook } from "../hooks/recipes"
 
@@ -226,10 +226,12 @@ describe("uniform hook lifecycle", () => {
   test("cacheHook replaces a cached decision whose shape does not match the gate", async () => {
     const cache = createMemoryCache({ value: true })
     const decide = mock(() => Promise.resolve<Decision>({ variant: "dark" }))
+    const reporter = mock(() => Promise.resolve())
     const gate = buildGate({
       decide,
       hooks: [cacheHook(cache)],
       identify: () => ({ distinctId: "user123" }),
+      onHookError: reporter,
     })
     const theme = gate({ defaultValue: "light", key: "theme", variants: ["light", "dark"] })
 
@@ -238,6 +240,53 @@ describe("uniform hook lifecycle", () => {
     expect(decide).toHaveBeenCalledTimes(1)
     expect(cache.set).toHaveBeenCalledTimes(1)
     expect(cache.set).toHaveBeenCalledWith("theme:user123", { variant: "dark" })
+    expect(reporter).toHaveBeenCalledTimes(1)
+    expect(reporter).toHaveBeenCalledWith({
+      context: {
+        defaultValue: "light",
+        flagKey: "theme",
+        identity: { distinctId: "user123" },
+        kind: "variant",
+        variants: ["light", "dark"],
+      },
+      error: expect.objectContaining({
+        message: "Cached decision type mismatch: expected variant decision but received boolean",
+      }),
+      hookIndex: 0,
+      phase: "resolve",
+    })
+  })
+
+  test("cacheHook replaces a cached variant that the gate no longer supports", async () => {
+    const cache = createMemoryCache({ variant: "dark" })
+    const decide = mock(() => Promise.resolve<Decision>({ variant: "system" }))
+    const reporter = mock(() => Promise.resolve())
+    const gate = buildGate({
+      decide,
+      hooks: [cacheHook(cache)],
+      identify: () => ({ distinctId: "user123" }),
+      onHookError: reporter,
+    })
+    const theme = gate({ defaultValue: "light", key: "theme", variants: ["light", "system"] })
+
+    expect(await theme()).toBe("system")
+    expect(await theme()).toBe("system")
+    expect(decide).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledWith("theme:user123", { variant: "system" })
+    expect(reporter).toHaveBeenCalledTimes(1)
+    expect(reporter).toHaveBeenCalledWith({
+      context: {
+        defaultValue: "light",
+        flagKey: "theme",
+        identity: { distinctId: "user123" },
+        kind: "variant",
+        variants: ["light", "system"],
+      },
+      error: expect.objectContaining({ message: "Cached decision contains invalid variant: dark" }),
+      hookIndex: 0,
+      phase: "resolve",
+    })
   })
 
   test("continues to the provider after an invalid hook decision", async () => {

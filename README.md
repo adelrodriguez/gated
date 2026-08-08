@@ -89,7 +89,7 @@ Intercept the flag evaluation lifecycle with hooks. Gated supports five lifecycl
 - **`error`** - Runs when evaluation throws an error
 - **`finally`** - Always runs after evaluation completes
 
-Every lifecycle method receives a readonly context describing the evaluation: `flagKey`, resolved `identity` (or `null` before identity resolution), `kind` (`"boolean"` or `"variant"`), `defaultValue`, and `variants` for variant gates.
+Every lifecycle method receives a readonly context describing the evaluation: `flagKey`, resolved `identity` (or `null` if identity resolution failed), `kind` (`"boolean"` or `"variant"`), `defaultValue`, and `variants` for variant gates. The context is discriminated by `kind`, so checking it narrows `defaultValue` and makes `variants` available for variant gates.
 
 ```typescript
 import { createHook } from "gated"
@@ -160,7 +160,7 @@ const gate = buildGate({
 })
 ```
 
-The cache recipe ignores cached decisions whose boolean/variant shape does not match the current gate. The provider is consulted and the valid decision overwrites the stale entry.
+The cache recipe treats decisions with the wrong boolean/variant shape or an unsupported variant as stale. The mismatch is reported to `onHookError`, evaluation continues to the provider, and the valid decision overwrites the stale entry.
 
 #### Dedupe Hook
 

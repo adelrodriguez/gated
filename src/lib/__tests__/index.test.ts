@@ -349,8 +349,11 @@ describe("runResolveHooks", () => {
     const resolver: Hook = { resolve: () => validDecision }
     const hooks: Hook[] = [{ resolve: () => invalidDecision }, resolver]
     const context: HookContext = {
+      defaultValue: "current",
       flagKey: "theme",
       identity: { distinctId: "user123" },
+      kind: "variant",
+      variants: ["current"],
     }
 
     const result = await runResolveHooks(hooks, context, (decision) => {
@@ -367,6 +370,7 @@ describe("runResolveHooks", () => {
       { resolve: () => Promise.reject(new HookResolutionAbortError(undefined)) },
     ]
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }

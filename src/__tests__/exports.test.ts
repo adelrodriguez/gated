@@ -62,6 +62,18 @@ const variantEvaluator: GateEvaluator<TestIdentity, "dark" | "light"> = gate({
   variants: ["light", "dark"],
 })
 
+function readGateConfiguration(context: HookContext) {
+  if (context.kind === "boolean") {
+    const defaultValue: boolean = context.defaultValue
+    const variants: undefined = context.variants
+    return { defaultValue, variants }
+  }
+
+  const defaultValue: string = context.defaultValue
+  const variants: readonly string[] = context.variants
+  return { defaultValue, variants }
+}
+
 test("exports consumer-facing root types", () => {
   // @ts-expect-error -- HookContext no longer accepts an options type argument.
   const legacyContext: HookContext<TestIdentity, { custom: boolean }> = hookContext
@@ -74,6 +86,7 @@ test("exports consumer-facing root types", () => {
   expect(typeof evaluator).toBe("function")
   expect(typeof variantEvaluator).toBe("function")
   expect(legacyContext).toBe(hookContext)
+  expect(readGateConfiguration(hookContext)).toEqual({ defaultValue: false, variants: undefined })
   expect(new IdentityNotFoundError()).toBeInstanceOf(GatedError)
   expect(new DecisionTypeMismatchError("boolean", { variant: "dark" })).toBeInstanceOf(GatedError)
   expect(new InvalidVariantError("purple", ["light", "dark"])).toBeInstanceOf(GatedError)

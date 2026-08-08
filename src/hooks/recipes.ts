@@ -47,8 +47,24 @@ function getKey(context: HookContext) {
   return context.flagKey
 }
 
-function matchesGateKind(context: HookContext, decision: Decision): boolean {
-  return context.kind === ("variant" in decision ? "variant" : "boolean")
+function getCachedDecisionError(context: HookContext, decision: Decision): Error | undefined {
+  const decisionKind = "variant" in decision ? "variant" : "boolean"
+
+  if (context.kind !== decisionKind) {
+    return new Error(
+      `Cached decision type mismatch: expected ${context.kind} decision but received ${decisionKind}`
+    )
+  }
+
+  if (
+    context.kind === "variant" &&
+    "variant" in decision &&
+    !context.variants.includes(decision.variant)
+  ) {
+    return new Error(`Cached decision contains invalid variant: ${decision.variant}`)
+  }
+
+  return undefined
 }
 
 export const cacheHook: (cache: Cache) => Hook = createHook<Cache>((cache) => {
@@ -62,9 +78,16 @@ export const cacheHook: (cache: Cache) => Hook = createHook<Cache>((cache) => {
       consulted.add(context)
       const cacheKey = getKey(context)
       const cachedDecision = await cache.get(cacheKey)
-      return cachedDecision && matchesGateKind(context, cachedDecision)
-        ? cachedDecision
-        : undefined
+      if (!cachedDecision) {
+        return
+      }
+
+      const cachedDecisionError = getCachedDecisionError(context, cachedDecision)
+      if (cachedDecisionError) {
+        throw cachedDecisionError
+      }
+
+      return cachedDecision
     },
 
     async after(context, decision, meta) {
