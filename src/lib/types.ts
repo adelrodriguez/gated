@@ -16,9 +16,28 @@ export type Decision =
     }
   | { variant: string }
 
-export type GateEvaluator<TIdentity extends Identity, TValue extends boolean | string> = (
+type EvaluationDetailsBase<TValue> = {
+  value: TValue
+  flagKey: string
+}
+
+export type EvaluationDetails<TValue> = EvaluationDetailsBase<TValue> &
+  (
+    | { source: DecisionSource; error?: never }
+    | {
+        source: "default"
+        /**
+         * The failure that caused evaluation to use the configured default.
+         */
+        error: Error
+      }
+  )
+
+export type GateEvaluator<TIdentity extends Identity, TValue extends boolean | string> = ((
   overrideIdentity?: TIdentity
-) => Promise<TValue>
+) => Promise<TValue>) & {
+  details: (overrideIdentity?: TIdentity) => Promise<EvaluationDetails<TValue>>
+}
 
 export type MaybePromise<T> = T | Promise<T>
 

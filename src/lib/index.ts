@@ -2,6 +2,7 @@ import type {
   AfterHookMeta,
   Decision,
   DecisionSource,
+  EvaluationDetails,
   GatedConfig,
   Hook,
   HookContext,
@@ -19,7 +20,7 @@ type Evaluation<TIdentity extends Identity> = {
   kind: "boolean" | "variant"
   identity: TIdentity | null
   decision?: Decision
-  source?: DecisionSource | "default"
+  source: DecisionSource | "default"
   error?: Error
   variants?: readonly string[]
 }
@@ -212,11 +213,11 @@ export function validateDecision<T extends string[]>(decision: Decision, options
   }
 }
 
-export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
+export async function executeGateDetails<TIdentity extends Identity, T extends string[] = string[]>(
   config: GatedConfig<TIdentity>,
   options: GateOptions<T>,
   overrideIdentity?: TIdentity
-): Promise<boolean | T[number]> {
+): Promise<EvaluationDetails<boolean | T[number]>> {
   const hooks = config.hooks ?? []
   const gateConfiguration = getGateConfiguration(options.variants)
   const evaluation: Evaluation<TIdentity> = {
@@ -224,6 +225,7 @@ export async function executeGate<TIdentity extends Identity, T extends string[]
     identity: null,
     key: options.key,
     kind: gateConfiguration.kind,
+    source: "default",
     variants: gateConfiguration.kind === "variant" ? gateConfiguration.variants : undefined,
   }
   // A single context object must span every phase: stateful hooks use this object's reference
@@ -305,5 +307,23 @@ export async function executeGate<TIdentity extends Identity, T extends string[]
     await runFinallyHooks(hooks, hookContext, config.onHookError)
   }
 
-  return result ?? options.defaultValue
+  const detailsBase = {
+    flagKey: evaluation.key,
+    value: result ?? options.defaultValue,
+  }
+
+  if (evaluation.error) {
+    return { ...detailsBase, error: evaluation.error, source: "default" }
+  }
+
+  return { ...detailsBase, source: evaluation.source as DecisionSource }
+}
+
+export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
+  config: GatedConfig<TIdentity>,
+  options: GateOptions<T>,
+  overrideIdentity?: TIdentity
+): Promise<boolean | T[number]> {
+  const details = await executeGateDetails(config, options, overrideIdentity)
+  return details.value
 }
