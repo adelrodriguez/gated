@@ -7,6 +7,7 @@ import type {
   Hook,
   HookContext,
   Identity,
+  MaybePromise,
 } from "../index"
 import { buildGate } from "../index"
 
@@ -15,6 +16,7 @@ interface TestIdentity extends Identity {
 }
 
 const decision: Decision = { value: true }
+const maybeDecision: MaybePromise<Decision> = decision
 const hookContext: HookContext<TestIdentity> = {
   flagKey: "beta-access",
   identity: { distinctId: "test-user", plan: "pro" },
@@ -39,6 +41,7 @@ const variantEvaluator: GateEvaluator<TestIdentity, "dark" | "light"> = gate({
 })
 
 test("exports consumer-facing root types", () => {
+  expect(maybeDecision).toBe(decision)
   expect(typeof evaluator).toBe("function")
   expect(typeof variantEvaluator).toBe("function")
 })

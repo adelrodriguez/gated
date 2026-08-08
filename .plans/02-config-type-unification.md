@@ -1,6 +1,8 @@
 # 02 — Unify config types, accept sync functions
 
-Fixes: H9. No dependencies. Non-breaking (widens accepted types).
+**Status: Completed**
+
+Fixes: H9. No dependencies. Minor: this widens accepted implementations but callers of config members must normalize their return values before using promise methods.
 
 ## Goal
 
@@ -14,7 +16,7 @@ One source of truth for the gate configuration type. Sync `identify`/`decide` fu
 
 ## Changes
 
-- `src/lib/types.ts` — introduce `type MaybePromise<T> = T | Promise<T>` and widen `GatedConfig`:
+- `src/lib/types.ts` — introduce and export `type MaybePromise<T> = T | Promise<T>` and widen `GatedConfig`:
 
   ```ts
   export type GatedConfig<TIdentity extends Identity = Identity> = {
@@ -25,6 +27,8 @@ One source of truth for the gate configuration type. Sync `identify`/`decide` fu
   ```
 
 - `src/lib/index.ts` — delete the inline config type on `executeGate`; use `GatedConfig<TIdentity>` directly.
+- Reuse `MaybePromise` in the `identify`, `evaluateDecision`, and public hook callback signatures.
+- `src/index.ts` — export `MaybePromise` from the root entry point.
 - Sweep for other inline duplicates of the config shape (none expected beyond `executeGate`).
 
 ## Tests
@@ -37,4 +41,4 @@ One source of truth for the gate configuration type. Sync `identify`/`decide` fu
 
 ## Release
 
-- Changeset: patch (or minor). "`GatedConfig` now accepts synchronous `identify` and `decide` functions, matching runtime behavior."
+- Changeset: minor. "`GatedConfig` now accepts synchronous `identify` and `decide` functions, matching runtime behavior. Callers should wrap results with `Promise.resolve()` before chaining promise methods."
