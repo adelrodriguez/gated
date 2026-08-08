@@ -1,7 +1,7 @@
-import type { Decision, Hook, HookContext, Identity } from "./types"
+import type { Decision, GatedConfig, Hook, HookContext, Identity, MaybePromise } from "./types"
 
 export async function identify<TIdentity extends Identity>(
-  fn: () => TIdentity | null | Promise<TIdentity | null>,
+  fn: () => MaybePromise<TIdentity | null>,
   overrideIdentity?: TIdentity
 ): Promise<TIdentity> {
   if (overrideIdentity) {
@@ -37,7 +37,7 @@ export function extractDecisionValue(decision: Decision, expectedType?: "boolean
 }
 
 export async function evaluateDecision<TIdentity extends Identity>(
-  decide: (key: string, identity: TIdentity) => Decision | Promise<Decision>,
+  decide: (key: string, identity: TIdentity) => MaybePromise<Decision>,
   gateKey: string,
   gateIdentity: TIdentity,
   variants?: readonly string[]
@@ -121,11 +121,7 @@ function validateVariant(value: string, variants?: readonly string[]) {
 }
 
 export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
-  config: {
-    identify: () => TIdentity | null | Promise<TIdentity | null>
-    decide: (key: string, identity: TIdentity) => Decision | Promise<Decision>
-    hooks?: Array<Hook<TIdentity>>
-  },
+  config: GatedConfig<TIdentity>,
   options: {
     key: string
     defaultValue: boolean | T[number]

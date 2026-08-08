@@ -12,6 +12,17 @@ describe("buildGate", () => {
     expect(typeof gate).toBe("function")
   })
 
+  test("accepts synchronous identify and decide functions", async () => {
+    const gate = buildGate({
+      decide: (_key, identity) => ({ value: identity.distinctId === "user123" }),
+      identify: () => ({ distinctId: "user123" }),
+    })
+
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaFlag()).toBe(true)
+  })
+
   test("creates boolean flag that evaluates to true", async () => {
     const identity: Identity = { distinctId: "user123" }
     const decision: Decision = { value: true }

@@ -218,11 +218,14 @@ Creates a gate factory function for evaluating feature flags.
 
 ```typescript
 const gate = buildGate({
-  identify: () => Promise<TIdentity>,
-  decide: (key: string, identity: TIdentity) => Promise<Decision>,
+  identify: () => TIdentity | null | Promise<TIdentity | null>,
+  decide: (key: string, identity: TIdentity) => Decision | Promise<Decision>,
   hooks?: Hook[]
 })
 ```
+
+Configuration functions may return their values directly or as promises. When calling them from
+wrapper code, use `Promise.resolve(config.identify()).then(...)` before chaining promise methods.
 
 Returns a gate factory function that creates individual feature flags.
 

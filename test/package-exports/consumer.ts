@@ -6,6 +6,7 @@ import type {
   Hook,
   HookContext,
   Identity,
+  MaybePromise,
 } from "gated"
 import { buildGate } from "gated"
 
@@ -19,6 +20,7 @@ declare const hook: Hook<ConsumerIdentity>
 declare const hookContext: HookContext<ConsumerIdentity>
 
 const factory: GateFactory<ConsumerIdentity> = buildGate(config)
+const maybeDecision: MaybePromise<Decision> = decision
 const booleanGate: GateEvaluator<ConsumerIdentity, boolean> = factory({
   defaultValue: false,
   key: "beta-access",
@@ -38,6 +40,7 @@ void booleanGate
 void decision
 void hook
 void hookContext
+void maybeDecision
 void (null as unknown as InvalidIdentityEvaluator)
 void (null as unknown as InvalidValueEvaluator)
 void variantGate

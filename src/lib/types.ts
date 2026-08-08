@@ -18,6 +18,8 @@ export type GateEvaluator<TIdentity extends Identity, TValue extends boolean | s
   overrideIdentity?: TIdentity
 ) => Promise<TValue>
 
+export type MaybePromise<T> = T | Promise<T>
+
 export type HookContext<
   TIdentity extends Identity = Identity,
   TOptions extends Record<string, unknown> = Record<string, unknown>,
@@ -27,15 +29,15 @@ export type HookContext<
 } & TOptions
 
 export interface Hook<T extends Identity = Identity> {
-  before?(hookContext: HookContext<T>): void | Promise<void>
-  resolve?(hookContext: HookContext<T>): Decision | undefined | Promise<Decision | undefined>
-  after?(hookContext: HookContext<T>, decision: Decision): void | Promise<void>
-  error?(hookContext: HookContext<T>, error: unknown): void | Promise<void>
-  finally?(hookContext: HookContext<T>): void | Promise<void>
+  before?(hookContext: HookContext<T>): MaybePromise<void>
+  resolve?(hookContext: HookContext<T>): MaybePromise<Decision | undefined>
+  after?(hookContext: HookContext<T>, decision: Decision): MaybePromise<void>
+  error?(hookContext: HookContext<T>, error: unknown): MaybePromise<void>
+  finally?(hookContext: HookContext<T>): MaybePromise<void>
 }
 
 export type GatedConfig<TIdentity extends Identity = Identity> = {
-  identify: () => Promise<TIdentity | null>
-  decide: (key: string, identity: TIdentity) => Promise<Decision>
+  identify: () => MaybePromise<TIdentity | null>
+  decide: (key: string, identity: TIdentity) => MaybePromise<Decision>
   hooks?: Array<Hook<TIdentity>>
 }
