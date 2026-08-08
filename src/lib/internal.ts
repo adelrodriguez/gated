@@ -1,8 +1,30 @@
+import type { IdentityValue } from "./types"
+
 class HookControlError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options)
     this.name = "HookControlError"
   }
+}
+
+export function normalizeError(error: IdentityValue): Error {
+  if (error instanceof Error) {
+    return error
+  }
+
+  if (typeof error === "object" && error !== null) {
+    try {
+      return new Error(JSON.stringify(error) || "Non-Error object thrown")
+    } catch {
+      return new Error("Non-Error object thrown")
+    }
+  }
+
+  if (typeof error === "function") {
+    return new Error("Non-Error function thrown")
+  }
+
+  return new Error(String(error))
 }
 
 export class DedupeOwnerFinalizationError extends HookControlError {
@@ -16,10 +38,10 @@ export class DedupeOwnerFinalizationError extends HookControlError {
 }
 
 export class HookResolutionAbortError extends HookControlError {
-  readonly originalError: unknown
+  readonly originalError: Error
 
-  constructor(error: unknown) {
-    super(error instanceof Error ? error.message : "Hook resolution aborted", { cause: error })
+  constructor(error = new Error("Hook resolution aborted")) {
+    super(error.message, { cause: error })
     this.name = "HookResolutionAbortError"
     this.originalError = error
   }

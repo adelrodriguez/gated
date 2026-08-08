@@ -10,6 +10,7 @@ import type {
   HookContext,
   HookErrorReport,
   Identity,
+  IdentityValue,
   MaybePromise,
 } from "../index"
 import {
@@ -27,6 +28,7 @@ interface TestIdentity extends Identity {
 const decision: Decision = { value: true }
 const decisionSource: DecisionSource = "provider"
 const maybeDecision: MaybePromise<Decision> = decision
+const identityValue: IdentityValue = { plan: "pro" }
 const hookContext: HookContext<TestIdentity> = {
   defaultValue: false,
   flagKey: "beta-access",
@@ -82,6 +84,7 @@ test("exports consumer-facing root types", () => {
   expect(hookAfterMeta.resolver).toBe(hook)
   expect(hookErrorReport.context).toBe(hookContext)
   expect(invalidHookAfterMeta.source).toBe("hook")
+  expect(identityValue).toEqual({ plan: "pro" })
   expect(maybeDecision).toBe(decision)
   expect(typeof evaluator).toBe("function")
   expect(typeof variantEvaluator).toBe("function")

@@ -4,7 +4,7 @@ import { buildGate } from "../core"
 import { cacheHook, dedupeHook } from "../hooks/recipes"
 
 function createDeferred<T>() {
-  let rejectDeferred!: (reason?: unknown) => void
+  let rejectDeferred!: (reason?: Error) => void
   let resolveDeferred!: (value: T | PromiseLike<T>) => void
   const promise = new Promise<T>((resolve, reject) => {
     rejectDeferred = reject
@@ -39,6 +39,16 @@ async function settleWithin<T>(promise: Promise<T>, timeoutMs = 100): Promise<T>
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function expectRejection<T>(promise: Promise<T>): Promise<Error> {
+  try {
+    await promise
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error))
+  }
+
+  throw new Error("Expected promise to reject")
 }
 
 function createFailingHook(
@@ -124,8 +134,8 @@ describe("uniform hook lifecycle", () => {
   })
 
   test("handles a leader rejection when there are no followers", async () => {
-    const unhandledRejections: unknown[] = []
-    const onUnhandledRejection = (error: unknown) => unhandledRejections.push(error)
+    const unhandledRejections: Error[] = []
+    const onUnhandledRejection = (error: Error) => unhandledRejections.push(error)
     process.on("unhandledRejection", onUnhandledRejection)
 
     try {
@@ -454,14 +464,9 @@ describe("uniform hook lifecycle", () => {
     await Bun.sleep(0)
     const follower = betaAccess()
 
-    await settleWithin(follower, 5).then(
-      () => {
-        throw new Error("Expected the consumer timeout to win")
-      },
-      (error: unknown) => {
-        expect((error as Error).message).toBe("Evaluation timed out")
-      }
-    )
+    const error = await expectRejection(settleWithin(follower, 5))
+
+    expect(error.message).toBe("Evaluation timed out")
 
     providerResult.resolve({ value: true })
     expect(await settleWithin(leader)).toBe(true)
@@ -541,6 +546,49 @@ describe("hook error policy", () => {
       })
     }
   }
+
+  test("normalizes non-Error hook failures before reporting them", async () => {
+    const reporter = mock(() => Promise.resolve())
+    const gate = buildGate({
+      decide: () => ({ value: true }),
+      hooks: [
+        {
+          before() {
+            const malformedFailure = "Hook failed" as never
+            // oxlint-disable-next-line no-throw-literal, only-throw-error -- Simulate malformed JavaScript.
+            throw malformedFailure
+          },
+        },
+      ],
+      identify: () => ({ distinctId: "user123" }),
+      onHookError: reporter,
+    })
+
+    expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(true)
+    await Bun.sleep(0)
+    expect(reporter).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.objectContaining({ message: "Hook failed" }) })
+    )
+  })
+
+  test("normalizes non-Error gate failures before running error hooks", async () => {
+    const onError = mock(() => Promise.resolve())
+    const gate = buildGate({
+      decide() {
+        const malformedFailure = "Provider failed" as never
+        // oxlint-disable-next-line no-throw-literal, only-throw-error -- Simulate malformed JavaScript.
+        throw malformedFailure
+      },
+      hooks: [{ error: onError }],
+      identify: () => ({ distinctId: "user123" }),
+    })
+
+    expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(false)
+    expect(onError).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ message: "Provider failed" })
+    )
+  })
 
   for (const reporterBehavior of ["throws", "rejects", "never settles"] as const) {
     test(`does not wait when onHookError ${reporterBehavior}`, async () => {

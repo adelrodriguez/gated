@@ -9,6 +9,7 @@ import type {
   HookContext,
   HookErrorReport,
   Identity,
+  IdentityValue,
   MaybePromise,
 } from "gated"
 import {
@@ -44,6 +45,7 @@ const hookErrorReport: HookErrorReport<ConsumerIdentity> = {
   phase: "before",
 }
 const maybeDecision: MaybePromise<Decision> = decision
+const identityValue: IdentityValue = { plan: "pro" }
 const booleanGate: GateEvaluator<ConsumerIdentity, boolean> = factory({
   defaultValue: false,
   key: "beta-access",
@@ -67,10 +69,11 @@ void hookAfterMeta
 void hookContext
 void hookErrorReport
 void identityError
+void identityValue
 void invalidHookAfterMeta
 void mismatchError
 void maybeDecision
-void (null as unknown as InvalidIdentityEvaluator)
-void (null as unknown as InvalidValueEvaluator)
+void (null as never as InvalidIdentityEvaluator)
+void (null as never as InvalidValueEvaluator)
 void variantError
 void variantGate

@@ -11,14 +11,14 @@ export interface Cache {
 interface PendingRequest {
   owner: HookContext
   promise: Promise<Decision>
-  reject: (error: unknown) => void
+  reject: (error: Error) => void
   resolve: (decision: Decision) => void
 }
 
 function createPendingRequest(owner: HookContext): PendingRequest {
   let controls:
     | {
-        reject: (error: unknown) => void
+        reject: (error: Error) => void
         resolve: (decision: Decision) => void
       }
     | undefined

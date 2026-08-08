@@ -59,6 +59,15 @@ function assertPositiveNumber(value: number, name: string): void {
   }
 }
 
+async function evictOnRejection<T>(evaluation: Promise<T>, onRejected: () => void): Promise<T> {
+  try {
+    return await evaluation
+  } catch (error) {
+    onRejected()
+    throw error
+  }
+}
+
 /**
  * Creates a bounded promise cache for React gates.
  *
@@ -202,15 +211,14 @@ export function createReactGate<TIdentity extends Identity, TValue extends boole
 
     if (!promise) {
       const evaluation = gateFn(overrideIdentity)
-      const cachedEvaluation = evaluation.catch((error: unknown) => {
-        // React must observe the rejected promise on its retry render. Defer eviction until the
-        // next task, and do not delete a newer evaluation that reused this key in the meantime.
+      // React must observe the rejected promise on its retry render. Defer eviction until the
+      // next task, and do not delete a newer evaluation that reused this key in the meantime.
+      const cachedEvaluation = evictOnRejection(evaluation, () => {
         setTimeout(() => {
           if (cache.get(key) === cachedEvaluation) {
             cache.delete(key)
           }
         }, 0)
-        throw error
       })
       cache.set(key, cachedEvaluation)
       promise = cachedEvaluation

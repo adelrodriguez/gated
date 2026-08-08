@@ -7,10 +7,11 @@ import type {
   HookContext,
   HookErrorReport,
   Identity,
+  IdentityValue,
   MaybePromise,
 } from "./types"
 import { DecisionTypeMismatchError, IdentityNotFoundError, InvalidVariantError } from "./errors"
-import { HookResolutionAbortError } from "./internal"
+import { HookResolutionAbortError, normalizeError } from "./internal"
 
 type Evaluation<TIdentity extends Identity> = {
   defaultValue: boolean | string
@@ -19,7 +20,7 @@ type Evaluation<TIdentity extends Identity> = {
   identity: TIdentity | null
   decision?: Decision
   source?: DecisionSource | "default"
-  error?: unknown
+  error?: Error
   variants?: readonly string[]
 }
 
@@ -58,16 +59,17 @@ function reportHookError<TIdentity extends Identity>(
 }
 
 function reportRejectedHooks<TIdentity extends Identity>(
-  results: Array<PromiseSettledResult<unknown>>,
+  results: Array<PromiseSettledResult<void>>,
   phase: HookErrorReport["phase"],
   hookContext: HookContext<TIdentity>,
   reporter: HookErrorReporter<TIdentity>
 ) {
   results.forEach((result, hookIndex) => {
     if (result.status === "rejected") {
+      const error = normalizeError(result.reason as IdentityValue)
       reportHookError(reporter, {
         context: hookContext,
-        error: result.reason,
+        error,
         hookIndex,
         phase,
       })
@@ -134,12 +136,14 @@ export async function runResolveHooks<TIdentity extends Identity>(
       }
     } catch (error) {
       if (error instanceof HookResolutionAbortError) {
-        throw error.originalError instanceof Error ? error.originalError : error
+        throw error.originalError
       }
+
+      const hookError = normalizeError(error as IdentityValue)
 
       reportHookError(reporter, {
         context: hookContext,
-        error,
+        error: hookError,
         hookIndex,
         phase: "resolve",
       })
@@ -167,7 +171,7 @@ export async function runAfterHooks<TIdentity extends Identity>(
 export async function runErrorHooks<TIdentity extends Identity>(
   hooks: Array<Hook<TIdentity>>,
   hookContext: HookContext<TIdentity>,
-  error: unknown,
+  error: Error,
   reporter?: HookErrorReporter<TIdentity>
 ) {
   const tasks = hooks.map((hook) => Promise.resolve().then(() => hook.error?.(hookContext, error)))
@@ -292,10 +296,11 @@ export async function executeGate<TIdentity extends Identity, T extends string[]
 
     result = extractDecisionValue(evaluation.decision)
   } catch (error) {
+    const gateError = normalizeError(error as IdentityValue)
     // Plan 07 exposes these forward-looking evaluation details to package consumers.
-    evaluation.error = error
+    evaluation.error = gateError
     evaluation.source = "default"
-    await runErrorHooks(hooks, hookContext, error, config.onHookError)
+    await runErrorHooks(hooks, hookContext, gateError, config.onHookError)
   } finally {
     await runFinallyHooks(hooks, hookContext, config.onHookError)
   }

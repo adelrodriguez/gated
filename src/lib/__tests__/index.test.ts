@@ -17,13 +17,13 @@ import { HookResolutionAbortError } from "../internal"
 
 const BOOLEAN_HOOK_CONTEXT = { defaultValue: false, kind: "boolean" } as const
 
-async function expectRejection(promise: Promise<unknown>, message: string) {
-  let caughtError: unknown
+async function expectRejection<T>(promise: Promise<T>, message: string) {
+  let caughtError: Error | undefined
 
   try {
     await promise
   } catch (error) {
-    caughtError = error
+    caughtError = error instanceof Error ? error : new Error(String(error))
   }
 
   expect(caughtError).toBeInstanceOf(Error)

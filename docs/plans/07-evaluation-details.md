@@ -22,7 +22,7 @@ export type EvaluationDetails<TValue> = {
   value: TValue
   source: "hook" | "provider" | "default"
   /** Present when source is "default" because of a failure */
-  error?: unknown
+  error?: Error
   flagKey: string
 }
 ```

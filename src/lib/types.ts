@@ -1,12 +1,14 @@
 /**
  * The identity of the user for evaluation of the flags
  */
+export type IdentityValue = bigint | boolean | number | object | string | symbol | null | undefined
+
 export type Identity = {
   /**
    * A unique identifier for the user
    */
   distinctId: string | number
-} & Record<string, unknown>
+} & Record<string, IdentityValue>
 
 export type Decision =
   | {
@@ -48,7 +50,7 @@ export type AfterHookMeta<TIdentity extends Identity = Identity> =
 export type HookErrorReport<TIdentity extends Identity = Identity> = {
   phase: "before" | "resolve" | "after" | "error" | "finally"
   hookIndex: number
-  error: unknown
+  error: Error
   context: HookContext<TIdentity>
 }
 
@@ -60,7 +62,7 @@ export interface Hook<T extends Identity = Identity> {
     decision: Decision,
     meta: AfterHookMeta<T>
   ): MaybePromise<void>
-  error?(hookContext: HookContext<T>, error: unknown): MaybePromise<void>
+  error?(hookContext: HookContext<T>, error: Error): MaybePromise<void>
   finally?(hookContext: HookContext<T>): MaybePromise<void>
 }
 

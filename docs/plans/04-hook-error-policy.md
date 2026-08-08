@@ -20,7 +20,7 @@ Add an optional reporter to `GatedConfig`:
 type HookErrorReport<TIdentity extends Identity> = {
   phase: "before" | "resolve" | "after" | "error" | "finally"
   hookIndex: number
-  error: unknown
+  error: Error
   context: HookContext<TIdentity>
 }
 

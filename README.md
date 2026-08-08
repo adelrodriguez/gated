@@ -310,7 +310,7 @@ const myHook = createHook((options: TOptions) => ({
   before?: (context: HookContext) => void | Promise<void>,
   resolve?: (context: HookContext) => Decision | undefined | Promise<Decision | undefined>,
   after?: (context: HookContext, decision: Decision) => void | Promise<void>,
-  error?: (context: HookContext, error: unknown) => void | Promise<void>,
+  error?: (context: HookContext, error: Error) => void | Promise<void>,
   finally?: (context: HookContext) => void | Promise<void>
 }))
 ```

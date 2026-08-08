@@ -9,12 +9,14 @@ Delivers: API opportunity #5. Depends on: 03, 06, 07. Breaking (`Decision` shape
 ## Design
 
 ```ts
+type JsonValue = boolean | number | string | null | JsonValue[] | { [key: string]: JsonValue }
+
 // Before (src/lib/types.ts:11-15)
 export type Decision = { value: boolean } | { variant: string }
 
 // After
 export type Decision =
-  { type: "boolean"; value: boolean } | { type: "variant"; variant: string; payload?: unknown }
+  { type: "boolean"; value: boolean } | { type: "variant"; variant: string; payload?: JsonValue }
 ```
 
 - All `"variant" in decision` checks (src/lib/index.ts:21,47; hooks/index tests) become `decision.type === "variant"`.
@@ -24,7 +26,7 @@ export type Decision =
   ```ts
   export const decision = {
     boolean: (value: boolean): Decision => ({ type: "boolean", value }),
-    variant: (variant: string, payload?: unknown): Decision => ({
+    variant: (variant: string, payload?: JsonValue): Decision => ({
       type: "variant",
       variant,
       payload,

@@ -5,17 +5,21 @@ import { cacheHook, dedupeHook } from "../recipes"
 const providerMeta = { source: "provider" } as const
 const BOOLEAN_HOOK_CONTEXT = { defaultValue: false, kind: "boolean" } as const
 
-async function expectRejection(promise: Promise<unknown>, message: string) {
-  let caughtError: unknown
+async function expectRejection<T>(promise: Promise<T>, message: string) {
+  let caughtError: Error | undefined
 
   try {
     await promise
   } catch (error) {
-    caughtError = error
+    caughtError = error instanceof Error ? error : new Error(String(error))
   }
 
   expect(caughtError).toBeInstanceOf(Error)
   expect(caughtError).toMatchObject({ message })
+  if (!caughtError) {
+    throw new Error("Expected promise to reject")
+  }
+  return caughtError
 }
 
 describe("cacheHook", () => {
@@ -240,14 +244,12 @@ describe("cacheHook", () => {
       identity: { distinctId: "user123" },
     }
 
-    await Promise.resolve(hook.resolve?.(context)).then(
-      () => {
-        throw new Error("Expected cache read to fail")
-      },
-      (error: unknown) => {
-        expect((error as Error).message).toBe("Cache read error")
-      }
+    const error = await expectRejection(
+      Promise.resolve(hook.resolve?.(context)),
+      "Cache read error"
     )
+
+    expect(error.message).toBe("Cache read error")
   })
 
   test("handles cache.set errors", async () => {
@@ -265,14 +267,12 @@ describe("cacheHook", () => {
     const decision: Decision = { value: true }
 
     await Promise.resolve(hook.resolve?.(context))
-    await Promise.resolve(hook.after?.(context, decision, providerMeta)).then(
-      () => {
-        throw new Error("Expected cache write to fail")
-      },
-      (error: unknown) => {
-        expect((error as Error).message).toBe("Cache write error")
-      }
+    const error = await expectRejection(
+      Promise.resolve(hook.after?.(context, decision, providerMeta)),
+      "Cache write error"
     )
+
+    expect(error.message).toBe("Cache write error")
   })
 
   test("full cache flow: miss then hit", async () => {
@@ -432,14 +432,9 @@ describe("dedupeHook", () => {
     await Promise.resolve(hook.error?.(context, error))
 
     // Second request should reject with same error
-    await secondResolvePromise.then(
-      () => {
-        throw new Error("Expected deduplicated request to fail")
-      },
-      (error: unknown) => {
-        expect((error as Error).message).toBe("API failed")
-      }
-    )
+    const rejectedError = await expectRejection(secondResolvePromise, "API failed")
+
+    expect(rejectedError.message).toBe("API failed")
   })
 
   test("cleans up pending requests after success", async () => {
