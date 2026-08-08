@@ -195,10 +195,10 @@ Intercept the flag evaluation lifecycle with hooks. Gated supports five lifecycl
 Every lifecycle method receives a readonly context describing the evaluation: `flagKey`, resolved `identity` (or `null` if identity resolution failed), `kind` (`"boolean"` or `"variant"`), `defaultValue`, and `variants` for variant gates. The context is discriminated by `kind`, so checking it narrows `defaultValue` and makes `variants` available for variant gates.
 
 ```typescript
-import { createHook } from "gated"
+import { defineHook } from "gated"
 
 // Create a custom logging hook
-const loggingHook = createHook(() => ({
+const loggingHook = defineHook({
   before: async (context) => {
     console.log(`Evaluating flag: ${context.flagKey}`)
   },
@@ -208,13 +208,13 @@ const loggingHook = createHook(() => ({
   error: async (context, error) => {
     console.error(`Error evaluating ${context.flagKey}:`, error)
   },
-}))
+})
 
 // Add hooks when building your gate
 const gate = buildGate({
   identify: async () => ({ distinctId: userId }),
   decide: async (key, identity) => provider.evaluate(key, identity),
-  hooks: [loggingHook()],
+  hooks: [loggingHook],
   onHookError: ({ phase, hookIndex, error }) => {
     console.error(`Hook ${hookIndex} failed during ${phase}`, error)
   },
@@ -425,12 +425,16 @@ type GateEvaluator<
 See [Evaluation Details](#evaluation-details) for the result shape returned by `details()`.
 Both the evaluator and `details()` accept an optional options object. Override identity resolution with `{ identity }`.
 
-#### `createHook<TOptions>(factory)`
+#### `defineHook(hook)` / `defineHook<TOptions>(factory)`
 
-Creates a reusable hook with typed options. See Hook System section for lifecycle methods.
+Defines a hook directly or a reusable hook factory with typed options. Factory invocations can keep isolated state in their closure. See Hook System for lifecycle methods.
 
 ```typescript
-const myHook = createHook((options: TOptions) => ({
+const loggingHook = defineHook({
+  before: (context) => console.log(context.flagKey),
+})
+
+const prefixedHook = defineHook((options: TOptions) => ({
   before?: (context: HookContext) => void | Promise<void>,
   resolve?: (context: HookContext) => Decision | undefined | Promise<Decision | undefined>,
   after?: (context: HookContext, decision: Decision) => void | Promise<void>,
