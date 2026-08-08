@@ -96,6 +96,29 @@ if (details.source === "default") {
 
 Details include the evaluated `value`, `flagKey`, and `source` (`"hook"`, `"provider"`, or `"default"`). When evaluation falls back because of a failure, `error` contains the underlying error. Like plain evaluation, `details()` accepts an optional call-options object and never rejects.
 
+### Timeouts and Cancellation
+
+Timeouts are opt-in and may be configured for every gate from a factory or overridden for one gate:
+
+```typescript
+const gate = buildGate({
+  identify,
+  decide: async (key, identity, { signal } = {}) => provider.evaluate(key, identity, { signal }),
+  timeoutMs: 500,
+})
+
+const checkout = gate({
+  key: "checkout",
+  defaultValue: false,
+  timeoutMs: 100,
+})
+
+const controller = new AbortController()
+const details = await checkout.details({ signal: controller.signal })
+```
+
+A timeout or caller abort before a decision and its `after` hooks complete returns the configured default. The deadline covers the complete lifecycle, including `error` and `finally` hooks; if only `finally` teardown exceeds it, the already-committed decision is preserved. Error hooks and `details().error` receive the original evaluation failure, a `GateTimeoutError`, or the caller signal's abort reason. The combined signal is available as `context.signal` in hooks and is passed to `decide`; work that ignores cancellation may finish in the background but cannot advance the operational gate lifecycle. Timeout values must be positive, finite, and no greater than 2,147,483,647 milliseconds.
+
 ### Hook System
 
 Intercept the flag evaluation lifecycle with hooks. Gated supports five lifecycle stages:

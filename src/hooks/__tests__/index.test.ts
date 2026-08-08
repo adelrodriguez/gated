@@ -3,7 +3,11 @@ import type { Decision, HookContext, Identity } from "../../lib/types"
 import { createHook } from "../index"
 
 const providerMeta = { source: "provider" } as const
-const BOOLEAN_HOOK_CONTEXT = { defaultValue: false, kind: "boolean" } as const
+const BOOLEAN_HOOK_CONTEXT = {
+  defaultValue: false,
+  kind: "boolean",
+  signal: new AbortController().signal,
+} as const
 const factory = () => ({})
 const noDecision = (): Decision | undefined => undefined
 

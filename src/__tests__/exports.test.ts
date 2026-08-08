@@ -19,6 +19,7 @@ import {
   buildGate,
   DecisionTypeMismatchError,
   GatedError,
+  GateTimeoutError,
   IdentityNotFoundError,
   InvalidVariantError,
 } from "../index"
@@ -36,6 +37,7 @@ const hookContext: HookContext<TestIdentity> = {
   flagKey: "beta-access",
   identity: { distinctId: "test-user", plan: "pro" },
   kind: "boolean",
+  signal: new AbortController().signal,
 }
 const hook: Hook<TestIdentity> = {
   resolve: () => decision,
@@ -106,5 +108,6 @@ test("exports consumer-facing root types", async () => {
   expect(overriddenValue).toBe(true)
   expect(new IdentityNotFoundError()).toBeInstanceOf(GatedError)
   expect(new DecisionTypeMismatchError("boolean", { variant: "dark" })).toBeInstanceOf(GatedError)
+  expect(new GateTimeoutError(10).timeoutMs).toBe(10)
   expect(new InvalidVariantError("purple", ["light", "dark"])).toBeInstanceOf(GatedError)
 })

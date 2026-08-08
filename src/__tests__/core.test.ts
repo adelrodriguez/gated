@@ -3,6 +3,31 @@ import type { Decision, EvaluationDetails, Hook, Identity } from "../lib/types"
 import { buildGate } from "../core"
 
 describe("buildGate", () => {
+  test.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 0, 2_147_483_648])(
+    "rejects an invalid factory timeout of %p",
+    (timeoutMs) => {
+      expect(() =>
+        buildGate({
+          decide: () => ({ value: true }),
+          identify: () => ({ distinctId: "user123" }),
+          timeoutMs,
+        })
+      ).toThrow(RangeError)
+    }
+  )
+
+  test.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 0, 2_147_483_648])(
+    "rejects an invalid per-gate timeout of %p",
+    (timeoutMs) => {
+      const gate = buildGate({
+        decide: () => ({ value: true }),
+        identify: () => ({ distinctId: "user123" }),
+      })
+
+      expect(() => gate({ defaultValue: false, key: "beta-access", timeoutMs })).toThrow(RangeError)
+    }
+  )
+
   test("creates a gate factory function", () => {
     const gate = buildGate({
       decide: () => Promise.resolve({ value: true }),
@@ -255,7 +280,11 @@ describe("buildGate", () => {
 
     expect(result).toBe(true)
     expect(identifyFn).not.toHaveBeenCalled()
-    expect(decideFn).toHaveBeenCalledWith("beta-access", overrideIdentity)
+    expect(decideFn).toHaveBeenCalledWith(
+      "beta-access",
+      overrideIdentity,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
   })
 
   test("rejects the legacy bare-identity call shape", async () => {
@@ -439,6 +468,7 @@ describe("buildGate", () => {
         flagKey: "beta-access",
         identity: { distinctId: "user123" },
         kind: "boolean",
+        signal: expect.any(AbortSignal),
         variants: undefined,
       },
       error
@@ -538,8 +568,8 @@ describe("buildGate", () => {
     await flag1()
     await flag2()
 
-    expect(decideFn).toHaveBeenCalledWith("flag1", { distinctId: "user123" })
-    expect(decideFn).toHaveBeenCalledWith("flag2", { distinctId: "user123" })
+    expect(decideFn).toHaveBeenCalledWith("flag1", { distinctId: "user123" }, expect.any(Object))
+    expect(decideFn).toHaveBeenCalledWith("flag2", { distinctId: "user123" }, expect.any(Object))
   })
 
   test("handles numeric distinctId", async () => {
@@ -581,6 +611,6 @@ describe("buildGate", () => {
     const result = await adminFlag()
 
     expect(result).toBe(true)
-    expect(decideFn).toHaveBeenCalledWith("admin-feature", customIdentity)
+    expect(decideFn).toHaveBeenCalledWith("admin-feature", customIdentity, expect.any(Object))
   })
 })

@@ -1,6 +1,19 @@
 import type { GateCallOptions, GateEvaluator, GatedConfig, Identity } from "./lib/types"
 import { executeGate, executeGateDetails } from "./lib"
 
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+function assertTimeoutMs(timeoutMs: number | undefined): void {
+  if (
+    timeoutMs !== undefined &&
+    (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMER_DELAY_MS)
+  ) {
+    throw new RangeError(
+      `timeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`
+    )
+  }
+}
+
 function assertCallOptions(callOptions: unknown): void {
   if (
     callOptions !== null &&
@@ -15,11 +28,16 @@ function assertCallOptions(callOptions: unknown): void {
 }
 
 export interface GateFactory<TIdentity extends Identity> {
-  (options: { key: string; defaultValue: boolean }): GateEvaluator<TIdentity, boolean>
+  (options: {
+    key: string
+    defaultValue: boolean
+    timeoutMs?: number
+  }): GateEvaluator<TIdentity, boolean>
   <const T extends string[]>(options: {
     key: string
     defaultValue: T[number]
     variants: T
+    timeoutMs?: number
   }): GateEvaluator<TIdentity, T[number]>
 }
 
@@ -48,17 +66,27 @@ export interface GateFactory<TIdentity extends Identity> {
 export function buildGate<TIdentity extends Identity>(
   config: GatedConfig<TIdentity>
 ): GateFactory<TIdentity> {
-  function gate(options: { key: string; defaultValue: boolean }): GateEvaluator<TIdentity, boolean>
+  assertTimeoutMs(config.timeoutMs)
+
+  function gate(options: {
+    key: string
+    defaultValue: boolean
+    timeoutMs?: number
+  }): GateEvaluator<TIdentity, boolean>
   function gate<const T extends string[]>(options: {
     key: string
     defaultValue: T[number]
     variants: T
+    timeoutMs?: number
   }): GateEvaluator<TIdentity, T[number]>
   function gate<const T extends string[]>(options: {
     key: string
     defaultValue: boolean | T[number]
     variants?: T
+    timeoutMs?: number
   }): GateEvaluator<TIdentity, boolean | T[number]> {
+    assertTimeoutMs(options.timeoutMs)
+
     const evaluator = async (callOptions?: GateCallOptions<TIdentity>) => {
       assertCallOptions(callOptions)
       return executeGate(config, options, callOptions)

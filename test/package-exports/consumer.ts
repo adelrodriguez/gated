@@ -15,6 +15,7 @@ import type {
 import {
   buildGate,
   DecisionTypeMismatchError,
+  GateTimeoutError,
   GatedError,
   IdentityNotFoundError,
   InvalidVariantError,
@@ -33,6 +34,7 @@ const decisionSource: DecisionSource = "provider"
 const factory: GateFactory<ConsumerIdentity> = buildGate(config)
 const identityError: GatedError = new IdentityNotFoundError()
 const mismatchError: GatedError = new DecisionTypeMismatchError("boolean", { variant: "dark" })
+const timeoutError: GatedError = new GateTimeoutError(100)
 const variantError: GatedError = new InvalidVariantError("purple", ["light", "dark"])
 const afterMeta: AfterHookMeta<ConsumerIdentity> = { source: decisionSource }
 const hookAfterMeta: AfterHookMeta<ConsumerIdentity> = { resolver: hook, source: "hook" }
@@ -73,6 +75,7 @@ void identityValue
 void invalidHookAfterMeta
 void mismatchError
 void maybeDecision
+void timeoutError
 void (null as never as InvalidIdentityEvaluator)
 void (null as never as InvalidValueEvaluator)
 void variantError

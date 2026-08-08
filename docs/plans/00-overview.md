@@ -12,7 +12,7 @@ Source: [2026-08-06-codebase-review.md](2026-08-06-codebase-review.md). Each pla
 | 06  | Enrich HookContext                        | API #2                                | 03                | Yes (drops `TOptions`)                                                |
 | 07  | Evaluation details API                    | H6, API #1                            | 03                | No (additive)                                                         |
 | 08  | Evaluator options object                  | API #3                                | 07                | Yes (call signature)                                                  |
-| 09  | Timeout + abort support                   | API #4                                | 03, 04, 06-08     | No (additive)                                                         |
+| 09  | Timeout + abort support                   | API #4                                | 03, 04, 06-08     | Yes (required `HookContext.signal`)                                   |
 | 10  | Decision discriminant + variant payloads  | API #5                                | 03, 06, 07        | Yes (Decision shape)                                                  |
 | 11  | Anonymous identity support                | API #6                                | 03, 06, 07        | Behavioral                                                            |
 | 12  | Batch evaluation / snapshots              | API #7                                | 03, 08, 09, 11    | No (additive)                                                         |
