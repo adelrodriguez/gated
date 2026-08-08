@@ -28,10 +28,20 @@ export type HookContext<
   identity: TIdentity | null
 } & TOptions
 
+export type DecisionSource = "hook" | "provider"
+
+export type AfterHookMeta<TIdentity extends Identity = Identity> =
+  | { source: "hook"; resolver: Hook<TIdentity> }
+  | { source: "provider" }
+
 export interface Hook<T extends Identity = Identity> {
   before?(hookContext: HookContext<T>): MaybePromise<void>
-  resolve?(hookContext: HookContext<T>): MaybePromise<Decision | undefined>
-  after?(hookContext: HookContext<T>, decision: Decision): MaybePromise<void>
+  resolve?(hookContext: HookContext<T>): MaybePromise<Decision | null | undefined>
+  after?(
+    hookContext: HookContext<T>,
+    decision: Decision,
+    meta: AfterHookMeta<T>
+  ): MaybePromise<void>
   error?(hookContext: HookContext<T>, error: unknown): MaybePromise<void>
   finally?(hookContext: HookContext<T>): MaybePromise<void>
 }

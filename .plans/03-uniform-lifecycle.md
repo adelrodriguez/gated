@@ -1,5 +1,7 @@
 # 03 — Uniform lifecycle + internal evaluation record
 
+**Status: Completed**
+
 Fixes: H1 (dedupe hang), H4 (cache poisoning). Delivers: arch wins #1 (uniform lifecycle), #2 (evaluation record), #5 (dedupe hardening). Depends on: 02. Behavioral change (pre-1.0 acceptable).
 
 This is the keystone slice — plans 04, 06, 07, 10, 11, 12 build on it.
@@ -19,12 +21,13 @@ Current flow (src/lib/index.ts:142-166):
 New flow:
 
 1. identify → before hooks → resolve hooks
-2. Obtain decision from resolve hooks (`source: "hook"`) or provider (`source: "provider"`)
-3. **Validate the decision immediately** — variant-in-list AND boolean/variant type match (merge `validateVariant` + the `expectedType` check from `extractDecisionValue` into one `validateDecision(decision, options)` step). Invalid decision → throw before any after hook sees it. (Fixes H4.)
-4. **Run after hooks for every validated decision**, regardless of source, passing the source: `after(context, decision, meta: { source: "hook" | "provider" })`. (Fixes H1's root cause.)
-5. Extract value, return. On any error: error hooks → default. Finally hooks always.
+2. Treat `null` and `undefined` resolve results as misses. Validate each decision immediately; treat an invalid hook decision like a failed resolver and continue to later hooks or the provider so stale cache entries cannot force perpetual defaults.
+3. Obtain a valid decision from a resolve hook (`source: "hook"`, with the exact resolver) or provider (`source: "provider"`).
+4. **Validate provider decisions immediately** — variant-in-list AND boolean/variant type match (merge `validateVariant` + the `expectedType` check from `extractDecisionValue` into one `validateDecision(decision, options)` step). Invalid provider decision → throw before any after hook sees it. (Fixes H4.)
+5. **Run after hooks for every validated decision**, regardless of source, passing required `AfterHookMeta` that identifies either the provider or exact resolving hook. (Fixes H1's root cause and supports layered caches.)
+6. Extract value, return. On any error: error hooks → default. Finally hooks always.
 
-`Hook.after` signature gains an optional third parameter (additive, non-breaking for existing hooks).
+`Hook.after` gains a required third `AfterHookMeta` parameter. Existing hook implementations may continue to declare fewer parameters, while direct callers must provide source metadata.
 
 ## Internal evaluation record
 
@@ -44,8 +47,9 @@ Build the hook context once from this record. Plan 07 exposes it publicly; keep 
 
 ## Recipe updates
 
-- `cacheHook.after` — skip writes when `meta.source === "hook"` (don't re-cache cache hits or other hooks' resolutions).
+- `cacheHook.after` — skip writes only when that cache hook resolved the decision. Decisions from another resolver warm the cache, enabling layered caches.
 - `dedupeHook` — with after hooks now always running, the primary settle path works in any ordering. Mark every pending promise as rejection-handled when it is created so a leader failure with zero followers cannot produce an unhandled rejection; followers awaiting the original promise must still observe the rejection internally. Give each pending entry an owner token and add a `finally` backstop that rejects and deletes the entry only when the finalizing evaluation owns it. A follower timeout or cancellation must never settle the leader's entry.
+- Export `HookResolutionAbortError` from `gated` and `gated/hooks` so third-party single-flight hooks can propagate a leader failure without allowing later resolve hooks or the provider to retry.
 - Document hook ordering guidance in README's recipes section (ordering now affects efficiency, not correctness — state that explicitly).
 
 ## Tests
@@ -56,10 +60,12 @@ New integration suite `src/__tests__/lifecycle.test.ts` running `buildGate` end-
 - Same suite with `[cacheHook(cache), dedupeHook()]` — both orderings correct.
 - Concurrent calls with dedupe: provider called once; all callers get the value; on provider error, the internal pending promise rejects to release followers while every public gate call returns its configured default, and the next call starts fresh.
 - Provider error with no followers: gate returns its default and no `unhandledRejection` is emitted.
-- A follower that times out or is cancelled does not reject, delete, or otherwise corrupt the leader's pending entry.
-- After hooks fire on hook-resolved decisions with `source: "hook"`, and on provider decisions with `source: "provider"`.
+- A consumer-timed-out follower does not reject, delete, or otherwise corrupt the leader's pending entry; cover this through `buildGate` rather than direct recipe internals.
+- After hooks fire on hook-resolved decisions with the exact resolver, and on provider decisions with `source: "provider"`.
 - Cache is NOT rewritten on a cache hit (`cache.set` not called when resolve hook supplied the decision).
-- **Regression (H4):** resolve hook returns `{ value: true }` for a variant gate → after hooks never see the invalid decision, `cache.set` not called, gate returns default.
+- **Regression (H4):** a stale or type-mismatched hook decision is discarded, the provider is consulted, and caches are refreshed with the valid provider decision.
+- A cache returning `null` for a miss continues to the provider.
+- A later cache hit warms an earlier cache without rewriting the resolving cache.
 - Provider returns out-of-list variant → same: no after hooks, default returned.
 
 ## Verification
@@ -69,4 +75,4 @@ New integration suite `src/__tests__/lifecycle.test.ts` running `buildGate` end-
 
 ## Release
 
-- Changeset: minor. "After hooks now run for hook-resolved decisions (with a decision source tag), decisions are validated before after hooks observe them, and `dedupeHook` can no longer orphan pending requests. Fixes a permanent hang when `dedupeHook` was ordered before `cacheHook`."
+- Changeset: minor. "After hooks now run for hook-resolved decisions (with exact resolver metadata), invalid hook decisions fall through to later resolvers or the provider, decisions are validated before after hooks observe them, and `dedupeHook` can no longer orphan pending requests."

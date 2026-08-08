@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test"
 import type { Decision, Hook, HookContext, Identity } from "../types"
+import { HookResolutionAbortError } from "../hook-control"
 import {
   evaluateDecision,
   executeGate,
@@ -10,6 +11,7 @@ import {
   runErrorHooks,
   runFinallyHooks,
   runResolveHooks,
+  validateDecision,
 } from "../index"
 
 async function expectRejection(promise: Promise<unknown>, message: string) {
@@ -24,6 +26,8 @@ async function expectRejection(promise: Promise<unknown>, message: string) {
   expect(caughtError).toBeInstanceOf(Error)
   expect(caughtError).toMatchObject({ message })
 }
+
+const acceptDecision = (decision: Decision) => void decision
 
 describe("identify", () => {
   test("returns override identity when provided", async () => {
@@ -101,39 +105,7 @@ describe("extractDecisionValue", () => {
     expect(result).toBe("dark")
   })
 
-  test("validates boolean decision when expected type is boolean", () => {
-    const decision: Decision = { value: false }
-
-    const result = extractDecisionValue(decision, "boolean")
-
-    expect(result).toBe(false)
-  })
-
-  test("validates variant decision when expected type is variant", () => {
-    const decision: Decision = { variant: "light" }
-
-    const result = extractDecisionValue(decision, "variant")
-
-    expect(result).toBe("light")
-  })
-
-  test("throws error when expecting boolean but receives variant", () => {
-    const decision: Decision = { variant: "dark" }
-
-    expect(() => extractDecisionValue(decision, "boolean")).toThrow(
-      'Type mismatch: expected boolean decision but received variant "dark"'
-    )
-  })
-
-  test("throws error when expecting variant but receives boolean", () => {
-    const decision: Decision = { value: true }
-
-    expect(() => extractDecisionValue(decision, "variant")).toThrow(
-      'Type mismatch: expected variant decision but received boolean "true"'
-    )
-  })
-
-  test("extracts value without type validation when no expected type", () => {
+  test("extracts values without validation", () => {
     const booleanDecision: Decision = { value: true }
     const variantDecision: Decision = { variant: "system" }
 
@@ -154,7 +126,7 @@ describe("evaluateDecision", () => {
     expect(decideFn).toHaveBeenCalledWith("test-flag", identity)
   })
 
-  test("evaluates variant decision without validation when no variants provided", async () => {
+  test("evaluates variant decision", async () => {
     const decision: Decision = { variant: "dark" }
     const decideFn = mock(() => Promise.resolve(decision))
     const identity: Identity = { distinctId: "user123" }
@@ -162,29 +134,6 @@ describe("evaluateDecision", () => {
     const result = await evaluateDecision(decideFn, "theme", identity)
 
     expect(result).toEqual(decision)
-  })
-
-  test("validates variant against allowed variants", async () => {
-    const decision: Decision = { variant: "dark" }
-    const decideFn = mock(() => Promise.resolve(decision))
-    const identity: Identity = { distinctId: "user123" }
-    const variants = ["light", "dark", "system"]
-
-    const result = await evaluateDecision(decideFn, "theme", identity, variants)
-
-    expect(result).toEqual(decision)
-  })
-
-  test("throws error for invalid variant", async () => {
-    const decision: Decision = { variant: "purple" }
-    const decideFn = mock(() => Promise.resolve(decision))
-    const identity: Identity = { distinctId: "user123" }
-    const variants = ["light", "dark", "system"]
-
-    await expectRejection(
-      evaluateDecision(decideFn, "theme", identity, variants),
-      "Invalid variant: purple"
-    )
   })
 
   test("handles synchronous decide function", async () => {
@@ -195,6 +144,47 @@ describe("evaluateDecision", () => {
     const result = await evaluateDecision(decideFn, "test-flag", identity)
 
     expect(result).toEqual(decision)
+  })
+})
+
+describe("validateDecision", () => {
+  test("accepts a boolean decision for a boolean gate", () => {
+    expect(() => {
+      validateDecision({ value: true }, { defaultValue: false, key: "beta-access" })
+    }).not.toThrow()
+  })
+
+  test("accepts an allowed variant for a variant gate", () => {
+    expect(() => {
+      validateDecision(
+        { variant: "dark" },
+        { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
+      )
+    }).not.toThrow()
+  })
+
+  test("rejects a variant decision for a boolean gate", () => {
+    expect(() => {
+      validateDecision({ variant: "dark" }, { defaultValue: false, key: "beta-access" })
+    }).toThrow('Type mismatch: expected boolean decision but received variant "dark"')
+  })
+
+  test("rejects a boolean decision for a variant gate", () => {
+    expect(() => {
+      validateDecision(
+        { value: true },
+        { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
+      )
+    }).toThrow('Type mismatch: expected variant decision but received boolean "true"')
+  })
+
+  test("rejects a variant outside the allowed list", () => {
+    expect(() => {
+      validateDecision(
+        { variant: "purple" },
+        { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
+      )
+    }).toThrow("Invalid variant: purple")
   })
 })
 
@@ -262,20 +252,17 @@ describe("runResolveHooks", () => {
     const decision: Decision = { value: true }
     const resolveFn2 = mock(() => Promise.resolve<Decision | undefined>(decision))
     const resolveFn3 = mock(() => Promise.resolve<Decision | undefined>({ value: false }))
+    const resolver: Hook = { resolve: resolveFn2 }
 
-    const hooks: Hook[] = [
-      { resolve: resolveFn1 },
-      { resolve: resolveFn2 },
-      { resolve: resolveFn3 },
-    ]
+    const hooks: Hook[] = [{ resolve: resolveFn1 }, resolver, { resolve: resolveFn3 }]
     const context: HookContext = {
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
 
-    const result = await runResolveHooks(hooks, context)
+    const result = await runResolveHooks(hooks, context, acceptDecision)
 
-    expect(result).toEqual(decision)
+    expect(result).toEqual({ decision, resolver })
     expect(resolveFn1).toHaveBeenCalled()
     expect(resolveFn2).toHaveBeenCalled()
     expect(resolveFn3).not.toHaveBeenCalled() // Short-circuits
@@ -291,7 +278,7 @@ describe("runResolveHooks", () => {
       identity: { distinctId: "user123" },
     }
 
-    const result = await runResolveHooks(hooks, context)
+    const result = await runResolveHooks(hooks, context, acceptDecision)
 
     expect(result).toBeUndefined()
   })
@@ -305,7 +292,7 @@ describe("runResolveHooks", () => {
       identity: { distinctId: "user123" },
     }
 
-    const result = await runResolveHooks(hooks, context)
+    const result = await runResolveHooks(hooks, context, acceptDecision)
 
     expect(result).toBeUndefined()
   })
@@ -314,16 +301,51 @@ describe("runResolveHooks", () => {
     const resolveFn1 = mock(() => Promise.reject(new Error("Hook error")))
     const decision: Decision = { value: true }
     const resolveFn2 = mock(() => Promise.resolve(decision))
+    const resolver: Hook = { resolve: resolveFn2 }
 
-    const hooks: Hook[] = [{ resolve: resolveFn1 }, { resolve: resolveFn2 }]
+    const hooks: Hook[] = [{ resolve: resolveFn1 }, resolver]
     const context: HookContext = {
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
 
-    const result = await runResolveHooks(hooks, context)
+    const result = await runResolveHooks(hooks, context, acceptDecision)
 
-    expect(result).toEqual(decision)
+    expect(result).toEqual({ decision, resolver })
+  })
+
+  test("continues to the next hook if a decision is invalid", async () => {
+    const invalidDecision: Decision = { variant: "stale" }
+    const validDecision: Decision = { variant: "current" }
+    const resolver: Hook = { resolve: () => validDecision }
+    const hooks: Hook[] = [{ resolve: () => invalidDecision }, resolver]
+    const context: HookContext = {
+      flagKey: "theme",
+      identity: { distinctId: "user123" },
+    }
+
+    const result = await runResolveHooks(hooks, context, (decision) => {
+      if (decision === invalidDecision) {
+        throw new Error("Invalid hook decision")
+      }
+    })
+
+    expect(result).toEqual({ decision: validDecision, resolver })
+  })
+
+  test("throws an Error when an abort has no Error reason", async () => {
+    const hooks: Hook[] = [
+      { resolve: () => Promise.reject(new HookResolutionAbortError(undefined)) },
+    ]
+    const context: HookContext = {
+      flagKey: "test-flag",
+      identity: { distinctId: "user123" },
+    }
+
+    await expectRejection(
+      runResolveHooks(hooks, context, acceptDecision),
+      "Hook resolution aborted"
+    )
   })
 
   test("returns undefined with empty hooks array", async () => {
@@ -333,13 +355,15 @@ describe("runResolveHooks", () => {
       identity: { distinctId: "user123" },
     }
 
-    const result = await runResolveHooks(hooks, context)
+    const result = await runResolveHooks(hooks, context, acceptDecision)
 
     expect(result).toBeUndefined()
   })
 })
 
 describe("runAfterHooks", () => {
+  const providerMeta = { source: "provider" } as const
+
   test("runs all after hooks with decision", async () => {
     const afterFn1 = mock(() => Promise.resolve())
     const afterFn2 = mock(() => Promise.resolve())
@@ -351,10 +375,10 @@ describe("runAfterHooks", () => {
     }
     const decision: Decision = { value: true }
 
-    await runAfterHooks(hooks, context, decision)
+    await runAfterHooks(hooks, context, decision, providerMeta)
 
-    expect(afterFn1).toHaveBeenCalledWith(context, decision)
-    expect(afterFn2).toHaveBeenCalledWith(context, decision)
+    expect(afterFn1).toHaveBeenCalledWith(context, decision, { source: "provider" })
+    expect(afterFn2).toHaveBeenCalledWith(context, decision, { source: "provider" })
   })
 
   test("handles hooks without after method", async () => {
@@ -367,7 +391,7 @@ describe("runAfterHooks", () => {
     }
     const decision: Decision = { value: false }
 
-    await runAfterHooks(hooks, context, decision)
+    await runAfterHooks(hooks, context, decision, providerMeta)
 
     expect(beforeFn).not.toHaveBeenCalled()
   })
@@ -383,7 +407,7 @@ describe("runAfterHooks", () => {
     }
     const decision: Decision = { variant: "dark" }
 
-    await runAfterHooks(hooks, context, decision)
+    await runAfterHooks(hooks, context, decision, providerMeta)
 
     expect(afterFn1).toHaveBeenCalled()
     expect(afterFn2).toHaveBeenCalled()
@@ -397,7 +421,7 @@ describe("runAfterHooks", () => {
     }
     const decision: Decision = { value: true }
 
-    await runAfterHooks(hooks, context, decision)
+    await runAfterHooks(hooks, context, decision, providerMeta)
   })
 })
 
