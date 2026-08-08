@@ -8,6 +8,7 @@ import type {
   GateCallOptions,
   GateEvaluator,
   GateFactory,
+  GateSnapshot,
   GatedConfig,
   Hook,
   HookContext,
@@ -19,11 +20,14 @@ import type {
 import {
   buildGate,
   DecisionTypeMismatchError,
+  DuplicateSnapshotKeyError,
+  ForeignGateEvaluatorError,
   GatedError,
   GateTimeoutError,
   IdentityNotFoundError,
   InvalidVariantError,
   MalformedDecisionError,
+  SnapshotFlagNotFoundError,
   decision as decisions,
 } from "../index"
 
@@ -108,6 +112,8 @@ test("exports consumer-facing root types", async () => {
     identity: hookContext.identity ?? undefined,
   } satisfies GateCallOptions<TestIdentity>
   const overriddenValue = await evaluator(callOptions)
+  const snapshot: GateSnapshot<readonly [typeof evaluator]> = await gate.snapshot([evaluator])
+  const snapshotDetails: EvaluationDetails<boolean> = snapshot.details(evaluator)
   const assertLegacyEvaluationIsRejected = () => {
     // @ts-expect-error -- Weak-type excess-property checking rejects a bare identity.
     void evaluator({ distinctId: "legacy-user", plan: "pro" })
@@ -129,6 +135,8 @@ test("exports consumer-facing root types", async () => {
   expect(legacyContext).toBe(hookContext)
   expect(readGateConfiguration(hookContext)).toEqual({ defaultValue: false, variants: undefined })
   expect(overriddenValue).toBe(true)
+  expect(snapshot.get(evaluator)).toBe(true)
+  expect(snapshotDetails).toEqual({ flagKey: "beta-access", source: "hook", value: true })
   expect(new IdentityNotFoundError()).toBeInstanceOf(GatedError)
   expect(
     new DecisionTypeMismatchError("boolean", { type: "variant", variant: "dark" })
@@ -136,6 +144,9 @@ test("exports consumer-facing root types", async () => {
   expect(new GateTimeoutError(10).timeoutMs).toBe(10)
   expect(new InvalidVariantError("purple", ["light", "dark"])).toBeInstanceOf(GatedError)
   expect(new MalformedDecisionError({}, "missing type")).toBeInstanceOf(GatedError)
+  expect(new DuplicateSnapshotKeyError("theme")).toBeInstanceOf(GatedError)
+  expect(new ForeignGateEvaluatorError()).toBeInstanceOf(GatedError)
+  expect(new SnapshotFlagNotFoundError()).toBeInstanceOf(GatedError)
   expect(decisions.boolean(true).value).toBe(true)
   expect(decisions.variant("dark").variant).toBe("dark")
   expect(decisions.boolean(true)).toEqual({ type: "boolean", value: true })

@@ -108,6 +108,11 @@ export type GatedConfig<TIdentity extends Identity = Identity> = {
     identity: TIdentity,
     options?: { signal?: AbortSignal }
   ) => MaybePromise<Decision>
+  decideMany?: (
+    keys: readonly string[],
+    identity: TIdentity,
+    options?: { signal?: AbortSignal }
+  ) => MaybePromise<Record<string, Decision>>
   hooks?: Array<Hook<TIdentity>>
   onHookError?: (report: HookErrorReport<TIdentity>) => MaybePromise<void>
   timeoutMs?: number
@@ -115,7 +120,7 @@ export type GatedConfig<TIdentity extends Identity = Identity> = {
 
 export type AnonymousGatedConfig<TIdentity extends Identity = Identity> = Omit<
   GatedConfig<TIdentity>,
-  "anonymous" | "decide"
+  "anonymous" | "decide" | "decideMany"
 > & {
   anonymous: "allow"
   decide: (
@@ -123,4 +128,9 @@ export type AnonymousGatedConfig<TIdentity extends Identity = Identity> = Omit<
     identity: TIdentity | null,
     options?: { signal?: AbortSignal }
   ) => MaybePromise<Decision>
+  decideMany?: (
+    keys: readonly string[],
+    identity: TIdentity | null,
+    options?: { signal?: AbortSignal }
+  ) => MaybePromise<Record<string, Decision>>
 }

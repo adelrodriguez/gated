@@ -147,6 +147,41 @@ const gate = buildGate({
 
 Hooks receive `context.identity === null`, and successful `details()` results retain `source: "provider"` without an error. The cache and dedupe recipes deliberately bypass anonymous evaluations so decisions are neither retained nor shared between anonymous visitors.
 
+### Batch Evaluation
+
+Provide `decideMany` to evaluate several gates in one provider round trip, then read their typed values synchronously from a snapshot. For example, a server-rendered page can evaluate everything it needs before rendering:
+
+```typescript
+const gate = buildGate({
+  identify,
+  decide,
+  decideMany: (keys, identity, { signal } = {}) => provider.evaluateAll(keys, identity, { signal }),
+})
+
+const betaAccess = gate({ key: "beta-access", defaultValue: false })
+const theme = gate({
+  key: "theme",
+  defaultValue: "light",
+  variants: ["light", "dark"],
+})
+
+export async function DashboardPage() {
+  const snapshot = await gate.snapshot([betaAccess, theme])
+
+  return renderDashboard({
+    betaAccess: snapshot.get(betaAccess), // boolean
+    theme: snapshot.get(theme), // "light" | "dark"
+    themeEvaluation: snapshot.details(theme), // source, error, and payload
+  })
+}
+```
+
+Snapshots resolve identity once and preserve each flag's hooks, validation, timeout, default, source, error, and variant-payload behavior. `snapshot.details(flag)` returns the same typed evaluation details as `flag.details()`. Hook-resolved keys are omitted from provider work. Ready unresolved keys are grouped into a batch without waiting on dedupe followers, so asynchronous hooks can produce more than one provider batch instead of deadlocking concurrent snapshots. A missing batch result falls back to that flag's single `decide` call; without `decideMany`, unresolved flags are evaluated in parallel. Snapshot keys must be unique.
+
+In anonymous mode, snapshots pass `null` to `decideMany`. The built-in cache and dedupe recipes continue to bypass anonymous evaluations, including concurrent snapshots.
+
+Evaluation failures remain fail-soft and appear through `snapshot.details(flag)`. API misuse rejects snapshot creation: keys must be unique, every evaluator must come from the same gate factory, and call options use `{ identity }`. These cases throw `DuplicateSnapshotKeyError`, `ForeignGateEvaluatorError`, and the existing migration `TypeError`, respectively. Reading an evaluator that was not included throws `SnapshotFlagNotFoundError`.
+
 ### Hook System
 
 Intercept the flag evaluation lifecycle with hooks. Gated supports five lifecycle stages:
