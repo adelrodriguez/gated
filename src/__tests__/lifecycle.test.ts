@@ -82,7 +82,7 @@ describe("uniform hook lifecycle", () => {
       const cache = createMemoryCache()
       const cacheRecipe = cacheHook(cache)
       const dedupeRecipe = dedupeHook()
-      const decide = mock(() => Promise.resolve<Decision>({ value: true }))
+      const decide = mock(() => Promise.resolve<Decision>({ type: "boolean", value: true }))
       const hooks =
         order === "dedupe-first" ? [dedupeRecipe, cacheRecipe] : [cacheRecipe, dedupeRecipe]
       const gate = buildGate({
@@ -112,7 +112,7 @@ describe("uniform hook lifecycle", () => {
 
     const evaluations = [betaAccess(), betaAccess(), betaAccess()]
     await Bun.sleep(0)
-    providerResult.resolve({ value: true })
+    providerResult.resolve({ type: "boolean", value: true })
 
     expect(await settleWithin(Promise.all(evaluations))).toEqual([true, true, true])
     expect(decide).toHaveBeenCalledTimes(1)
@@ -121,7 +121,9 @@ describe("uniform hook lifecycle", () => {
   test("releases every follower after a provider error and starts fresh", async () => {
     const firstAttempt = createDeferred<Decision>()
     const decide = mock(() =>
-      decide.mock.calls.length === 1 ? firstAttempt.promise : Promise.resolve({ value: true })
+      decide.mock.calls.length === 1
+        ? firstAttempt.promise
+        : Promise.resolve({ type: "boolean", value: true } as const)
     )
     const gate = buildGate({
       decide,
@@ -165,15 +167,15 @@ describe("uniform hook lifecycle", () => {
     const hookAfter = mock(() => Promise.resolve())
     const providerAfter = mock(() => Promise.resolve())
     const identity = { distinctId: "user123" }
-    const hookDecision: Decision = { value: true }
+    const hookDecision: Decision = { type: "boolean", value: true }
     const resolver: Hook = { resolve: () => hookDecision }
     const hookGate = buildGate({
-      decide: () => ({ value: false }),
+      decide: () => ({ type: "boolean", value: false }),
       hooks: [resolver, { after: hookAfter }],
       identify: () => identity,
     })
     const providerGate = buildGate({
-      decide: () => ({ value: true }),
+      decide: () => ({ type: "boolean", value: true }),
       hooks: [{ after: providerAfter }],
       identify: () => identity,
     })
@@ -201,7 +203,7 @@ describe("uniform hook lifecycle", () => {
         signal: expect.any(AbortSignal),
         variants: undefined,
       }),
-      { value: true },
+      { type: "boolean", value: true },
       { source: "provider" }
     )
   })
@@ -210,7 +212,8 @@ describe("uniform hook lifecycle", () => {
     const contexts: HookContext[] = []
     const identity = { distinctId: "user123" }
     const gate = buildGate({
-      decide: (key) => (key === "theme" ? { variant: "dark" } : { value: true }),
+      decide: (key) =>
+        key === "theme" ? { type: "variant", variant: "dark" } : { type: "boolean", value: true },
       hooks: [
         {
           before(context) {
@@ -241,12 +244,12 @@ describe("uniform hook lifecycle", () => {
         signal: expect.any(AbortSignal),
         variants: ["light", "dark"],
       },
-    ] as never[])
+    ])
   })
 
   test("cacheHook replaces a cached decision whose shape does not match the gate", async () => {
-    const cache = createMemoryCache({ value: true })
-    const decide = mock(() => Promise.resolve<Decision>({ variant: "dark" }))
+    const cache = createMemoryCache({ type: "boolean", value: true })
+    const decide = mock(() => Promise.resolve<Decision>({ type: "variant", variant: "dark" }))
     const reporter = mock(() => Promise.resolve())
     const gate = buildGate({
       decide,
@@ -260,7 +263,10 @@ describe("uniform hook lifecycle", () => {
     expect(await theme()).toBe("dark")
     expect(decide).toHaveBeenCalledTimes(1)
     expect(cache.set).toHaveBeenCalledTimes(1)
-    expect(cache.set).toHaveBeenCalledWith("theme:user123", { variant: "dark" })
+    expect(cache.set).toHaveBeenCalledWith("theme:user123", {
+      type: "variant",
+      variant: "dark",
+    })
     expect(reporter).toHaveBeenCalledTimes(1)
     expect(reporter).toHaveBeenCalledWith({
       context: expect.objectContaining({
@@ -280,8 +286,8 @@ describe("uniform hook lifecycle", () => {
   })
 
   test("cacheHook replaces a cached variant that the gate no longer supports", async () => {
-    const cache = createMemoryCache({ variant: "dark" })
-    const decide = mock(() => Promise.resolve<Decision>({ variant: "system" }))
+    const cache = createMemoryCache({ type: "variant", variant: "dark" })
+    const decide = mock(() => Promise.resolve<Decision>({ type: "variant", variant: "system" }))
     const reporter = mock(() => Promise.resolve())
     const gate = buildGate({
       decide,
@@ -295,7 +301,10 @@ describe("uniform hook lifecycle", () => {
     expect(await theme()).toBe("system")
     expect(decide).toHaveBeenCalledTimes(1)
     expect(cache.set).toHaveBeenCalledTimes(1)
-    expect(cache.set).toHaveBeenCalledWith("theme:user123", { variant: "system" })
+    expect(cache.set).toHaveBeenCalledWith("theme:user123", {
+      type: "variant",
+      variant: "system",
+    })
     expect(reporter).toHaveBeenCalledTimes(1)
     expect(reporter).toHaveBeenCalledWith({
       context: expect.objectContaining({
@@ -312,14 +321,36 @@ describe("uniform hook lifecycle", () => {
     })
   })
 
+  test("cacheHook replaces a persisted decision without a type discriminant", async () => {
+    const cache = createMemoryCache({ value: true } as Decision)
+    const decide = mock(() => Promise.resolve<Decision>({ type: "boolean", value: false }))
+    const reporter = mock(() => Promise.resolve())
+    const gate = buildGate({
+      decide,
+      hooks: [cacheHook(cache)],
+      identify: () => ({ distinctId: "user123" }),
+      onHookError: reporter,
+    })
+    const betaAccess = gate({ defaultValue: true, key: "beta-access" })
+
+    expect(await betaAccess()).toBe(false)
+    expect(await betaAccess()).toBe(false)
+    expect(decide).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledWith("beta-access:user123", {
+      type: "boolean",
+      value: false,
+    })
+    expect(reporter).not.toHaveBeenCalled()
+  })
+
   test("continues to the provider after an invalid hook decision", async () => {
     const after = mock(() => Promise.resolve())
     const cache = createMemoryCache()
-    const providerDecision: Decision = { variant: "dark" }
+    const providerDecision: Decision = { type: "variant", variant: "dark" }
     const decide = mock(() => providerDecision)
     const gate = buildGate({
       decide,
-      hooks: [{ after, resolve: () => ({ value: true }) }, cacheHook(cache)],
+      hooks: [{ after, resolve: () => ({ type: "boolean", value: true }) }, cacheHook(cache)],
       identify: () => ({ distinctId: "user123" }),
     })
     const theme = gate({ defaultValue: "light", key: "theme", variants: ["light", "dark"] })
@@ -337,7 +368,7 @@ describe("uniform hook lifecycle", () => {
       get: mock(() => Promise.resolve(null)),
       set: mock(() => Promise.resolve()),
     }
-    const decide = mock(() => Promise.resolve<Decision>({ value: true }))
+    const decide = mock(() => Promise.resolve<Decision>({ type: "boolean", value: true }))
     const gate = buildGate({
       decide,
       hooks: [cacheHook(cache)],
@@ -347,12 +378,15 @@ describe("uniform hook lifecycle", () => {
 
     expect(await betaAccess()).toBe(true)
     expect(decide).toHaveBeenCalledTimes(1)
-    expect(cache.set).toHaveBeenCalledWith("beta-access:user123", { value: true })
+    expect(cache.set).toHaveBeenCalledWith("beta-access:user123", {
+      type: "boolean",
+      value: true,
+    })
   })
 
   test("replaces a stale cached variant with a valid provider decision", async () => {
-    const cache = createMemoryCache({ variant: "dark" })
-    const decide = mock(() => Promise.resolve<Decision>({ variant: "midnight" }))
+    const cache = createMemoryCache({ variant: "dark" } as Decision)
+    const decide = mock(() => Promise.resolve<Decision>({ type: "variant", variant: "midnight" }))
     const gate = buildGate({
       decide,
       hooks: [cacheHook(cache)],
@@ -367,13 +401,16 @@ describe("uniform hook lifecycle", () => {
     expect(await theme()).toBe("midnight")
     expect(await theme()).toBe("midnight")
     expect(decide).toHaveBeenCalledTimes(1)
-    expect(cache.set).toHaveBeenCalledWith("theme:user123", { variant: "midnight" })
+    expect(cache.set).toHaveBeenCalledWith("theme:user123", {
+      type: "variant",
+      variant: "midnight",
+    })
   })
 
   test("warms an earlier cache from a later cache hit", async () => {
     const memoryCache = createMemoryCache()
-    const sharedCache = createMemoryCache({ value: true })
-    const decide = mock(() => Promise.resolve<Decision>({ value: false }))
+    const sharedCache = createMemoryCache({ type: "boolean", value: true })
+    const decide = mock(() => Promise.resolve<Decision>({ type: "boolean", value: false }))
     const gate = buildGate({
       decide,
       hooks: [cacheHook(memoryCache), cacheHook(sharedCache)],
@@ -384,7 +421,10 @@ describe("uniform hook lifecycle", () => {
     expect(await betaAccess()).toBe(true)
     expect(await betaAccess()).toBe(true)
     expect(decide).not.toHaveBeenCalled()
-    expect(memoryCache.set).toHaveBeenCalledWith("beta-access:user123", { value: true })
+    expect(memoryCache.set).toHaveBeenCalledWith("beta-access:user123", {
+      type: "boolean",
+      value: true,
+    })
     expect(memoryCache.set).toHaveBeenCalledTimes(1)
     expect(sharedCache.get).toHaveBeenCalledTimes(1)
     expect(sharedCache.set).not.toHaveBeenCalled()
@@ -393,7 +433,7 @@ describe("uniform hook lifecycle", () => {
   test("writes every consulted cache after a full miss", async () => {
     const memoryCache = createMemoryCache()
     const sharedCache = createMemoryCache()
-    const decide = mock(() => Promise.resolve<Decision>({ value: true }))
+    const decide = mock(() => Promise.resolve<Decision>({ type: "boolean", value: true }))
     const gate = buildGate({
       decide,
       hooks: [cacheHook(memoryCache), cacheHook(sharedCache)],
@@ -419,7 +459,7 @@ describe("uniform hook lifecycle", () => {
 
     const evaluations = [betaAccess(), betaAccess(), betaAccess(), betaAccess()]
     await Bun.sleep(0)
-    providerResult.resolve({ value: true })
+    providerResult.resolve({ type: "boolean", value: true })
 
     expect(await settleWithin(Promise.all(evaluations))).toEqual([true, true, true, true])
     expect(decide).toHaveBeenCalledTimes(1)
@@ -440,7 +480,7 @@ describe("uniform hook lifecycle", () => {
 
     const evaluations = [betaAccess(), betaAccess(), betaAccess(), betaAccess()]
     await Bun.sleep(0)
-    providerResult.resolve({ value: true })
+    providerResult.resolve({ type: "boolean", value: true })
 
     expect(await settleWithin(Promise.all(evaluations))).toEqual([true, true, true, true])
     expect(decide).toHaveBeenCalledTimes(1)
@@ -452,7 +492,7 @@ describe("uniform hook lifecycle", () => {
     const after = mock(() => Promise.resolve())
     const cache = createMemoryCache()
     const gate = buildGate({
-      decide: () => ({ variant: "purple" }),
+      decide: () => ({ type: "variant", variant: "purple" }),
       hooks: [{ after }, cacheHook(cache)],
       identify: () => ({ distinctId: "user123" }),
     })
@@ -481,7 +521,7 @@ describe("uniform hook lifecycle", () => {
 
     expect(error.message).toBe("Evaluation timed out")
 
-    providerResult.resolve({ value: true })
+    providerResult.resolve({ type: "boolean", value: true })
     expect(await settleWithin(leader)).toBe(true)
     expect(await settleWithin(follower)).toBe(true)
     expect(decide).toHaveBeenCalledTimes(1)
@@ -569,7 +609,7 @@ describe("timeout and cancellation", () => {
     const betaAccess = gate({ defaultValue: false, key: "beta-access" })
 
     expect(await betaAccess()).toBe(false)
-    provider.resolve({ value: true })
+    provider.resolve({ type: "boolean", value: true })
     await provider.promise
     await Bun.sleep(0)
 
@@ -582,7 +622,7 @@ describe("timeout and cancellation", () => {
     const after = mock(() => Promise.resolve())
     const error = mock(() => Promise.resolve())
     const finallyHook = mock(() => Promise.resolve())
-    const decide = mock(() => ({ value: true }))
+    const decide = mock(() => ({ type: "boolean", value: true }) as const)
     const gate = buildGate({
       decide,
       hooks: [
@@ -614,7 +654,7 @@ describe("timeout and cancellation", () => {
     const gate = buildGate({
       decide: (_key, _identity, options) => {
         providerSignal = options?.signal
-        return { value: true }
+        return { type: "boolean", value: true }
       },
       identify: () => ({ distinctId: "user123" }),
     })
@@ -671,7 +711,7 @@ describe("timeout and cancellation", () => {
   test("bounds finally hooks on a successful decision", async () => {
     const finallyHook = mock(() => never<undefined>())
     const gate = buildGate({
-      decide: () => ({ value: true }),
+      decide: () => ({ type: "boolean", value: true }),
       hooks: [{ finally: finallyHook }],
       identify: () => ({ distinctId: "user123" }),
       timeoutMs: 10,
@@ -693,7 +733,7 @@ describe("timeout and cancellation", () => {
       removeEventListener: { value: removeEventListener },
     })
     const gate = buildGate({
-      decide: () => ({ value: true }),
+      decide: () => ({ type: "boolean", value: true }),
       identify: () => ({ distinctId: "user123" }),
       timeoutMs: 1000,
     })
@@ -736,7 +776,7 @@ describe("hook error policy", () => {
         const decide =
           phase === "error"
             ? mock(() => Promise.reject(gateError))
-            : mock(() => Promise.resolve<Decision>({ value: true }))
+            : mock(() => Promise.resolve<Decision>({ type: "boolean", value: true }))
         const identity = { distinctId: "user123" }
         const gate = buildGate({
           decide,
@@ -778,7 +818,7 @@ describe("hook error policy", () => {
   test("normalizes non-Error hook failures before reporting them", async () => {
     const reporter = mock(() => Promise.resolve())
     const gate = buildGate({
-      decide: () => ({ value: true }),
+      decide: () => ({ type: "boolean", value: true }),
       hooks: [
         {
           before() {
@@ -834,7 +874,7 @@ describe("hook error policy", () => {
                   })
               )
       const gate = buildGate({
-        decide: () => ({ value: true }),
+        decide: () => ({ type: "boolean", value: true }),
         hooks: [
           {
             before() {
@@ -860,7 +900,7 @@ describe("hook error policy", () => {
 
   test("continues silently when no hook error reporter is configured", async () => {
     const gate = buildGate({
-      decide: () => ({ value: true }),
+      decide: () => ({ type: "boolean", value: true }),
       hooks: [
         {
           before() {

@@ -37,7 +37,7 @@ const gate = buildGate({
   decide: async (key, identity) => {
     // Your provider's API call
     const enabled = await yourProvider.isEnabled(key, identity.distinctId)
-    return { value: enabled }
+    return { type: "boolean", value: enabled }
   },
 })
 
@@ -48,6 +48,15 @@ const newDashboard = gate({ key: "new-dashboard", defaultValue: false })
 // Evaluate flags
 const hasBetaAccess = await betaAccess() // false
 const hasNewDashboard = await newDashboard() // true
+```
+
+Provider decisions use an explicit discriminant. Helper constructors reduce adapter boilerplate and variants may carry an optional payload:
+
+```typescript
+import { decision } from "gated"
+
+decision.boolean(true)
+decision.variant("dark", { experiment: "checkout-theme" })
 ```
 
 ## Usage
@@ -95,6 +104,8 @@ if (details.source === "default") {
 ```
 
 Details include the evaluated `value`, `flagKey`, and `source` (`"hook"`, `"provider"`, or `"default"`). When evaluation falls back because of a failure, `error` contains the underlying error. Like plain evaluation, `details()` accepts an optional call-options object and never rejects.
+
+Variant details also expose the decision's optional `payload`; plain evaluation continues to return only the variant string.
 
 ### Timeouts and Cancellation
 
@@ -171,9 +182,9 @@ the provider independently.
 
 Consumer-facing library failures extend `GatedError` and use contextual classes so error hooks can
 identify the failure without parsing messages: `IdentityNotFoundError`,
-`DecisionTypeMismatchError`, and `InvalidVariantError`. These classes retain relevant details such
-as the received decision, expected decision kind, and allowed variants. Internal hook-control
-errors are intentionally not exported.
+`DecisionTypeMismatchError`, `InvalidVariantError`, and `MalformedDecisionError`. These classes
+retain relevant details such as the received decision, validation reason, expected decision kind,
+and allowed variants. Internal hook-control errors are intentionally not exported.
 
 ### Built-in Recipes
 
@@ -200,7 +211,7 @@ const gate = buildGate({
 })
 ```
 
-The cache recipe treats decisions with the wrong boolean/variant shape or an unsupported variant as stale. The mismatch is reported to `onHookError`, evaluation continues to the provider, and the valid decision overwrites the stale entry.
+The cache recipe treats decisions with the wrong boolean/variant shape or an unsupported variant as stale. The mismatch is reported to `onHookError`, evaluation continues to the provider, and the valid decision overwrites the stale entry. Cache implementations own serialization; variant payloads can contain provider metadata such as `Date` values or class instances, so a persisted cache must preserve that metadata faithfully or deliberately normalize it before storage.
 
 #### Dedupe Hook
 
@@ -427,13 +438,25 @@ Gated works with any feature flag provider by implementing the `decide` function
 
 ```typescript
 import * as LaunchDarkly from "launchdarkly-js-client-sdk"
+import { decision } from "gated"
 
 const ldClient = LaunchDarkly.initialize("client-id", { key: "user-key" })
 
 const gate = buildGate({
   identify: async () => ({ distinctId: getCurrentUserId() }),
-  decide: async (key) => ({ value: await ldClient.variation(key, false) }),
+  decide: async (key) => {
+    const detail = await ldClient.variationDetail(key, "control")
+    return decision.variant(detail.value, detail)
+  },
 })
+
+const theme = gate({
+  defaultValue: "control",
+  key: "theme",
+  variants: ["control", "dark"],
+})
+
+await theme.details()
 ```
 
 ### PostHog
@@ -443,7 +466,7 @@ import posthog from "posthog-js"
 
 const gate = buildGate({
   identify: async () => ({ distinctId: getCurrentUserId() }),
-  decide: async (key) => ({ value: posthog.isFeatureEnabled(key) }),
+  decide: async (key) => ({ type: "boolean", value: posthog.isFeatureEnabled(key) ?? false }),
 })
 ```
 
@@ -461,7 +484,7 @@ const gate = buildGate({
       method: "POST",
       body: JSON.stringify(identity),
     })
-    return { value: (await res.json()).enabled }
+    return { type: "boolean", value: (await res.json()).enabled }
   },
 })
 ```
@@ -479,7 +502,7 @@ const result = await betaFlag({ identity: { distinctId: "test-user-123" } })
 // Or use a test gate with mocked decide function
 const testGate = buildGate({
   identify: async () => ({ distinctId: "test" }),
-  decide: async (key) => ({ value: key === "beta-access" }),
+  decide: async (key) => ({ type: "boolean", value: key === "beta-access" }),
 })
 ```
 

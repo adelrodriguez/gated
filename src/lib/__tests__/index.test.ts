@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test"
 import type { Decision, Hook, HookContext, Identity } from "../types"
-import { DecisionTypeMismatchError, IdentityNotFoundError, InvalidVariantError } from "../errors"
+import { IdentityNotFoundError, MalformedDecisionError } from "../errors"
 import {
   evaluateDecision,
   executeGate,
@@ -110,7 +110,7 @@ describe("identify", () => {
 
 describe("extractDecisionValue", () => {
   test("extracts boolean value from boolean decision", () => {
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     const result = extractDecisionValue(decision)
 
@@ -118,7 +118,7 @@ describe("extractDecisionValue", () => {
   })
 
   test("extracts variant from variant decision", () => {
-    const decision: Decision = { variant: "dark" }
+    const decision: Decision = { type: "variant", variant: "dark" }
 
     const result = extractDecisionValue(decision)
 
@@ -126,8 +126,8 @@ describe("extractDecisionValue", () => {
   })
 
   test("extracts values without validation", () => {
-    const booleanDecision: Decision = { value: true }
-    const variantDecision: Decision = { variant: "system" }
+    const booleanDecision: Decision = { type: "boolean", value: true }
+    const variantDecision: Decision = { type: "variant", variant: "system" }
 
     expect(extractDecisionValue(booleanDecision)).toBe(true)
     expect(extractDecisionValue(variantDecision)).toBe("system")
@@ -136,7 +136,7 @@ describe("extractDecisionValue", () => {
 
 describe("evaluateDecision", () => {
   test("evaluates boolean decision", async () => {
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
     const decideFn = mock(() => Promise.resolve(decision))
     const identity: Identity = { distinctId: "user123" }
 
@@ -147,7 +147,7 @@ describe("evaluateDecision", () => {
   })
 
   test("evaluates variant decision", async () => {
-    const decision: Decision = { variant: "dark" }
+    const decision: Decision = { type: "variant", variant: "dark" }
     const decideFn = mock(() => Promise.resolve(decision))
     const identity: Identity = { distinctId: "user123" }
 
@@ -157,7 +157,7 @@ describe("evaluateDecision", () => {
   })
 
   test("handles synchronous decide function", async () => {
-    const decision: Decision = { value: false }
+    const decision: Decision = { type: "boolean", value: false }
     const decideFn = mock(() => decision)
     const identity: Identity = { distinctId: "user123" }
 
@@ -170,14 +170,17 @@ describe("evaluateDecision", () => {
 describe("validateDecision", () => {
   test("accepts a boolean decision for a boolean gate", () => {
     expect(() => {
-      validateDecision({ value: true }, { defaultValue: false, key: "beta-access" })
+      validateDecision(
+        { type: "boolean", value: true },
+        { defaultValue: false, key: "beta-access" }
+      )
     }).not.toThrow()
   })
 
   test("accepts an allowed variant for a variant gate", () => {
     expect(() => {
       validateDecision(
-        { variant: "dark" },
+        { type: "variant", variant: "dark" },
         { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
       )
     }).not.toThrow()
@@ -185,41 +188,73 @@ describe("validateDecision", () => {
 
   test("rejects a variant decision for a boolean gate", () => {
     expect(() => {
-      validateDecision({ variant: "dark" }, { defaultValue: false, key: "beta-access" })
+      validateDecision(
+        { type: "variant", variant: "dark" },
+        { defaultValue: false, key: "beta-access" }
+      )
     }).toThrow('Type mismatch: expected boolean decision but received variant "dark"')
-    expect(() => {
-      validateDecision({ variant: "dark" }, { defaultValue: false, key: "beta-access" })
-    }).toThrow(DecisionTypeMismatchError)
   })
 
   test("rejects a boolean decision for a variant gate", () => {
     expect(() => {
       validateDecision(
-        { value: true },
+        { type: "boolean", value: true },
         { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
       )
     }).toThrow('Type mismatch: expected variant decision but received boolean "true"')
-    expect(() => {
-      validateDecision(
-        { value: true },
-        { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
-      )
-    }).toThrow(DecisionTypeMismatchError)
   })
 
   test("rejects a variant outside the allowed list", () => {
     expect(() => {
       validateDecision(
-        { variant: "purple" },
+        { type: "variant", variant: "purple" },
         { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
       )
     }).toThrow("Invalid variant: purple")
+  })
+
+  test("rejects decisions without a valid type discriminant", () => {
     expect(() => {
       validateDecision(
-        { variant: "purple" },
-        { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
+        { value: true },
+        {
+          defaultValue: false,
+          key: "beta-access",
+        }
       )
-    }).toThrow(InvalidVariantError)
+    }).toThrow(MalformedDecisionError)
+    expect(() => {
+      validateDecision(
+        { variant: "dark" },
+        {
+          defaultValue: "light",
+          key: "theme",
+          variants: ["light", "dark"],
+        }
+      )
+    }).toThrow(MalformedDecisionError)
+  })
+
+  test("rejects decisions whose value does not match the discriminant", () => {
+    expect(() => {
+      validateDecision(
+        { type: "boolean", value: "true" },
+        {
+          defaultValue: false,
+          key: "beta-access",
+        }
+      )
+    }).toThrow(MalformedDecisionError)
+    expect(() => {
+      validateDecision(
+        { type: "variant", variant: 1 },
+        {
+          defaultValue: "light",
+          key: "theme",
+          variants: ["light", "dark"],
+        }
+      )
+    }).toThrow(MalformedDecisionError)
   })
 })
 
@@ -288,9 +323,11 @@ describe("runBeforeHooks", () => {
 describe("runResolveHooks", () => {
   test("returns first non-undefined value", async () => {
     const resolveFn1 = mock(() => Promise.resolve<Decision | undefined>(void 0))
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
     const resolveFn2 = mock(() => Promise.resolve<Decision | undefined>(decision))
-    const resolveFn3 = mock(() => Promise.resolve<Decision | undefined>({ value: false }))
+    const resolveFn3 = mock(() =>
+      Promise.resolve<Decision | undefined>({ type: "boolean", value: false })
+    )
     const resolver: Hook = { resolve: resolveFn2 }
 
     const hooks: Hook[] = [{ resolve: resolveFn1 }, resolver, { resolve: resolveFn3 }]
@@ -341,7 +378,7 @@ describe("runResolveHooks", () => {
 
   test("continues to next hook if one throws error", async () => {
     const resolveFn1 = mock(() => Promise.reject(new Error("Hook error")))
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
     const resolveFn2 = mock(() => Promise.resolve(decision))
     const resolver: Hook = { resolve: resolveFn2 }
 
@@ -358,8 +395,8 @@ describe("runResolveHooks", () => {
   })
 
   test("continues to the next hook if a decision is invalid", async () => {
-    const invalidDecision: Decision = { variant: "stale" }
-    const validDecision: Decision = { variant: "current" }
+    const invalidDecision: Decision = { type: "variant", variant: "stale" }
+    const validDecision: Decision = { type: "variant", variant: "current" }
     const resolver: Hook = { resolve: () => validDecision }
     const hooks: Hook[] = [{ resolve: () => invalidDecision }, resolver]
     const context: HookContext = {
@@ -423,7 +460,7 @@ describe("runAfterHooks", () => {
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     await runAfterHooks(hooks, context, decision, providerMeta)
 
@@ -440,7 +477,7 @@ describe("runAfterHooks", () => {
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
-    const decision: Decision = { value: false }
+    const decision: Decision = { type: "boolean", value: false }
 
     await runAfterHooks(hooks, context, decision, providerMeta)
 
@@ -457,7 +494,7 @@ describe("runAfterHooks", () => {
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
-    const decision: Decision = { variant: "dark" }
+    const decision: Decision = { type: "variant", variant: "dark" }
 
     await runAfterHooks(hooks, context, decision, providerMeta)
 
@@ -472,7 +509,7 @@ describe("runAfterHooks", () => {
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     await runAfterHooks(hooks, context, decision, providerMeta)
   })
@@ -609,7 +646,7 @@ describe("runFinallyHooks", () => {
 describe("executeGate", () => {
   test("executes boolean gate successfully", async () => {
     const identity: Identity = { distinctId: "user123" }
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     const config = {
       decide: mock(() => Promise.resolve(decision)),
@@ -631,7 +668,7 @@ describe("executeGate", () => {
 
   test("executes variant gate successfully", async () => {
     const identity: Identity = { distinctId: "user123" }
-    const decision: Decision = { variant: "dark" }
+    const decision: Decision = { type: "variant", variant: "dark" }
 
     const config = {
       decide: mock(() => Promise.resolve(decision)),
@@ -653,7 +690,7 @@ describe("executeGate", () => {
   test("uses override identity when provided", async () => {
     const defaultIdentity: Identity = { distinctId: "default" }
     const overrideIdentity: Identity = { distinctId: "override" }
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     const config = {
       decide: mock(() => Promise.resolve(decision)),
@@ -674,7 +711,7 @@ describe("executeGate", () => {
 
   test("returns default value on error", async () => {
     const config = {
-      decide: mock(() => Promise.resolve({ value: true })),
+      decide: mock(() => Promise.resolve({ type: "boolean", value: true } as const)),
       identify: mock(() => Promise.reject(new Error("Identity error"))),
     }
 
@@ -690,7 +727,7 @@ describe("executeGate", () => {
 
   test("runs all hook lifecycle methods", async () => {
     const identity: Identity = { distinctId: "user123" }
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     const beforeFn = mock(() => Promise.resolve())
     const resolveFn = mock(() => Promise.resolve<Decision | undefined>(void 0))
@@ -727,14 +764,14 @@ describe("executeGate", () => {
 
   test("short-circuits when resolve hook returns value", async () => {
     const identity: Identity = { distinctId: "user123" }
-    const cachedDecision: Decision = { value: true }
+    const cachedDecision: Decision = { type: "boolean", value: true }
 
     const resolveFn = mock(() => Promise.resolve(cachedDecision))
 
     const hooks: Hook[] = [{ resolve: resolveFn }]
 
     const config = {
-      decide: mock(() => Promise.resolve({ value: false })),
+      decide: mock(() => Promise.resolve({ type: "boolean", value: false } as const)),
       hooks,
       identify: mock(() => Promise.resolve(identity)),
     }
@@ -788,7 +825,7 @@ describe("executeGate", () => {
 
   test("validates variant and throws on invalid variant", async () => {
     const identity: Identity = { distinctId: "user123" }
-    const decision: Decision = { variant: "invalid" }
+    const decision: Decision = { type: "variant", variant: "invalid" }
 
     const config = {
       decide: mock(() => Promise.resolve(decision)),
@@ -808,7 +845,7 @@ describe("executeGate", () => {
 
   test("works without hooks", async () => {
     const identity: Identity = { distinctId: "user123" }
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     const config = {
       decide: mock(() => Promise.resolve(decision)),
@@ -831,7 +868,7 @@ describe("executeGate", () => {
     const hooks: Hook[] = [{ error: errorFn }]
 
     const config = {
-      decide: mock(() => Promise.resolve({ value: true })),
+      decide: mock(() => Promise.resolve({ type: "boolean", value: true } as const)),
       hooks,
       identify: mock(() => Promise.reject(new Error("Identity error"))),
     }

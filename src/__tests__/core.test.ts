@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test"
 import type { Decision, EvaluationDetails, Hook, Identity } from "../lib/types"
 import { buildGate } from "../core"
+import { MalformedDecisionError } from "../lib/errors"
 
 describe("buildGate", () => {
   test.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 0, 2_147_483_648])(
@@ -8,7 +9,7 @@ describe("buildGate", () => {
     (timeoutMs) => {
       expect(() =>
         buildGate({
-          decide: () => ({ value: true }),
+          decide: () => ({ type: "boolean", value: true }),
           identify: () => ({ distinctId: "user123" }),
           timeoutMs,
         })
@@ -20,7 +21,7 @@ describe("buildGate", () => {
     "rejects an invalid per-gate timeout of %p",
     (timeoutMs) => {
       const gate = buildGate({
-        decide: () => ({ value: true }),
+        decide: () => ({ type: "boolean", value: true }),
         identify: () => ({ distinctId: "user123" }),
       })
 
@@ -30,7 +31,7 @@ describe("buildGate", () => {
 
   test("creates a gate factory function", () => {
     const gate = buildGate({
-      decide: () => Promise.resolve({ value: true }),
+      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
@@ -39,7 +40,7 @@ describe("buildGate", () => {
 
   test("accepts synchronous identify and decide functions", async () => {
     const gate = buildGate({
-      decide: (_key, identity) => ({ value: identity.distinctId === "user123" }),
+      decide: (_key, identity) => ({ type: "boolean", value: identity.distinctId === "user123" }),
       identify: () => ({ distinctId: "user123" }),
     })
 
@@ -50,7 +51,7 @@ describe("buildGate", () => {
 
   test("creates boolean flag that evaluates to true", async () => {
     const identity: Identity = { distinctId: "user123" }
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     const gate = buildGate({
       decide: mock(() => Promise.resolve(decision)),
@@ -65,7 +66,7 @@ describe("buildGate", () => {
 
   test("returns provider evaluation details without changing the plain value", async () => {
     const gate = buildGate({
-      decide: () => ({ value: true }),
+      decide: () => ({ type: "boolean", value: true }),
       identify: () => ({ distinctId: "user123" }),
     })
     const betaFlag = gate({ defaultValue: false, key: "beta-access" })
@@ -80,8 +81,8 @@ describe("buildGate", () => {
 
   test("returns hook evaluation details", async () => {
     const gate = buildGate({
-      decide: () => ({ value: false }),
-      hooks: [{ resolve: () => ({ value: true }) }],
+      decide: () => ({ type: "boolean", value: false }),
+      hooks: [{ resolve: () => ({ type: "boolean", value: true }) }],
       identify: () => ({ distinctId: "user123" }),
     })
     const betaFlag = gate({ defaultValue: false, key: "beta-access" })
@@ -154,7 +155,7 @@ describe("buildGate", () => {
 
   test("returns the identity error with default evaluation details", async () => {
     const gate = buildGate({
-      decide: () => ({ value: true }),
+      decide: () => ({ type: "boolean", value: true }),
       identify: () => null,
     })
     const betaFlag = gate({ defaultValue: false, key: "beta-access" })
@@ -173,7 +174,7 @@ describe("buildGate", () => {
     const identify = mock(() => ({ distinctId: "default" }))
     const overrideIdentity = { distinctId: "override" }
     const gate = buildGate({
-      decide: (_key, identity) => ({ value: identity.distinctId === "override" }),
+      decide: (_key, identity) => ({ type: "boolean", value: identity.distinctId === "override" }),
       identify,
     })
     const betaFlag = gate({ defaultValue: false, key: "beta-access" })
@@ -188,7 +189,7 @@ describe("buildGate", () => {
 
   test("preserves variant value inference in evaluation details", async () => {
     const gate = buildGate({
-      decide: () => ({ variant: "dark" }),
+      decide: () => ({ type: "variant", variant: "dark" }),
       identify: () => ({ distinctId: "user123" }),
     })
     const themeFlag = gate({
@@ -202,9 +203,87 @@ describe("buildGate", () => {
     expect(details).toEqual({ flagKey: "theme", source: "provider", value: "dark" })
   })
 
+  test("surfaces variant payloads only through evaluation details", async () => {
+    const payload = { experiment: "checkout-theme", version: 2 }
+    const gate = buildGate({
+      decide: () => ({ payload, type: "variant", variant: "dark" }),
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const themeFlag = gate({
+      defaultValue: "light",
+      key: "theme",
+      variants: ["light", "dark"],
+    })
+
+    expect(await themeFlag()).toBe("dark")
+    expect(await themeFlag.details()).toEqual({
+      flagKey: "theme",
+      payload,
+      source: "provider",
+      value: "dark",
+    })
+  })
+
+  test("leaves payload undefined for a variant decision without one", async () => {
+    const gate = buildGate({
+      decide: () => ({ type: "variant", variant: "dark" }),
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const themeFlag = gate({
+      defaultValue: "light",
+      key: "theme",
+      variants: ["light", "dark"],
+    })
+
+    const details = await themeFlag.details()
+    expect(details.payload).toBeUndefined()
+    expect("payload" in details).toBe(false)
+  })
+
+  test("does not expose payloads from rejected variant decisions", async () => {
+    const gate = buildGate({
+      decide: () => ({ payload: { experiment: "stale" }, type: "variant", variant: "purple" }),
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const themeFlag = gate({
+      defaultValue: "light",
+      key: "theme",
+      variants: ["light", "dark"],
+    })
+
+    const details = await themeFlag.details()
+    expect(details).toEqual({
+      error: expect.any(Error),
+      flagKey: "theme",
+      source: "default",
+      value: "light",
+    })
+    expect("payload" in details).toBe(false)
+  })
+
+  test("falls back with an error for malformed provider decisions", async () => {
+    const malformed = [{}, { value: "true" }, { type: "boolean", value: "true" }]
+
+    const details = await Promise.all(
+      malformed.map(async (providerDecision) => {
+        const gate = buildGate({
+          decide: () => providerDecision as unknown as Decision,
+          identify: () => ({ distinctId: "user123" }),
+        })
+        return await gate({ defaultValue: false, key: "beta-access" }).details()
+      })
+    )
+
+    for (const result of details) {
+      expect(result.value).toBe(false)
+      expect(result.source).toBe("default")
+      expect(result.error).toBeInstanceOf(MalformedDecisionError)
+    }
+  })
+
   test("creates boolean flag that evaluates to false", async () => {
     const identity: Identity = { distinctId: "user123" }
-    const decision: Decision = { value: false }
+    const decision: Decision = { type: "boolean", value: false }
 
     const gate = buildGate({
       decide: mock(() => Promise.resolve(decision)),
@@ -219,7 +298,7 @@ describe("buildGate", () => {
 
   test("creates variant flag with string variants", async () => {
     const identity: Identity = { distinctId: "user123" }
-    const decision: Decision = { variant: "dark" }
+    const decision: Decision = { type: "variant", variant: "dark" }
 
     const gate = buildGate({
       decide: mock(() => Promise.resolve(decision)),
@@ -239,7 +318,7 @@ describe("buildGate", () => {
 
   test("returns default value when identity not found", async () => {
     const gate = buildGate({
-      decide: () => Promise.resolve({ value: true }),
+      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
       identify: () => Promise.resolve(null),
     })
 
@@ -267,7 +346,7 @@ describe("buildGate", () => {
 
     const identifyFn = mock(() => Promise.resolve(defaultIdentity))
     const decideFn = mock((_key: string, identity: Identity) =>
-      Promise.resolve({ value: identity.distinctId === "override" })
+      Promise.resolve({ type: "boolean", value: identity.distinctId === "override" } as const)
     )
 
     const gate = buildGate({
@@ -316,7 +395,7 @@ describe("buildGate", () => {
     const hooks: Hook[] = [{ after: afterFn, before: beforeFn }]
 
     const gate = buildGate({
-      decide: () => Promise.resolve({ value: true }),
+      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
       hooks,
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
@@ -329,12 +408,12 @@ describe("buildGate", () => {
   })
 
   test("hook can short-circuit evaluation", async () => {
-    const cachedDecision: Decision = { value: true }
+    const cachedDecision: Decision = { type: "boolean", value: true }
     const resolveFn = mock(() => Promise.resolve(cachedDecision))
 
     const hooks: Hook[] = [{ resolve: resolveFn }]
 
-    const decideFn = mock(() => Promise.resolve({ value: false }))
+    const decideFn = mock(() => Promise.resolve({ type: "boolean", value: false } as const))
 
     const gate = buildGate({
       decide: decideFn,
@@ -351,7 +430,7 @@ describe("buildGate", () => {
 
   test("multiple flags from same gate", async () => {
     const gate = buildGate({
-      decide: (key) => Promise.resolve({ value: key === "flag1" }),
+      decide: (key) => Promise.resolve({ type: "boolean", value: key === "flag1" } as const),
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
@@ -367,7 +446,7 @@ describe("buildGate", () => {
 
   test("validates variant decision against variants list", async () => {
     const gate = buildGate({
-      decide: () => Promise.resolve({ variant: "invalid" }),
+      decide: () => Promise.resolve({ type: "variant", variant: "invalid" } as const),
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
@@ -385,7 +464,7 @@ describe("buildGate", () => {
 
   test("accepts valid variant from variants list", async () => {
     const gate = buildGate({
-      decide: () => Promise.resolve({ variant: "dark" }),
+      decide: () => Promise.resolve({ type: "variant", variant: "dark" } as const),
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
@@ -413,7 +492,8 @@ describe("buildGate", () => {
     }
 
     const gate = buildGate<CustomIdentity>({
-      decide: (_key, identity) => Promise.resolve({ value: identity.plan === "pro" }),
+      decide: (_key, identity) =>
+        Promise.resolve({ type: "boolean", value: identity.plan === "pro" } as const),
       identify: () => Promise.resolve(customIdentity),
     })
 
@@ -425,7 +505,7 @@ describe("buildGate", () => {
 
   test("handles identify function that returns Promise", async () => {
     const gate = buildGate({
-      decide: () => Promise.resolve({ value: true }),
+      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
@@ -437,7 +517,7 @@ describe("buildGate", () => {
 
   test("handles decide function that returns Promise", async () => {
     const gate = buildGate({
-      decide: () => Promise.resolve({ value: true }),
+      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
@@ -481,7 +561,7 @@ describe("buildGate", () => {
     const hooks: Hook[] = [{ finally: finallyFn }]
 
     const gate = buildGate({
-      decide: () => Promise.resolve({ value: true }),
+      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
       hooks,
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
@@ -498,7 +578,7 @@ describe("buildGate", () => {
     const hooks: Hook[] = [{ finally: finallyFn }]
 
     const gate = buildGate({
-      decide: () => Promise.resolve({ value: true }),
+      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
       hooks,
       identify: () => Promise.reject(new Error("Identity error")),
     })
@@ -511,7 +591,7 @@ describe("buildGate", () => {
 
   test("works without hooks configuration", async () => {
     const gate = buildGate({
-      decide: () => Promise.resolve({ value: true }),
+      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
@@ -523,7 +603,7 @@ describe("buildGate", () => {
 
   test("works with empty hooks array", async () => {
     const gate = buildGate({
-      decide: () => Promise.resolve({ value: true }),
+      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
       hooks: [],
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
@@ -539,7 +619,7 @@ describe("buildGate", () => {
     const gate = buildGate({
       decide: () => {
         callCount += 1
-        return Promise.resolve({ value: true })
+        return Promise.resolve({ type: "boolean", value: true } as const)
       },
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
@@ -555,7 +635,9 @@ describe("buildGate", () => {
 
   test("different flags are independent", async () => {
     const identifyFn = mock(() => Promise.resolve({ distinctId: "user123" }))
-    const decideFn = mock((_key: string) => Promise.resolve({ value: true }))
+    const decideFn = mock((_key: string) =>
+      Promise.resolve({ type: "boolean", value: true } as const)
+    )
 
     const gate = buildGate({
       decide: decideFn,
@@ -576,7 +658,7 @@ describe("buildGate", () => {
     const identity: Identity = { distinctId: 12_345 }
 
     const gate = buildGate({
-      decide: () => Promise.resolve({ value: true }),
+      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
       identify: () => Promise.resolve(identity),
     })
 
@@ -599,7 +681,7 @@ describe("buildGate", () => {
     }
 
     const decideFn = mock((_key: string, identity: CustomIdentity) =>
-      Promise.resolve({ value: identity.role === "admin" })
+      Promise.resolve({ type: "boolean", value: identity.role === "admin" } as const)
     )
 
     const gate = buildGate<CustomIdentity>({
