@@ -1,5 +1,6 @@
 import type {
   AfterHookMeta,
+  AnonymousGatedConfig,
   Decision,
   DecisionSource,
   EvaluationDetails,
@@ -53,6 +54,9 @@ function getGateConfiguration(
 }
 
 type HookErrorReporter<TIdentity extends Identity> = GatedConfig<TIdentity>["onHookError"]
+type AnyGatedConfig<TIdentity extends Identity> =
+  | GatedConfig<TIdentity>
+  | AnonymousGatedConfig<TIdentity>
 
 function reportHookError<TIdentity extends Identity>(
   reporter: HookErrorReporter<TIdentity>,
@@ -90,8 +94,9 @@ function reportRejectedHooks<TIdentity extends Identity>(
 
 export async function identify<TIdentity extends Identity>(
   fn: () => MaybePromise<TIdentity | null>,
-  overrideIdentity?: TIdentity | null
-): Promise<TIdentity> {
+  overrideIdentity?: TIdentity | null,
+  allowAnonymous = false
+): Promise<TIdentity | null> {
   if (overrideIdentity !== undefined && overrideIdentity !== null) {
     return overrideIdentity
   }
@@ -99,27 +104,28 @@ export async function identify<TIdentity extends Identity>(
   const resolvedIdentity = await fn()
 
   if (!resolvedIdentity) {
-    throw new IdentityNotFoundError()
+    if (!allowAnonymous) {
+      throw new IdentityNotFoundError()
+    }
+
+    return null
   }
 
   return resolvedIdentity
 }
 
-export function extractDecisionValue(decision: Decision) {
-  return decision.type === "variant" ? decision.variant : decision.value
+async function evaluateConfiguredDecision<TIdentity extends Identity>(
+  config: AnyGatedConfig<TIdentity>,
+  key: string,
+  identity: TIdentity | null,
+  signal: AbortSignal
+): Promise<Decision> {
+  const decide = config.decide as AnonymousGatedConfig<TIdentity>["decide"]
+  return await decide(key, identity, { signal })
 }
 
-export async function evaluateDecision<TIdentity extends Identity>(
-  decide: (
-    key: string,
-    identity: TIdentity,
-    options?: { signal?: AbortSignal }
-  ) => MaybePromise<Decision>,
-  gateKey: string,
-  gateIdentity: TIdentity,
-  signal?: AbortSignal
-): Promise<Decision> {
-  return await decide(gateKey, gateIdentity, { signal })
+export function extractDecisionValue(decision: Decision) {
+  return decision.type === "variant" ? decision.variant : decision.value
 }
 
 function abortReason(signal: AbortSignal): Error {
@@ -328,7 +334,7 @@ export function validateDecision<T extends string[]>(
 }
 
 export async function executeGateDetails<TIdentity extends Identity, T extends string[] = string[]>(
-  config: GatedConfig<TIdentity>,
+  config: AnyGatedConfig<TIdentity>,
   options: GateOptions<T>,
   callOptions?: GateCallOptions<TIdentity>
 ): Promise<EvaluationDetails<boolean | T[number]>> {
@@ -391,7 +397,7 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
 
   try {
     const identity = await raceWithSignal(
-      () => identify(config.identify, callOptions?.identity),
+      () => identify(config.identify, callOptions?.identity, config.anonymous === "allow"),
       signal
     )
     evaluation.identity = identity
@@ -414,7 +420,7 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
     let decision: Decision
     if (resolution === undefined) {
       decision = await raceWithSignal(
-        () => evaluateDecision(config.decide, evaluation.key, identity, signal),
+        () => evaluateConfiguredDecision(config, evaluation.key, identity, signal),
         signal
       )
       evaluation.source = "provider"
@@ -483,7 +489,7 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
 }
 
 export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
-  config: GatedConfig<TIdentity>,
+  config: AnyGatedConfig<TIdentity>,
   options: GateOptions<T>,
   callOptions?: GateCallOptions<TIdentity>
 ): Promise<boolean | T[number]> {

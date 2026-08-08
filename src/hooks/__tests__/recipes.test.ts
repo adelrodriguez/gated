@@ -509,7 +509,7 @@ describe("dedupeHook", () => {
     expect(newResult).toBeUndefined()
   })
 
-  test("handles null identity", async () => {
+  test("does not dedupe null identities", async () => {
     const hook = dedupeHook()
     const context1: HookContext = {
       ...BOOLEAN_HOOK_CONTEXT,
@@ -522,19 +522,13 @@ describe("dedupeHook", () => {
       identity: null,
     }
 
-    // Start first request
-    await Promise.resolve(hook.resolve?.(context1))
-
-    // Start second concurrent request (should dedupe by flagKey only)
-    const secondResolvePromise = Promise.resolve(hook.resolve?.(context2))
-
-    // Complete first request
+    const firstResult = await Promise.resolve(hook.resolve?.(context1))
+    const secondResult = await Promise.resolve(hook.resolve?.(context2))
     const decision: Decision = { type: "boolean", value: false }
     await Promise.resolve(hook.after?.(context1, decision, providerMeta))
 
-    // Second request should get the same decision
-    const secondResult = await secondResolvePromise
-    expect(secondResult).toEqual(decision)
+    expect(firstResult).toBeUndefined()
+    expect(secondResult).toBeUndefined()
   })
 
   test("supports variant decisions", async () => {
@@ -698,50 +692,6 @@ describe("dedupeHook", () => {
     } catch (error) {
       expect((error as Error).message).toBe("Failed")
     }
-  })
-
-  test("correctly deduplicates with null identity using flagKey only", async () => {
-    const hook = dedupeHook()
-    const context: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "test-flag",
-      identity: null,
-    }
-
-    // Start first request
-    await Promise.resolve(hook.resolve?.(context))
-
-    // Start second concurrent request with same flag but null identity
-    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
-
-    // Complete first request
-    const decision: Decision = { type: "boolean", value: true }
-    await Promise.resolve(hook.after?.(context, decision, providerMeta))
-
-    // Second request should get the same decision
-    const secondResult = await secondResolvePromise
-    expect(secondResult).toEqual(decision)
-  })
-
-  test("does not deduplicate different flags with null identity", async () => {
-    const hook = dedupeHook()
-    const context1: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "flag-a",
-      identity: null,
-    }
-    const context2: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "flag-b",
-      identity: null,
-    }
-
-    const result1 = await Promise.resolve(hook.resolve?.(context1))
-    const result2 = await Promise.resolve(hook.resolve?.(context2))
-
-    // Both should return undefined (not deduplicated)
-    expect(result1).toBeUndefined()
-    expect(result2).toBeUndefined()
   })
 
   test("interleaved requests for different flags work independently", async () => {

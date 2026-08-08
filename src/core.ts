@@ -1,4 +1,10 @@
-import type { GateCallOptions, GateEvaluator, GatedConfig, Identity } from "./lib/types"
+import type {
+  AnonymousGatedConfig,
+  GateCallOptions,
+  GateEvaluator,
+  GatedConfig,
+  Identity,
+} from "./lib/types"
 import { executeGate, executeGateDetails } from "./lib"
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
@@ -65,6 +71,13 @@ export interface GateFactory<TIdentity extends Identity> {
  */
 export function buildGate<TIdentity extends Identity>(
   config: GatedConfig<TIdentity>
+): GateFactory<TIdentity>
+export function buildGate<TIdentity extends Identity>(
+  // oxlint-disable-next-line typescript/unified-signatures -- Overloads preserve anonymous-mode contextual typing.
+  config: AnonymousGatedConfig<TIdentity>
+): GateFactory<TIdentity>
+export function buildGate<TIdentity extends Identity>(
+  config: GatedConfig<TIdentity> | AnonymousGatedConfig<TIdentity>
 ): GateFactory<TIdentity> {
   assertTimeoutMs(config.timeoutMs)
 

@@ -1,5 +1,6 @@
 import type {
   AfterHookMeta,
+  AnonymousGatedConfig,
   Decision,
   DecisionSource,
   GateEvaluator,
@@ -28,6 +29,7 @@ interface ConsumerIdentity extends Identity {
 }
 
 declare const config: GatedConfig<ConsumerIdentity>
+declare const anonymousConfig: AnonymousGatedConfig<ConsumerIdentity>
 declare const decision: Decision
 declare const hook: Hook<ConsumerIdentity>
 declare const hookContext: HookContext<ConsumerIdentity>
@@ -72,6 +74,7 @@ type InvalidIdentityEvaluator = GateEvaluator<string, boolean>
 type InvalidValueEvaluator = GateEvaluator<ConsumerIdentity, symbol>
 
 void booleanGate
+void anonymousConfig
 void constructedBooleanValue
 void constructedVariantValue
 void afterMeta

@@ -101,6 +101,7 @@ export interface Hook<T extends Identity = Identity> {
 }
 
 export type GatedConfig<TIdentity extends Identity = Identity> = {
+  anonymous?: "reject"
   identify: () => MaybePromise<TIdentity | null>
   decide: (
     key: string,
@@ -110,4 +111,16 @@ export type GatedConfig<TIdentity extends Identity = Identity> = {
   hooks?: Array<Hook<TIdentity>>
   onHookError?: (report: HookErrorReport<TIdentity>) => MaybePromise<void>
   timeoutMs?: number
+}
+
+export type AnonymousGatedConfig<TIdentity extends Identity = Identity> = Omit<
+  GatedConfig<TIdentity>,
+  "anonymous" | "decide"
+> & {
+  anonymous: "allow"
+  decide: (
+    key: string,
+    identity: TIdentity | null,
+    options?: { signal?: AbortSignal }
+  ) => MaybePromise<Decision>
 }

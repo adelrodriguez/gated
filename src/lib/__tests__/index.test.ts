@@ -2,7 +2,6 @@ import { describe, expect, mock, test } from "bun:test"
 import type { Decision, Hook, HookContext, Identity } from "../types"
 import { IdentityNotFoundError, MalformedDecisionError } from "../errors"
 import {
-  evaluateDecision,
   executeGate,
   extractDecisionValue,
   identify,
@@ -80,6 +79,14 @@ describe("identify", () => {
     expect(error).toBeInstanceOf(IdentityNotFoundError)
   })
 
+  test("normalizes an undefined anonymous identity to null", async () => {
+    const identifyFn = mock(() => void 0)
+
+    const result = await identify(identifyFn as unknown as () => Identity | null, null, true)
+
+    expect(result).toBeNull()
+  })
+
   test("handles synchronous identify function", async () => {
     const identity: Identity = { distinctId: "user123" }
     const identifyFn = mock(() => identity)
@@ -131,39 +138,6 @@ describe("extractDecisionValue", () => {
 
     expect(extractDecisionValue(booleanDecision)).toBe(true)
     expect(extractDecisionValue(variantDecision)).toBe("system")
-  })
-})
-
-describe("evaluateDecision", () => {
-  test("evaluates boolean decision", async () => {
-    const decision: Decision = { type: "boolean", value: true }
-    const decideFn = mock(() => Promise.resolve(decision))
-    const identity: Identity = { distinctId: "user123" }
-
-    const result = await evaluateDecision(decideFn, "test-flag", identity)
-
-    expect(result).toEqual(decision)
-    expect(decideFn).toHaveBeenCalledWith("test-flag", identity, { signal: undefined })
-  })
-
-  test("evaluates variant decision", async () => {
-    const decision: Decision = { type: "variant", variant: "dark" }
-    const decideFn = mock(() => Promise.resolve(decision))
-    const identity: Identity = { distinctId: "user123" }
-
-    const result = await evaluateDecision(decideFn, "theme", identity)
-
-    expect(result).toEqual(decision)
-  })
-
-  test("handles synchronous decide function", async () => {
-    const decision: Decision = { type: "boolean", value: false }
-    const decideFn = mock(() => decision)
-    const identity: Identity = { distinctId: "user123" }
-
-    const result = await evaluateDecision(decideFn, "test-flag", identity)
-
-    expect(result).toEqual(decision)
   })
 })
 
