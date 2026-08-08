@@ -211,7 +211,7 @@ function App() {
 }
 ```
 
-Evaluations are cached by identity for five minutes by default, with a maximum of 100 entries. Identities are treated as flat records and their values must be JSON-serializable. Configure the bounds and explicitly invalidate cached decisions when application state changes:
+Evaluations are cached by gate and identity for five minutes after they settle, with a maximum of 100 settled entries. Pending evaluations are never expired or evicted, so the cache can temporarily exceed that bound while many identities are evaluating without causing repeated Suspense retries. Identities are treated as flat records and their values must be JSON-serializable. Configure the bounds and explicitly invalidate cached decisions when application state changes:
 
 ```typescript
 const useBetaAccess = createReactGate(betaFlag, {
@@ -226,18 +226,21 @@ useBetaAccess.clear() // Every identity, for example on logout
 
 Invalidation, clearing, and TTL expiry are not reactive: they cause re-evaluation on the next render but do not schedule a render themselves.
 
-For server rendering, create and inject a cache for each React gate in each request. Never share a module-level cache across requests because it can retain identities and stale decisions across users:
+For server rendering, create a cache for each request. The same request cache can be injected into multiple React gates because entries are namespaced per gate. Never share that cache across requests because it can retain identities and stale decisions across users. An injected cache owns its bounds, so `cache` cannot be combined with `maxEntries` or `ttlMs` in `createReactGate` options:
 
 ```typescript
 import { createReactGate, createReactGateCache } from "gated/react"
 
 const requestCache = createReactGateCache<boolean>()
 const useBetaAccess = createReactGate(betaFlag, { cache: requestCache })
+const useInternalTools = createReactGate(internalToolsFlag, { cache: requestCache })
 ```
+
+The returned React hook accepts a bare identity (`useBetaAccess(identity)`) even when the core evaluator uses an options object. This is intentional: a cached evaluation can be shared by several components, so attaching a per-consumer `AbortSignal` would let one component cancel work used by the others. Use the core evaluator directly when a caller-owned signal is required.
 
 #### `<FeatureGate>` Component
 
-A convenience component for conditionally rendering children based on flag evaluation. Comes wrapped in a Suspense boundary to handle loading states:
+A convenience component for conditionally rendering children based on flag evaluation. When `loading` is provided, the component adds a Suspense boundary with that fallback. When it is omitted, suspension propagates to the nearest ancestor boundary:
 
 ```typescript
 import { FeatureGate } from "gated/react";
@@ -312,15 +315,15 @@ const myHook = createHook((options: TOptions) => ({
 
 #### `createReactGate(gateFn, options?)`
 
-Converts an evaluator into a React hook using React 19's `use()` primitive and a bounded per-identity promise cache. Options include `maxEntries`, `ttlMs`, and an injectable `cache`. The returned hook exposes `invalidate(identity?)` and `clear()`; these controls take effect on the next render.
+Converts an evaluator into a React hook using React 19's `use()` primitive and a bounded gate-and-identity promise cache. Configure either `maxEntries`/`ttlMs` or an injected `cache`; injected caches own their bounds. Pending evaluations remain pinned until settlement. The returned hook exposes `invalidate(identity?)` and `clear()`; these controls take effect on the next render.
 
 #### `createReactGateCache(options?)`
 
-Creates a bounded TTL/LRU cache for injection into `createReactGate`. Create one per server request when rendering on the server.
+Creates a bounded TTL/LRU cache for injection into `createReactGate`. TTL starts at settlement, pending evaluations are not evicted, and one request-scoped cache can safely serve multiple namespaced React gates.
 
 #### `<FeatureGate>`
 
-Conditionally renders children based on flag evaluation. Includes built-in Suspense boundary.
+Conditionally renders children based on flag evaluation. Adds a Suspense boundary when `loading` is provided; otherwise it uses the nearest ancestor boundary.
 
 **Props:** `gate`, `loading?`, `fallback?`, `overrideIdentity?`, `match?`
 

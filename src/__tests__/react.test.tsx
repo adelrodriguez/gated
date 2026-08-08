@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
-import { act, Component, type ReactNode, Suspense } from "react"
+import { act, Component, createRef, type ReactNode, Suspense } from "react"
 import type { Identity } from "../lib/types"
 import {
   createReactGate,
@@ -44,6 +44,10 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
     return { error }
   }
 
+  reset(): void {
+    this.setState({ error: undefined })
+  }
+
   override render(): ReactNode {
     return this.state.error ? (
       <div data-testid="error">{this.state.error.message}</div>
@@ -53,8 +57,10 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | 
   }
 }
 
+const resolvingTrueGate = () => Promise.resolve(true)
+
 describe("createReactGateCache", () => {
-  test("uses least-recently-used eviction", () => {
+  test("uses least-recently-used eviction after evaluations settle", async () => {
     const cache = createReactGateCache({ maxEntries: 2, ttlMs: 1000 })
     const first = Promise.resolve(true)
     const second = Promise.resolve(false)
@@ -62,30 +68,60 @@ describe("createReactGateCache", () => {
 
     cache.set("first", first)
     cache.set("second", second)
+    await Promise.all([first, second])
+    await Bun.sleep(0)
     expect(cache.get("first")).toBe(first)
     cache.set("third", third)
+    await third
+    await Bun.sleep(0)
 
     expect(cache.get("second")).toBeUndefined()
     expect(cache.get("first")).toBe(first)
     expect(cache.get("third")).toBe(third)
   })
 
-  test("expires entries after their TTL", () => {
+  test("starts TTL expiry when an evaluation settles", async () => {
     let now = 0
     const dateNow = spyOn(Date, "now").mockImplementation(() => now)
     const cache = createReactGateCache({ ttlMs: 100 })
-    cache.set("flag", Promise.resolve(true))
+    const evaluation = deferred<boolean>()
+    cache.set("flag", evaluation.promise)
 
     now = 101
+    expect(cache.get("flag")).toBe(evaluation.promise)
+
+    evaluation.resolve(true)
+    await evaluation.promise
+    now = 202
 
     expect(cache.get("flag")).toBeUndefined()
     dateNow.mockRestore()
+  })
+
+  test("does not evict unsettled evaluations under LRU pressure", () => {
+    const cache = createReactGateCache({ maxEntries: 1 })
+    const first = deferred<boolean>()
+    const second = deferred<boolean>()
+
+    cache.set("first", first.promise)
+    cache.set("second", second.promise)
+
+    expect(cache.get("first")).toBe(first.promise)
+    expect(cache.get("second")).toBe(second.promise)
   })
 
   test("rejects invalid bounds", () => {
     expect(() => createReactGateCache({ maxEntries: 0 })).toThrow(RangeError)
     expect(() => createReactGateCache({ maxEntries: 1.5 })).toThrow(RangeError)
     expect(() => createReactGateCache({ ttlMs: Number.POSITIVE_INFINITY })).toThrow(RangeError)
+  })
+
+  test("rejects bounds alongside an injected cache at runtime", () => {
+    const cache = createReactGateCache<boolean>()
+
+    expect(() => createReactGate(resolvingTrueGate, { cache, maxEntries: 1 } as never)).toThrow(
+      TypeError
+    )
   })
 })
 
@@ -166,6 +202,43 @@ describe("createReactGate", () => {
       await Promise.resolve()
     })
 
+    await waitFor(() => {
+      expect(screen.getAllByTestId("value")).toHaveLength(2)
+    })
+    expect(gateFn).toHaveBeenCalledTimes(2)
+  })
+
+  test("keeps concurrent pending identities stable beyond the settled-entry bound", async () => {
+    const first = deferred<boolean>()
+    const second = deferred<boolean>()
+    const gateFn = mock((identity?: Identity) =>
+      identity?.distinctId === "first" ? first.promise : second.promise
+    )
+    const useBetaAccess = createReactGate(gateFn, { maxEntries: 1 })
+
+    await act(async () => {
+      render(
+        <>
+          <Suspense fallback={<div data-testid="first-loading">Loading first</div>}>
+            <GateValue gate={useBetaAccess} identity={{ distinctId: "first" }} />
+          </Suspense>
+          <Suspense fallback={<div data-testid="second-loading">Loading second</div>}>
+            <GateValue gate={useBetaAccess} identity={{ distinctId: "second" }} />
+          </Suspense>
+        </>
+      )
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId("first-loading")).not.toBeNull()
+    expect(screen.getByTestId("second-loading")).not.toBeNull()
+    expect(gateFn).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      first.resolve(true)
+      second.resolve(false)
+      await Promise.all([first.promise, second.promise])
+    })
     await waitFor(() => {
       expect(screen.getAllByTestId("value")).toHaveLength(2)
     })
@@ -297,7 +370,7 @@ describe("createReactGate", () => {
     dateNow.mockRestore()
   })
 
-  test("evicts rejected evaluations so a later render retries", async () => {
+  test("evicts rejected evaluations so a mounted tree can reset and retry", async () => {
     let invocation = 0
     const gateFn = mock(() => {
       invocation += 1
@@ -308,30 +381,25 @@ describe("createReactGate", () => {
     const useBetaAccess = createReactGate(gateFn)
     const consoleError = spyOn(console, "error").mockImplementation(() => false)
 
-    let firstRender!: ReturnType<typeof render>
+    const boundary = createRef<ErrorBoundary>()
+    const view = (
+      <ErrorBoundary ref={boundary}>
+        <Suspense fallback="Loading">
+          <GateValue gate={useBetaAccess} />
+        </Suspense>
+      </ErrorBoundary>
+    )
     await act(async () => {
-      firstRender = render(
-        <ErrorBoundary>
-          <Suspense fallback="Loading">
-            <GateValue gate={useBetaAccess} />
-          </Suspense>
-        </ErrorBoundary>
-      )
+      render(view)
       await Promise.resolve()
     })
     await waitFor(() => {
       expect(screen.getByTestId("error").textContent).toBe("provider unavailable")
     })
-    firstRender.unmount()
 
     await act(async () => {
-      render(
-        <ErrorBoundary>
-          <Suspense fallback="Loading">
-            <GateValue gate={useBetaAccess} />
-          </Suspense>
-        </ErrorBoundary>
-      )
+      await Bun.sleep(0)
+      boundary.current?.reset()
       await Promise.resolve()
     })
     await waitFor(() => {
@@ -360,6 +428,33 @@ describe("createReactGate", () => {
       expect(screen.getAllByTestId("value")).toHaveLength(2)
     })
     expect(gateFn).toHaveBeenCalledTimes(2)
+  })
+
+  test("namespaces multiple gates that share one request-scoped cache", async () => {
+    const cache = createReactGateCache<boolean>()
+    const enabledEvaluator = mock(() => Promise.resolve(true))
+    const disabledEvaluator = mock(() => Promise.resolve(false))
+    const useEnabled = createReactGate(enabledEvaluator, { cache })
+    const useDisabled = createReactGate(disabledEvaluator, { cache })
+
+    await act(async () => {
+      render(
+        <Suspense fallback="Loading">
+          <GateValue gate={useEnabled} identity={{ distinctId: "same-user" }} />
+          <GateValue gate={useDisabled} identity={{ distinctId: "same-user" }} />
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("value").map((node) => node.textContent)).toEqual([
+        "true",
+        "false",
+      ])
+    })
+    expect(enabledEvaluator).toHaveBeenCalledTimes(1)
+    expect(disabledEvaluator).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -391,6 +486,31 @@ describe("FeatureGate", () => {
       expect(screen.getByTestId("feature").textContent).toBe("Beta")
     })
     expect(gateFn).toHaveBeenCalledTimes(1)
+  })
+
+  test("uses an ancestor Suspense fallback when loading is omitted", async () => {
+    const evaluation = deferred<boolean>()
+    const useBetaAccess = createReactGate(() => evaluation.promise)
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<div data-testid="ancestor-loading">Loading application</div>}>
+          <FeatureGate gate={useBetaAccess}>
+            <div data-testid="feature">Beta</div>
+          </FeatureGate>
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId("ancestor-loading").textContent).toBe("Loading application")
+    await act(async () => {
+      evaluation.resolve(true)
+      await evaluation.promise
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId("feature").textContent).toBe("Beta")
+    })
   })
 
   test("renders fallback when a boolean gate does not match", () => {

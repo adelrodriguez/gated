@@ -1,5 +1,5 @@
 ---
-"gated": major
+"gated": minor
 ---
 
 Rename `createReactHook` to `createReactGate` because the returned callable represents a React-bound gate and now includes cache controls. Consumers must replace the old import and factory call with `createReactGate`; no compatibility alias is provided.
