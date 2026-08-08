@@ -13,6 +13,6 @@
     "types": ["bun"],
     "verbatimModuleSyntax": true
   },
-  "exclude": ["node_modules", "dist", ".packref"],
+  "exclude": ["node_modules", "dist", ".packref", "test/package-exports"],
   "include": ["src", "test", "*.config.ts"]
 }

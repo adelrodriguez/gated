@@ -4,6 +4,7 @@ import { defineConfig } from "oxlint"
 
 export default defineConfig({
   extends: [core, react],
+  ignorePatterns: ["test/package-exports/**"],
   options: {
     respectEslintDisableDirectives: true,
     typeAware: true,
