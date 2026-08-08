@@ -41,6 +41,22 @@ await flag({ identity: { distinctId: "test-user" } })
 
 Note the old form was also ambiguous: an identity object was structurally close to any options object we might add. The break is what makes plan 09 possible cleanly.
 
+React consumers must also rename `FeatureGate`'s identity override prop and provide an explicit semantic cache key when binding a custom bare async function:
+
+```tsx
+// v0.x
+<FeatureGate gate={betaAccess} overrideIdentity={identity}>{children}</FeatureGate>
+const useCustomGate = createReactGate(customAsyncGate)
+
+// new
+<FeatureGate gate={betaAccess} identity={identity}>{children}</FeatureGate>
+const useCustomGate = createReactGate(customAsyncGate, {
+  cacheKey: (options) => options?.identity ?? null,
+})
+```
+
+`createReactGate(betaAccess)` remains configuration-free when `betaAccess` is a Gated `GateEvaluator`; the required projection applies only to custom bare async functions.
+
 ## Tests
 
 - Update core tests using override identity (src/**tests**/core.test.ts:89-109 and friends) to the options form.
@@ -54,4 +70,4 @@ Note the old form was also ambiguous: an identity object was structurally close 
 
 ## Release
 
-- Changeset: minor (pre-1.0 breaking). "Gate evaluators now take an options object: `flag({ identity })` replaces `flag(identity)`."
+- Changeset: minor (pre-1.0 breaking). "Gate evaluators now take an options object: `flag({ identity })` replaces `flag(identity)`. React consumers must rename `FeatureGate`'s `overrideIdentity` prop to `identity`; `createReactGate` continues to configure Gated evaluators automatically, while custom bare async functions must now supply a semantic `cacheKey` projection."
