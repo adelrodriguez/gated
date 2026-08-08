@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test"
 import type { Decision, Hook, HookContext, Identity } from "../types"
-import { HookResolutionAbortError } from "../hook-control"
+import { DecisionTypeMismatchError, IdentityNotFoundError, InvalidVariantError } from "../errors"
 import {
   evaluateDecision,
   executeGate,
@@ -13,6 +13,7 @@ import {
   runResolveHooks,
   validateDecision,
 } from "../index"
+import { HookResolutionAbortError } from "../internal"
 
 async function expectRejection(promise: Promise<unknown>, message: string) {
   let caughtError: unknown
@@ -25,6 +26,7 @@ async function expectRejection(promise: Promise<unknown>, message: string) {
 
   expect(caughtError).toBeInstanceOf(Error)
   expect(caughtError).toMatchObject({ message })
+  return caughtError
 }
 
 const acceptDecision = (decision: Decision) => void decision
@@ -57,7 +59,9 @@ describe("identify", () => {
   test("throws error when identify function returns null", async () => {
     const identifyFn = mock(() => Promise.resolve(null))
 
-    await expectRejection(identify(identifyFn), "Identity not found")
+    const error = await expectRejection(identify(identifyFn), "Identity not found")
+
+    expect(error).toBeInstanceOf(IdentityNotFoundError)
   })
 
   test("handles synchronous identify function", async () => {
@@ -167,6 +171,9 @@ describe("validateDecision", () => {
     expect(() => {
       validateDecision({ variant: "dark" }, { defaultValue: false, key: "beta-access" })
     }).toThrow('Type mismatch: expected boolean decision but received variant "dark"')
+    expect(() => {
+      validateDecision({ variant: "dark" }, { defaultValue: false, key: "beta-access" })
+    }).toThrow(DecisionTypeMismatchError)
   })
 
   test("rejects a boolean decision for a variant gate", () => {
@@ -176,6 +183,12 @@ describe("validateDecision", () => {
         { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
       )
     }).toThrow('Type mismatch: expected variant decision but received boolean "true"')
+    expect(() => {
+      validateDecision(
+        { value: true },
+        { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
+      )
+    }).toThrow(DecisionTypeMismatchError)
   })
 
   test("rejects a variant outside the allowed list", () => {
@@ -185,6 +198,12 @@ describe("validateDecision", () => {
         { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
       )
     }).toThrow("Invalid variant: purple")
+    expect(() => {
+      validateDecision(
+        { variant: "purple" },
+        { defaultValue: "light", key: "theme", variants: ["light", "dark"] }
+      )
+    }).toThrow(InvalidVariantError)
   })
 })
 

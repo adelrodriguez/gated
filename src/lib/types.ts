@@ -34,6 +34,13 @@ export type AfterHookMeta<TIdentity extends Identity = Identity> =
   | { source: "hook"; resolver: Hook<TIdentity> }
   | { source: "provider" }
 
+export type HookErrorReport<TIdentity extends Identity = Identity> = {
+  phase: "before" | "resolve" | "after" | "error" | "finally"
+  hookIndex: number
+  error: unknown
+  context: HookContext<TIdentity>
+}
+
 export interface Hook<T extends Identity = Identity> {
   before?(hookContext: HookContext<T>): MaybePromise<void>
   resolve?(hookContext: HookContext<T>): MaybePromise<Decision | null | undefined>
@@ -50,4 +57,5 @@ export type GatedConfig<TIdentity extends Identity = Identity> = {
   identify: () => MaybePromise<TIdentity | null>
   decide: (key: string, identity: TIdentity) => MaybePromise<Decision>
   hooks?: Array<Hook<TIdentity>>
+  onHookError?: (report: HookErrorReport<TIdentity>) => MaybePromise<void>
 }

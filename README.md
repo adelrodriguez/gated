@@ -110,12 +110,28 @@ const gate = buildGate({
   identify: async () => ({ distinctId: userId }),
   decide: async (key, identity) => provider.evaluate(key, identity),
   hooks: [loggingHook()],
+  onHookError: ({ phase, hookIndex, error }) => {
+    console.error(`Hook ${hookIndex} failed during ${phase}`, error)
+  },
 })
 ```
 
-Resolve-hook errors are skipped by default so later hooks or the provider can run. A custom
-single-flight hook can throw `HookResolutionAbortError` from `gated/hooks` when a shared failure
-must abort the resolve chain.
+Resolve-hook errors are skipped by default so later hooks or the provider can run. The bundled
+dedupe hook internally re-surfaces a leader's gate failure to its followers so they do not retry
+the provider independently.
+
+#### Hook error handling
+
+1. An ordinary hook failure never aborts evaluation and never changes the returned value.
+2. Every ordinary hook failure in every phase is reported to `onHookError`. Reporting is fire-and-forget: synchronous throws and asynchronous rejections from `onHookError` are consumed, and the reporter never contributes to gate latency.
+3. The bundled dedupe hook has an internal resolve-phase exception that re-surfaces a leader's underlying gate error and is not reported as a hook failure. This releases followers without triggering duplicate provider calls.
+4. `error` hooks report _gate_ failures (identity/provider/validation); `onHookError` reports _hook_ failures. They do not overlap.
+
+Consumer-facing library failures extend `GatedError` and use contextual classes so error hooks can
+identify the failure without parsing messages: `IdentityNotFoundError`,
+`DecisionTypeMismatchError`, and `InvalidVariantError`. These classes retain relevant details such
+as the received decision, expected decision kind, and allowed variants. Internal hook-control
+errors are intentionally not exported.
 
 ### Built-in Recipes
 
@@ -161,8 +177,9 @@ const [result1, result2] = await Promise.all([betaFlag(), betaFlag()])
 ```
 
 Recipe ordering can affect efficiency, but not correctness. For example, placing the cache hook before the dedupe hook may avoid creating a pending request for cache hits; either ordering is safe.
-When several cache hooks are layered, a hit in a later cache warms earlier caches while the
-resolving cache avoids rewriting its own entry.
+When several cache hooks are layered, each hook writes only if it was consulted and missed during
+that evaluation. A hit in a later cache warms earlier caches, while a hit in an earlier cache does
+not touch later caches that were never consulted.
 
 ### React Integration
 

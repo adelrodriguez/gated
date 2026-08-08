@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test"
-import type { Decision, Hook } from "../lib/types"
+import type { Decision, Hook, HookErrorReport } from "../lib/types"
 import { buildGate } from "../core"
 import { cacheHook, dedupeHook } from "../hooks/recipes"
 
@@ -38,6 +38,24 @@ async function settleWithin<T>(promise: Promise<T>, timeoutMs = 100): Promise<T>
     return await Promise.race([promise, timeoutPromise])
   } finally {
     clearTimeout(timeout)
+  }
+}
+
+function createFailingHook(
+  phase: HookErrorReport["phase"],
+  fail: () => never | Promise<never>
+): Hook {
+  switch (phase) {
+    case "before":
+      return { before: fail }
+    case "resolve":
+      return { resolve: fail }
+    case "after":
+      return { after: fail }
+    case "error":
+      return { error: fail }
+    case "finally":
+      return { finally: fail }
   }
 }
 
@@ -226,9 +244,70 @@ describe("uniform hook lifecycle", () => {
     const betaAccess = gate({ defaultValue: false, key: "beta-access" })
 
     expect(await betaAccess()).toBe(true)
+    expect(await betaAccess()).toBe(true)
     expect(decide).not.toHaveBeenCalled()
     expect(memoryCache.set).toHaveBeenCalledWith("beta-access:user123", { value: true })
+    expect(memoryCache.set).toHaveBeenCalledTimes(1)
+    expect(sharedCache.get).toHaveBeenCalledTimes(1)
     expect(sharedCache.set).not.toHaveBeenCalled()
+  })
+
+  test("writes every consulted cache after a full miss", async () => {
+    const memoryCache = createMemoryCache()
+    const sharedCache = createMemoryCache()
+    const decide = mock(() => Promise.resolve<Decision>({ value: true }))
+    const gate = buildGate({
+      decide,
+      hooks: [cacheHook(memoryCache), cacheHook(sharedCache)],
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess()).toBe(true)
+    expect(memoryCache.set).toHaveBeenCalledTimes(1)
+    expect(sharedCache.set).toHaveBeenCalledTimes(1)
+  })
+
+  test("does not duplicate cache writes when dedupe runs before cache", async () => {
+    const providerResult = createDeferred<Decision>()
+    const cache = createMemoryCache()
+    const decide = mock(() => providerResult.promise)
+    const gate = buildGate({
+      decide,
+      hooks: [dedupeHook(), cacheHook(cache)],
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    const evaluations = [betaAccess(), betaAccess(), betaAccess(), betaAccess()]
+    await Bun.sleep(0)
+    providerResult.resolve({ value: true })
+
+    expect(await settleWithin(Promise.all(evaluations))).toEqual([true, true, true, true])
+    expect(decide).toHaveBeenCalledTimes(1)
+    expect(cache.get).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledTimes(1)
+  })
+
+  test("records repeated cache writes when cache runs before dedupe", async () => {
+    const providerResult = createDeferred<Decision>()
+    const cache = createMemoryCache()
+    const decide = mock(() => providerResult.promise)
+    const gate = buildGate({
+      decide,
+      hooks: [cacheHook(cache), dedupeHook()],
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    const evaluations = [betaAccess(), betaAccess(), betaAccess(), betaAccess()]
+    await Bun.sleep(0)
+    providerResult.resolve({ value: true })
+
+    expect(await settleWithin(Promise.all(evaluations))).toEqual([true, true, true, true])
+    expect(decide).toHaveBeenCalledTimes(1)
+    expect(cache.get).toHaveBeenCalledTimes(4)
+    expect(cache.set).toHaveBeenCalledTimes(4)
   })
 
   test("does not run after hooks for an out-of-list provider variant", async () => {
@@ -276,5 +355,129 @@ describe("uniform hook lifecycle", () => {
 
     expect(await settleWithin(betaAccess())).toBe(true)
     expect(decide).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("hook error policy", () => {
+  const phases = ["before", "resolve", "after", "error", "finally"] as const
+  const failureModes = ["synchronous", "asynchronous"] as const
+
+  for (const phase of phases) {
+    for (const failureMode of failureModes) {
+      test(`reports a ${failureMode} ${phase} failure without changing the value`, async () => {
+        const hookError = new Error(`${phase} hook failed`)
+        const gateError = new Error("Provider failed")
+        const fail =
+          failureMode === "synchronous"
+            ? () => {
+                throw hookError
+              }
+            : () => Promise.reject(hookError)
+        const reporter = mock(() => Promise.resolve())
+        const laterResolve = mock(() => Promise.resolve<Decision | undefined>(void 0))
+        const gateErrorHook = mock(() => Promise.resolve())
+        const hooks: Hook[] = [{}, createFailingHook(phase, fail)]
+
+        if (phase === "resolve") {
+          hooks.push({ resolve: laterResolve })
+        }
+
+        if (phase !== "error") {
+          hooks.push({ error: gateErrorHook })
+        }
+
+        const decide =
+          phase === "error"
+            ? mock(() => Promise.reject(gateError))
+            : mock(() => Promise.resolve<Decision>({ value: true }))
+        const identity = { distinctId: "user123" }
+        const gate = buildGate({
+          decide,
+          hooks,
+          identify: () => identity,
+          onHookError: reporter,
+        })
+        const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+        expect(await betaAccess()).toBe(phase !== "error")
+        await Bun.sleep(0)
+        expect(reporter).toHaveBeenCalledTimes(1)
+        expect(reporter).toHaveBeenCalledWith({
+          context: { flagKey: "beta-access", identity },
+          error: hookError,
+          hookIndex: 1,
+          phase,
+        })
+
+        if (phase === "resolve") {
+          expect(laterResolve).toHaveBeenCalled()
+          expect(decide).toHaveBeenCalledTimes(1)
+        }
+
+        if (phase !== "error") {
+          expect(gateErrorHook).not.toHaveBeenCalled()
+        }
+      })
+    }
+  }
+
+  for (const reporterBehavior of ["throws", "rejects", "never settles"] as const) {
+    test(`does not wait when onHookError ${reporterBehavior}`, async () => {
+      const reporter =
+        reporterBehavior === "throws"
+          ? mock(() => {
+              throw new Error("Reporter failed")
+            })
+          : reporterBehavior === "rejects"
+            ? mock(() => Promise.reject(new Error("Reporter failed")))
+            : mock(
+                () =>
+                  new Promise<void>(() => {
+                    // This reporter intentionally never settles.
+                  })
+              )
+      const gate = buildGate({
+        decide: () => ({ value: true }),
+        hooks: [
+          {
+            before() {
+              throw new Error("Hook failed")
+            },
+          },
+          {
+            before() {
+              throw new Error("Second hook failed")
+            },
+          },
+        ],
+        identify: () => ({ distinctId: "user123" }),
+        onHookError: reporter,
+      })
+      const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+      expect(await settleWithin(betaAccess())).toBe(true)
+      await Bun.sleep(0)
+      expect(reporter).toHaveBeenCalledTimes(2)
+    })
+  }
+
+  test("continues silently when no hook error reporter is configured", async () => {
+    const gate = buildGate({
+      decide: () => ({ value: true }),
+      hooks: [
+        {
+          before() {
+            throw new Error("Before failed")
+          },
+        },
+        {
+          after: () => Promise.reject(new Error("After failed")),
+        },
+      ],
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess()).toBe(true)
   })
 })

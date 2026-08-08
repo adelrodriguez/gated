@@ -1,6 +1,6 @@
 // Recipes for common and useful hooks
 import type { Decision, Hook, HookContext } from "../lib/types"
-import { HookResolutionAbortError } from "../lib/hook-control"
+import { DedupeOwnerFinalizationError, HookResolutionAbortError } from "../lib/internal"
 import { createHook } from "./index"
 
 export interface Cache {
@@ -48,23 +48,35 @@ function getKey(context: HookContext) {
 }
 
 export const cacheHook: (cache: Cache) => Hook = createHook<Cache>((cache) => {
+  const consulted = new WeakSet<HookContext>()
   const hook: Hook = {
     async resolve(context) {
       if (!context.identity) {
         return
       }
 
+      consulted.add(context)
       const cacheKey = getKey(context)
       return await cache.get(cacheKey)
     },
 
     async after(context, decision, meta) {
-      if (!context.identity || (meta.source === "hook" && meta.resolver === hook)) {
+      const wasConsulted = consulted.delete(context)
+
+      if (
+        !context.identity ||
+        !wasConsulted ||
+        (meta.source === "hook" && meta.resolver === hook)
+      ) {
         return
       }
 
       const cacheKey = getKey(context)
       await cache.set(cacheKey, decision)
+    },
+
+    finally(context) {
+      consulted.delete(context)
     },
   }
 
@@ -116,7 +128,7 @@ export const dedupeHook: () => Hook = createHook(() => {
       const existing = pending.get(key)
 
       if (existing?.owner === context) {
-        existing.reject(new Error("Dedupe owner finalized before settling pending request"))
+        existing.reject(new DedupeOwnerFinalizationError(key))
         pending.delete(key)
       }
     },

@@ -54,6 +54,7 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { value: false }
 
+    await Promise.resolve(hook.resolve?.(context))
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     expect(cache.set).toHaveBeenCalledWith("test-flag:user123", decision)
@@ -108,6 +109,7 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { variant: "dark" }
 
+    await Promise.resolve(hook.resolve?.(context))
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     expect(cache.set).toHaveBeenCalledWith("theme-flag:456", decision)
@@ -194,6 +196,7 @@ describe("cacheHook", () => {
     }
     const decision: Decision = { value: true }
 
+    await Promise.resolve(hook.resolve?.(context))
     await Promise.resolve(hook.after?.(context, decision, providerMeta)).then(
       () => {
         throw new Error("Expected cache write to fail")
