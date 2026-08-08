@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import { act, Component, createRef, type ReactNode, Suspense } from "react"
 import type { GateCallOptions, GateEvaluator, Identity } from "../lib/types"
+import { buildGate } from "../core"
 import {
   createReactGate,
   createReactGateCache,
@@ -9,6 +10,7 @@ import {
   type ReactGateCacheKey,
   type ReactGate,
 } from "../integrations/react"
+import { decision } from "../lib/decision"
 
 afterEach(() => {
   cleanup()
@@ -605,7 +607,7 @@ describe("createReactGate", () => {
 })
 
 describe("FeatureGate", () => {
-  test("shows loading while an async gate suspends inside its boundary", async () => {
+  test("regression: FeatureGate loading renders during suspension (H2)", async () => {
     const evaluation = deferred<boolean>()
     const gateFn = mock(() => evaluation.promise)
     const useBetaAccess = createReactGate(gateFn)
@@ -657,6 +659,36 @@ describe("FeatureGate", () => {
     await waitFor(() => {
       expect(screen.getByTestId("feature").textContent).toBe("Beta")
     })
+  })
+
+  test("renders a variant from a real buildGate evaluator", async () => {
+    const decide = mock(() => decision.variant("dark", { experiment: "theme" }))
+    const gate = buildGate({
+      decide,
+      identify: () => ({ distinctId: "user-1" }),
+    })
+    const useTheme = createReactGate(
+      gate({ defaultValue: "light", key: "theme", variants: ["light", "dark"] })
+    )
+
+    await act(async () => {
+      render(
+        <FeatureGate<{ distinctId: string }, typeof useTheme>
+          fallback="Light"
+          gate={useTheme}
+          loading="Loading"
+          match="dark"
+        >
+          <div data-testid="feature">Dark</div>
+        </FeatureGate>
+      )
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId("feature").textContent).toBe("Dark")
+    })
+    expect(decide).toHaveBeenCalledWith("theme", { distinctId: "user-1" }, expect.any(Object))
   })
 
   test("renders fallback when a boolean gate does not match", () => {

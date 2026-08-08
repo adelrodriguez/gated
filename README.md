@@ -135,6 +135,8 @@ A timeout or caller abort before a decision and its `after` hooks complete retur
 Identity resolution remains strict by default: returning `null` is an error and the gate returns its default. Opt in when a provider supports anonymous subjects:
 
 ```typescript
+import { decision } from "gated"
+
 const gate = buildGate({
   anonymous: "allow",
   identify: (): UserIdentity | null => null,
@@ -192,7 +194,7 @@ Intercept the flag evaluation lifecycle with hooks. Gated supports five lifecycl
 - **`error`** - Runs when evaluation throws an error
 - **`finally`** - Always runs after evaluation completes
 
-Every lifecycle method receives a readonly context describing the evaluation: `flagKey`, resolved `identity` (or `null` if identity resolution failed), `kind` (`"boolean"` or `"variant"`), `defaultValue`, and `variants` for variant gates. The context is discriminated by `kind`, so checking it narrows `defaultValue` and makes `variants` available for variant gates.
+Every lifecycle method receives a readonly context describing the evaluation: `flagKey`, resolved `identity` (or `null` for anonymous and failed identity resolution), `kind` (`"boolean"` or `"variant"`), `defaultValue`, `variants` for variant gates, and the combined cancellation `signal`. The context is discriminated by `kind`, so checking it narrows `defaultValue` and makes `variants` available for variant gates.
 
 ```typescript
 import { defineHook } from "gated"
@@ -363,7 +365,7 @@ useAccountGate.invalidate("account-1", "ignored-for-cache-key")
 A convenience component for conditionally rendering children based on flag evaluation. When `loading` is provided, the component adds a Suspense boundary with that fallback. When it is omitted, suspension propagates to the nearest ancestor boundary:
 
 ```typescript
-import { FeatureGate } from "gated/react";
+import { FeatureGate } from "gated/react"
 
 function App() {
   return (
@@ -374,7 +376,7 @@ function App() {
     >
       <BetaFeature />
     </FeatureGate>
-  );
+  )
 }
 ```
 
@@ -391,8 +393,13 @@ Creates a gate factory function for evaluating feature flags.
 ```typescript
 const gate = buildGate({
   identify: () => TIdentity | null | Promise<TIdentity | null>,
-  decide: (key: string, identity: TIdentity) => Decision | Promise<Decision>,
-  hooks?: Hook[]
+  decide: (key: string, identity: TIdentity, options?: { signal?: AbortSignal }) =>
+    Decision | Promise<Decision>,
+  decideMany?: (keys: readonly string[], identity: TIdentity, options?: { signal?: AbortSignal }) =>
+    Record<string, Decision> | Promise<Record<string, Decision>>,
+  hooks?: Hook[],
+  onHookError?: (report: HookErrorReport<TIdentity>) => void | Promise<void>,
+  timeoutMs?: number
 })
 ```
 
@@ -420,10 +427,12 @@ type GateEvaluator<
 > = ((options?: { identity?: TIdentity }) => Promise<TValue>) & {
   details(options?: { identity?: TIdentity }): Promise<EvaluationDetails<TValue>>
 }
+
+gate.snapshot(flags, options?): Promise<GateSnapshot<typeof flags>>
 ```
 
 See [Evaluation Details](#evaluation-details) for the result shape returned by `details()`.
-Both the evaluator and `details()` accept an optional options object. Override identity resolution with `{ identity }`.
+Both the evaluator and `details()` accept `{ identity?, signal? }`. `details()` reports source, fallback errors, and variant payloads without rejecting. `snapshot()` resolves identity once and returns typed synchronous `get()` reads after evaluation completes.
 
 #### `defineHook(hook)` / `defineHook<TOptions>(factory)`
 

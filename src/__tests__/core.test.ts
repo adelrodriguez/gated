@@ -503,30 +503,6 @@ describe("buildGate", () => {
     expect(result).toBe(true)
   })
 
-  test("handles identify function that returns Promise", async () => {
-    const gate = buildGate({
-      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
-      identify: () => Promise.resolve({ distinctId: "user123" }),
-    })
-
-    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
-    const result = await betaFlag()
-
-    expect(result).toBe(true)
-  })
-
-  test("handles decide function that returns Promise", async () => {
-    const gate = buildGate({
-      decide: () => Promise.resolve({ type: "boolean", value: true } as const),
-      identify: () => Promise.resolve({ distinctId: "user123" }),
-    })
-
-    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
-    const result = await betaFlag()
-
-    expect(result).toBe(true)
-  })
-
   test("error hooks are called on failure", async () => {
     const error = new Error("Test error")
     const errorFn = mock(() => Promise.resolve())

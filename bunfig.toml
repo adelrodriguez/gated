@@ -1,2 +1,4 @@
 [test]
 preload = ["./test/setup.ts"]
+coverageSkipTestFiles = true
+coverageThreshold = 0.9
