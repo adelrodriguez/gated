@@ -1,848 +1,579 @@
-import { describe, expect, mock, test } from "bun:test"
-import { render, screen, waitFor } from "@testing-library/react"
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { act, Component, createRef, type ReactNode, Suspense } from "react"
 import type { Identity } from "../lib/types"
-import { createReactHook, FeatureGate } from "../integrations/react"
+import {
+  createReactGate,
+  createReactGateCache,
+  FeatureGate,
+  type ReactGate,
+} from "../integrations/react"
 
-const USE_PREFIX_REGEX = /^use/
+afterEach(() => {
+  cleanup()
+})
 
-describe("createReactHook", () => {
-  test("creates a hook function", () => {
-    const gateFn = mock(() => Promise.resolve(true))
-    const useFlag = createReactHook(gateFn)
+function deferred<T>(): {
+  promise: Promise<T>
+  reject: (error: unknown) => void
+  resolve: (value: T) => void
+} {
+  let rejectPromise!: (error: unknown) => void
+  let resolvePromise!: (value: T) => void
+  const promise = new Promise<T>((resolve, reject) => {
+    rejectPromise = reject
+    resolvePromise = resolve
+  })
+  return { promise, reject: rejectPromise, resolve: resolvePromise }
+}
 
-    expect(typeof useFlag).toBe("function")
+function GateValue<TIdentity extends Identity>({
+  gate,
+  identity,
+}: {
+  gate: ReactGate<TIdentity, boolean | string>
+  identity?: TIdentity
+}): ReactNode {
+  return <div data-testid="value">{String(gate(identity))}</div>
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | undefined }> {
+  override state: { error: Error | undefined } = { error: undefined }
+
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error }
+  }
+
+  reset(): void {
+    this.setState({ error: undefined })
+  }
+
+  override render(): ReactNode {
+    return this.state.error ? (
+      <div data-testid="error">{this.state.error.message}</div>
+    ) : (
+      this.props.children
+    )
+  }
+}
+
+const resolvingTrueGate = () => Promise.resolve(true)
+
+describe("createReactGateCache", () => {
+  test("uses least-recently-used eviction after evaluations settle", async () => {
+    const cache = createReactGateCache({ maxEntries: 2, ttlMs: 1000 })
+    const first = Promise.resolve(true)
+    const second = Promise.resolve(false)
+    const third = Promise.resolve(true)
+
+    cache.set("first", first)
+    cache.set("second", second)
+    await Promise.all([first, second])
+    await Bun.sleep(0)
+    expect(cache.get("first")).toBe(first)
+    cache.set("third", third)
+    await third
+    await Bun.sleep(0)
+
+    expect(cache.get("second")).toBeUndefined()
+    expect(cache.get("first")).toBe(first)
+    expect(cache.get("third")).toBe(third)
   })
 
-  test("returns a function that accepts optional override identity", () => {
-    const gateFn = mock(() => Promise.resolve(true))
-    const useFlag = createReactHook(gateFn)
+  test("starts TTL expiry when an evaluation settles", async () => {
+    let now = 0
+    const dateNow = spyOn(Date, "now").mockImplementation(() => now)
+    const cache = createReactGateCache({ ttlMs: 100 })
+    const evaluation = deferred<boolean>()
+    cache.set("flag", evaluation.promise)
 
-    // Hook should be a function with 0 or 1 parameters
-    expect(useFlag.length).toBeLessThanOrEqual(1)
+    now = 101
+    expect(cache.get("flag")).toBe(evaluation.promise)
+
+    evaluation.resolve(true)
+    await evaluation.promise
+    now = 202
+
+    expect(cache.get("flag")).toBeUndefined()
+    dateNow.mockRestore()
   })
 
-  test("hook function name reflects it's a hook", () => {
-    const gateFn = mock(() => Promise.resolve(true))
-    const useFlag = createReactHook(gateFn)
+  test("does not evict unsettled evaluations under LRU pressure", () => {
+    const cache = createReactGateCache({ maxEntries: 1 })
+    const first = deferred<boolean>()
+    const second = deferred<boolean>()
 
-    // Function should have a name starting with "use"
-    expect(useFlag.name).toMatch(USE_PREFIX_REGEX)
+    cache.set("first", first.promise)
+    cache.set("second", second.promise)
+
+    expect(cache.get("first")).toBe(first.promise)
+    expect(cache.get("second")).toBe(second.promise)
   })
 
-  test("hook accepts optional identity parameter signature", () => {
-    interface CustomIdentity extends Identity {
-      userId: string
-    }
-
-    const gateFn = mock((identity?: CustomIdentity) => Promise.resolve(identity?.userId === "123"))
-    const useFlag = createReactHook(gateFn)
-
-    // Verify the hook was created and can be called
-    expect(typeof useFlag).toBe("function")
-    expect(useFlag.length).toBeLessThanOrEqual(1)
+  test("rejects invalid bounds", () => {
+    expect(() => createReactGateCache({ maxEntries: 0 })).toThrow(RangeError)
+    expect(() => createReactGateCache({ maxEntries: 1.5 })).toThrow(RangeError)
+    expect(() => createReactGateCache({ ttlMs: Number.POSITIVE_INFINITY })).toThrow(RangeError)
   })
 
-  test("hook can be created from boolean gate function", () => {
-    const gateFn = mock(() => Promise.resolve(true))
-    const useFlag = createReactHook(gateFn)
+  test("rejects bounds alongside an injected cache at runtime", () => {
+    const cache = createReactGateCache<boolean>()
 
-    expect(typeof useFlag).toBe("function")
-    expect(useFlag.name).toMatch(USE_PREFIX_REGEX)
-  })
-
-  test("hook can be created from string variant gate function", () => {
-    const gateFn = mock(() => Promise.resolve("dark"))
-    const useTheme = createReactHook(gateFn)
-
-    expect(typeof useTheme).toBe("function")
-    expect(useTheme.name).toMatch(USE_PREFIX_REGEX)
+    expect(() => createReactGate(resolvingTrueGate, { cache, maxEntries: 1 } as never)).toThrow(
+      TypeError
+    )
   })
 })
 
-describe("FeatureGate - Loading States", () => {
-  test("uses default Suspense when no loading prop provided with sync gate", async () => {
-    const gateFn = mock(() => true)
+describe("createReactGate", () => {
+  test("caches one async evaluation across suspension and rerenders", async () => {
+    const evaluation = deferred<boolean>()
+    const gateFn = mock(() => evaluation.promise)
+    const useBetaAccess = createReactGate(gateFn)
 
-    render(
-      <FeatureGate gate={gateFn}>
-        <div data-testid="feature">Feature Content</div>
-      </FeatureGate>
+    const view = (
+      <Suspense fallback={<div data-testid="loading">Loading</div>}>
+        <GateValue gate={useBetaAccess} />
+      </Suspense>
     )
-
-    // With sync gate, feature should render immediately
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Feature Content")
-    })
-  })
-
-  test("shows loading component provided via loading prop", async () => {
-    const gateFn = mock(() => true)
-
-    render(
-      <FeatureGate gate={gateFn} loading={<div data-testid="loading">Loading...</div>}>
-        <div data-testid="feature">Feature Content</div>
-      </FeatureGate>
-    )
-
-    // Even with sync gate, the feature should eventually render
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Feature Content")
-    })
-  })
-
-  test("loading prop works with variant gates", async () => {
-    const gateFn = mock(() => "dark")
-
-    render(
-      <FeatureGate
-        gate={gateFn}
-        loading={<div data-testid="loading">Checking theme...</div>}
-        match="dark"
-      >
-        <div data-testid="theme">Dark Mode Active</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("theme").textContent).toBe("Dark Mode Active")
-    })
-  })
-
-  test("shows fallback when gate doesn't match (no loading state visible)", async () => {
-    const gateFn = mock(() => false)
-
-    render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">Not available</div>}
-        gate={gateFn}
-        loading={<div data-testid="loading">Loading...</div>}
-      >
-        <div data-testid="feature">Feature Content</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("Not available")
+    let rendered!: ReturnType<typeof render>
+    await act(async () => {
+      rendered = render(view)
+      await Promise.resolve()
     })
 
-    expect(screen.queryByTestId("feature")).toBeNull()
-  })
+    expect(screen.getByTestId("loading").textContent).toBe("Loading")
+    expect(gateFn).toHaveBeenCalledTimes(1)
 
-  test("loading prop works with overrideIdentity", async () => {
-    interface CustomIdentity extends Identity {
-      tier: "free" | "pro"
-    }
-
-    const gateFn = mock((identity?: CustomIdentity) => identity?.tier === "pro")
-
-    render(
-      <FeatureGate
-        gate={gateFn}
-        loading={<div data-testid="loading">Checking access...</div>}
-        overrideIdentity={{ distinctId: "user1", tier: "pro" }}
-      >
-        <div data-testid="feature">Pro Feature</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Pro Feature")
+    await act(async () => {
+      evaluation.resolve(true)
+      await evaluation.promise
     })
-  })
-})
-
-describe("FeatureGate - Boolean Gates", () => {
-  test("renders children when gate returns true (match default)", async () => {
-    const gateFn = mock(() => true)
-
-    render(
-      <FeatureGate gate={gateFn}>
-        <div data-testid="feature">Beta Feature</div>
-      </FeatureGate>
-    )
-
     await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Beta Feature")
-    })
-  })
-
-  test("renders fallback when gate returns false", async () => {
-    const gateFn = mock(() => false)
-
-    render(
-      <FeatureGate fallback={<div data-testid="fallback">Not available</div>} gate={gateFn}>
-        <div data-testid="feature">Beta Feature</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("Not available")
-    })
-    expect(screen.queryByTestId("feature")).toBeNull()
-  })
-
-  test("respects explicit match=true", async () => {
-    const gateFn = mock(() => true)
-
-    render(
-      <FeatureGate gate={gateFn} match>
-        <div data-testid="feature">Beta Feature</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Beta Feature")
-    })
-  })
-
-  test("respects explicit match=false (inverted logic)", async () => {
-    const gateFn = mock(() => false)
-
-    render(
-      <FeatureGate gate={gateFn} match={false}>
-        <div data-testid="feature">Beta Feature</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Beta Feature")
-    })
-  })
-
-  test("passes override identity to gate", async () => {
-    interface CustomIdentity extends Identity {
-      plan: "free" | "pro"
-    }
-
-    const gateFn = mock((identity?: CustomIdentity) => identity?.plan === "pro")
-
-    const overrideIdentity: CustomIdentity = {
-      distinctId: "user123",
-      plan: "pro",
-    }
-
-    render(
-      <FeatureGate gate={gateFn} overrideIdentity={overrideIdentity}>
-        <div data-testid="feature">Pro Feature</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Pro Feature")
-    })
-    expect(gateFn).toHaveBeenCalledWith(overrideIdentity)
-  })
-
-  test("works without override identity", async () => {
-    const gateFn = mock(() => true)
-
-    render(
-      <FeatureGate gate={gateFn}>
-        <div data-testid="feature">Feature</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Feature")
-    })
-    expect(gateFn).toHaveBeenCalledWith(undefined)
-  })
-
-  test("renders children when match is true and gate returns true", async () => {
-    const gateFn = mock(() => true)
-
-    render(
-      <FeatureGate gate={gateFn} match>
-        <div data-testid="content">Content</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("content").textContent).toBe("Content")
-    })
-  })
-
-  test("renders fallback when match is true but gate returns false", async () => {
-    const gateFn = mock(() => false)
-
-    render(
-      <FeatureGate fallback={<div data-testid="fallback">Off</div>} gate={gateFn} match>
-        <div data-testid="content">Content</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("Off")
-    })
-  })
-
-  test("renders children when match is false and gate returns false", async () => {
-    const gateFn = mock(() => false)
-
-    render(
-      <FeatureGate gate={gateFn} match={false}>
-        <div data-testid="content">Content</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("content").textContent).toBe("Content")
-    })
-  })
-
-  test("renders fallback when match is false but gate returns true", async () => {
-    const gateFn = mock(() => true)
-
-    render(
-      <FeatureGate fallback={<div data-testid="fallback">Off</div>} gate={gateFn} match={false}>
-        <div data-testid="content">Content</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("Off")
-    })
-  })
-})
-
-describe("FeatureGate - Variant Gates", () => {
-  test("renders children when variant matches", async () => {
-    const gateFn = mock(() => "dark")
-
-    render(
-      <FeatureGate gate={gateFn} match="dark">
-        <div data-testid="theme">Dark Theme Active</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("theme").textContent).toBe("Dark Theme Active")
-    })
-  })
-
-  test("renders fallback when variant doesn't match", async () => {
-    const gateFn = mock(() => "light")
-
-    render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">Not dark mode</div>}
-        gate={gateFn}
-        match="dark"
-      >
-        <div data-testid="theme">Dark Theme Active</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("Not dark mode")
-    })
-    expect(screen.queryByTestId("theme")).toBeNull()
-  })
-
-  test("works with light variant", async () => {
-    const gateFn = mock(() => "light")
-
-    render(
-      <FeatureGate gate={gateFn} match="light">
-        <div data-testid="theme">Light Theme Active</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("theme").textContent).toBe("Light Theme Active")
-    })
-  })
-
-  test("works with system variant", async () => {
-    const gateFn = mock(() => "system")
-
-    render(
-      <FeatureGate gate={gateFn} match="system">
-        <div data-testid="theme">System Theme Active</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("theme").textContent).toBe("System Theme Active")
-    })
-  })
-
-  test("passes override identity to variant gate", async () => {
-    interface CustomIdentity extends Identity {
-      preference: "dark" | "light"
-    }
-
-    const gateFn = mock((identity?: CustomIdentity) => identity?.preference ?? "light")
-
-    const overrideIdentity: CustomIdentity = {
-      distinctId: "user123",
-      preference: "dark",
-    }
-
-    render(
-      <FeatureGate gate={gateFn} match="dark" overrideIdentity={overrideIdentity}>
-        <div data-testid="theme">Dark Theme</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("theme").textContent).toBe("Dark Theme")
-    })
-    expect(gateFn).toHaveBeenCalledWith(overrideIdentity)
-  })
-
-  test("works with variant option-a", async () => {
-    const gateFn = mock(() => "option-a")
-
-    render(
-      <FeatureGate gate={gateFn} match="option-a">
-        <div data-testid="result">A</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("result").textContent).toBe("A")
-    })
-  })
-
-  test("works with variant option-b", async () => {
-    const gateFn = mock(() => "option-b")
-
-    render(
-      <FeatureGate gate={gateFn} match="option-b">
-        <div data-testid="result">B</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("result").textContent).toBe("B")
-    })
-  })
-
-  test("works with variant option-c", async () => {
-    const gateFn = mock(() => "option-c")
-
-    render(
-      <FeatureGate gate={gateFn} match="option-c">
-        <div data-testid="result">C</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("result").textContent).toBe("C")
-    })
-  })
-
-  test("variant match is exact", async () => {
-    const gateFn = mock(() => "dark-mode")
-
-    render(
-      <FeatureGate fallback={<div data-testid="fallback">No match</div>} gate={gateFn} match="dark">
-        <div data-testid="theme">Dark</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("No match")
-    })
-  })
-})
-
-describe("FeatureGate - Edge Cases", () => {
-  test("works without loading prop (uses default Suspense)", async () => {
-    const gateFn = mock(() => true)
-
-    render(
-      <FeatureGate gate={gateFn}>
-        <div data-testid="feature">Feature</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Feature")
-    })
-  })
-
-  test("works without fallback prop (renders nothing)", async () => {
-    const gateFn = mock(() => false)
-
-    const { container } = render(
-      <FeatureGate gate={gateFn}>
-        <div data-testid="feature">Feature</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.queryByTestId("feature")).toBeNull()
-      // Container should have minimal content (just Suspense wrapper)
-      expect(container.textContent).toBe("")
-    })
-  })
-
-  test("handles custom identity types in variant gates", async () => {
-    interface CustomIdentity extends Identity {
-      colorScheme: "dark" | "light" | "auto"
-    }
-
-    const gateFn = mock((identity?: CustomIdentity) => identity?.colorScheme ?? "light")
-
-    const customIdentity: CustomIdentity = {
-      colorScheme: "auto",
-      distinctId: "user123",
-    }
-
-    render(
-      <FeatureGate gate={gateFn} match="auto" overrideIdentity={customIdentity}>
-        <div data-testid="theme">Auto Theme</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("theme").textContent).toBe("Auto Theme")
-    })
-  })
-
-  test("multiple FeatureGates can be nested", async () => {
-    const betaGate = mock(() => true)
-    const proGate = mock(() => true)
-
-    render(
-      <FeatureGate gate={betaGate}>
-        <FeatureGate gate={proGate}>
-          <div data-testid="feature">Pro Beta Feature</div>
-        </FeatureGate>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Pro Beta Feature")
-    })
-  })
-
-  test("nested gates with one false doesn't render children", async () => {
-    const betaGate = mock(() => true)
-    const proGate = mock(() => false)
-
-    render(
-      <FeatureGate gate={betaGate}>
-        <FeatureGate fallback={<div data-testid="fallback">Not pro</div>} gate={proGate}>
-          <div data-testid="feature">Pro Beta Feature</div>
-        </FeatureGate>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("Not pro")
-    })
-    expect(screen.queryByTestId("feature")).toBeNull()
-  })
-
-  test("renders correctly with boolean false match", async () => {
-    const gateFn = mock(() => true)
-
-    render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">Fallback</div>}
-        gate={gateFn}
-        match={false}
-      >
-        <div data-testid="feature">Feature</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("Fallback")
-    })
-  })
-
-  test("gate function is called exactly once per render", async () => {
-    const gateFn = mock(() => true)
-
-    render(
-      <FeatureGate gate={gateFn}>
-        <div data-testid="feature">Feature</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("feature")).not.toBeNull()
+      expect(screen.getByTestId("value").textContent).toBe("true")
     })
 
+    await act(async () => {
+      rendered.rerender(view)
+      await Promise.resolve()
+    })
     expect(gateFn).toHaveBeenCalledTimes(1)
   })
 
-  test("renders multiple children correctly", async () => {
-    const gateFn = mock(() => true)
+  test("uses stable identity keys", async () => {
+    type TestIdentity = Identity & { plan: string }
+    const gateFn = mock((identity?: TestIdentity) => Promise.resolve(identity?.plan === "pro"))
+    const useBetaAccess = createReactGate(gateFn)
+    const firstIdentity = { distinctId: "user-1", plan: "pro" }
+    const sameIdentity = Object.fromEntries([
+      ["plan", "pro"],
+      ["distinctId", "user-1"],
+    ]) as TestIdentity
 
-    render(
-      <FeatureGate gate={gateFn}>
-        <div data-testid="child1">Child 1</div>
-        <div data-testid="child2">Child 2</div>
-        <div data-testid="child3">Child 3</div>
-      </FeatureGate>
-    )
+    await act(async () => {
+      render(
+        <Suspense fallback="Loading">
+          <GateValue gate={useBetaAccess} identity={firstIdentity} />
+          <GateValue gate={useBetaAccess} identity={sameIdentity} />
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
 
     await waitFor(() => {
-      expect(screen.getByTestId("child1").textContent).toBe("Child 1")
-      expect(screen.getByTestId("child2").textContent).toBe("Child 2")
-      expect(screen.getByTestId("child3").textContent).toBe("Child 3")
+      expect(screen.getAllByTestId("value")).toHaveLength(2)
     })
+    expect(gateFn).toHaveBeenCalledTimes(1)
   })
 
-  test("handles complex nested children", async () => {
-    const gateFn = mock(() => true)
+  test("evaluates different identities independently", async () => {
+    const gateFn = mock((identity?: Identity) =>
+      Promise.resolve(identity?.distinctId === "enabled")
+    )
+    const useBetaAccess = createReactGate(gateFn)
 
-    render(
-      <FeatureGate gate={gateFn}>
-        <div>
-          <span data-testid="nested">Nested Content</span>
+    await act(async () => {
+      render(
+        <Suspense fallback="Loading">
+          <GateValue gate={useBetaAccess} identity={{ distinctId: "enabled" }} />
+          <GateValue gate={useBetaAccess} identity={{ distinctId: "disabled" }} />
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("value")).toHaveLength(2)
+    })
+    expect(gateFn).toHaveBeenCalledTimes(2)
+  })
+
+  test("keeps concurrent pending identities stable beyond the settled-entry bound", async () => {
+    const first = deferred<boolean>()
+    const second = deferred<boolean>()
+    const gateFn = mock((identity?: Identity) =>
+      identity?.distinctId === "first" ? first.promise : second.promise
+    )
+    const useBetaAccess = createReactGate(gateFn, { maxEntries: 1 })
+
+    await act(async () => {
+      render(
+        <>
+          <Suspense fallback={<div data-testid="first-loading">Loading first</div>}>
+            <GateValue gate={useBetaAccess} identity={{ distinctId: "first" }} />
+          </Suspense>
+          <Suspense fallback={<div data-testid="second-loading">Loading second</div>}>
+            <GateValue gate={useBetaAccess} identity={{ distinctId: "second" }} />
+          </Suspense>
+        </>
+      )
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId("first-loading")).not.toBeNull()
+    expect(screen.getByTestId("second-loading")).not.toBeNull()
+    expect(gateFn).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      first.resolve(true)
+      second.resolve(false)
+      await Promise.all([first.promise, second.promise])
+    })
+    await waitFor(() => {
+      expect(screen.getAllByTestId("value")).toHaveLength(2)
+    })
+    expect(gateFn).toHaveBeenCalledTimes(2)
+  })
+
+  test("invalidate and clear take effect on the next render", async () => {
+    const gateFn = mock(() => Promise.resolve(true))
+    const useBetaAccess = createReactGate(gateFn)
+    const identity = { distinctId: "user-1" }
+    const view = (revision: number): ReactNode => (
+      <Suspense fallback="Loading">
+        <div data-revision={revision}>
+          <GateValue gate={useBetaAccess} identity={identity} />
         </div>
-      </FeatureGate>
+      </Suspense>
     )
+    let rendered!: ReturnType<typeof render>
+    await act(async () => {
+      rendered = render(view(0))
+      await Promise.resolve()
+    })
 
     await waitFor(() => {
-      expect(screen.getByTestId("nested").textContent).toBe("Nested Content")
+      expect(screen.getByTestId("value")).not.toBeNull()
+    })
+    expect(gateFn).toHaveBeenCalledTimes(1)
+
+    useBetaAccess.invalidate(identity)
+    expect(gateFn).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      rendered.rerender(view(1))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(gateFn).toHaveBeenCalledTimes(2)
+    })
+
+    useBetaAccess.clear()
+    expect(gateFn).toHaveBeenCalledTimes(2)
+    await act(async () => {
+      rendered.rerender(view(2))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(gateFn).toHaveBeenCalledTimes(3)
     })
   })
 
-  test("fallback can be complex component tree", async () => {
-    const gateFn = mock(() => false)
-
-    render(
-      <FeatureGate
-        fallback={
-          <div>
-            <span data-testid="fallback-nested">Not available</span>
-          </div>
-        }
-        gate={gateFn}
-      >
-        <div data-testid="feature">Feature</div>
-      </FeatureGate>
+  test("invalidate without an identity only evicts the default identity", async () => {
+    const gateFn = mock(() => Promise.resolve(true))
+    const useBetaAccess = createReactGate(gateFn)
+    const identity = { distinctId: "user-1" }
+    const view = (revision: number): ReactNode => (
+      <Suspense fallback="Loading">
+        <div data-revision={revision}>
+          <GateValue gate={useBetaAccess} />
+          <GateValue gate={useBetaAccess} identity={identity} />
+        </div>
+      </Suspense>
     )
+    let rendered!: ReturnType<typeof render>
+    await act(async () => {
+      rendered = render(view(0))
+      await Promise.resolve()
+    })
 
     await waitFor(() => {
-      expect(screen.getByTestId("fallback-nested").textContent).toBe("Not available")
+      expect(screen.getAllByTestId("value")).toHaveLength(2)
+    })
+    expect(gateFn).toHaveBeenCalledTimes(2)
+
+    useBetaAccess.invalidate()
+    await act(async () => {
+      rendered.rerender(view(1))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(gateFn).toHaveBeenCalledTimes(3)
     })
   })
-})
 
-describe("FeatureGate - Error Handling", () => {
-  test("handles synchronous gate function errors", () => {
+  test("reevaluates after TTL expiry and LRU eviction on later renders", async () => {
+    let now = 0
+    const dateNow = spyOn(Date, "now").mockImplementation(() => now)
+    const gateFn = mock(() => Promise.resolve(true))
+    const useBetaAccess = createReactGate(gateFn, { maxEntries: 1, ttlMs: 100 })
+    const firstIdentity = { distinctId: "first" }
+    const secondIdentity = { distinctId: "second" }
+    const view = (identity: Identity, revision: number): ReactNode => (
+      <Suspense fallback="Loading">
+        <div data-revision={revision}>
+          <GateValue gate={useBetaAccess} identity={identity} />
+        </div>
+      </Suspense>
+    )
+    let rendered!: ReturnType<typeof render>
+    await act(async () => {
+      rendered = render(view(firstIdentity, 0))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(gateFn).toHaveBeenCalledTimes(1)
+    })
+
+    now = 101
+    await act(async () => {
+      rendered.rerender(view(firstIdentity, 1))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(gateFn).toHaveBeenCalledTimes(2)
+    })
+
+    await act(async () => {
+      rendered.rerender(view(secondIdentity, 2))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(gateFn).toHaveBeenCalledTimes(3)
+    })
+    await act(async () => {
+      rendered.rerender(view(firstIdentity, 3))
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(gateFn).toHaveBeenCalledTimes(4)
+    })
+    dateNow.mockRestore()
+  })
+
+  test("evicts rejected evaluations so a mounted tree can reset and retry", async () => {
+    let invocation = 0
     const gateFn = mock(() => {
-      throw new Error("Gate evaluation failed")
+      invocation += 1
+      return invocation === 1
+        ? Promise.reject(new Error("provider unavailable"))
+        : Promise.resolve(true)
     })
+    const useBetaAccess = createReactGate(gateFn)
+    const consoleError = spyOn(console, "error").mockImplementation(() => false)
 
-    // In React, errors during render are caught by error boundaries
-    // Without an error boundary, the error will propagate
-    expect(() => {
-      render(
-        <FeatureGate gate={gateFn}>
-          <div data-testid="feature">Feature</div>
-        </FeatureGate>
-      )
-    }).toThrow("Gate evaluation failed")
-  })
-
-  test("handles gate function returning undefined", async () => {
-    const gateFn = mock(() => undefined as unknown as boolean)
-
-    render(
-      <FeatureGate fallback={<div data-testid="fallback">Fallback</div>} gate={gateFn}>
-        <div data-testid="feature">Feature</div>
-      </FeatureGate>
+    const boundary = createRef<ErrorBoundary>()
+    const view = (
+      <ErrorBoundary ref={boundary}>
+        <Suspense fallback="Loading">
+          <GateValue gate={useBetaAccess} />
+        </Suspense>
+      </ErrorBoundary>
     )
-
-    // undefined !== true, so should show fallback
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("Fallback")
+    await act(async () => {
+      render(view)
+      await Promise.resolve()
     })
+    await waitFor(() => {
+      expect(screen.getByTestId("error").textContent).toBe("provider unavailable")
+    })
+
+    await act(async () => {
+      await Bun.sleep(0)
+      boundary.current?.reset()
+      await Promise.resolve()
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId("value").textContent).toBe("true")
+    })
+    expect(gateFn).toHaveBeenCalledTimes(2)
+    consoleError.mockRestore()
   })
 
-  test("handles gate function returning null", async () => {
-    const gateFn = mock(() => null as unknown as boolean)
+  test("isolates injected request-scoped caches", async () => {
+    const gateFn = mock(() => Promise.resolve(true))
+    const firstRequestGate = createReactGate(gateFn, { cache: createReactGateCache() })
+    const secondRequestGate = createReactGate(gateFn, { cache: createReactGateCache() })
 
-    render(
-      <FeatureGate fallback={<div data-testid="fallback">Fallback</div>} gate={gateFn}>
-        <div data-testid="feature">Feature</div>
-      </FeatureGate>
-    )
-
-    // null !== true, so should show fallback
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("Fallback")
-    })
-  })
-
-  test("handles gate with overrideIdentity throwing error", () => {
-    interface CustomIdentity extends Identity {
-      plan: string
-    }
-
-    const gateFn = mock((identity?: CustomIdentity) => {
-      if (identity?.plan === "invalid") {
-        throw new Error("Invalid plan")
-      }
-      return true
-    })
-
-    expect(() => {
+    await act(async () => {
       render(
-        <FeatureGate gate={gateFn} overrideIdentity={{ distinctId: "user1", plan: "invalid" }}>
-          <div data-testid="feature">Feature</div>
-        </FeatureGate>
+        <Suspense fallback="Loading">
+          <GateValue gate={firstRequestGate} identity={{ distinctId: "same-user" }} />
+          <GateValue gate={secondRequestGate} identity={{ distinctId: "same-user" }} />
+        </Suspense>
       )
-    }).toThrow("Invalid plan")
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("value")).toHaveLength(2)
+    })
+    expect(gateFn).toHaveBeenCalledTimes(2)
+  })
+
+  test("namespaces multiple gates that share one request-scoped cache", async () => {
+    const cache = createReactGateCache<boolean>()
+    const enabledEvaluator = mock(() => Promise.resolve(true))
+    const disabledEvaluator = mock(() => Promise.resolve(false))
+    const useEnabled = createReactGate(enabledEvaluator, { cache })
+    const useDisabled = createReactGate(disabledEvaluator, { cache })
+
+    await act(async () => {
+      render(
+        <Suspense fallback="Loading">
+          <GateValue gate={useEnabled} identity={{ distinctId: "same-user" }} />
+          <GateValue gate={useDisabled} identity={{ distinctId: "same-user" }} />
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("value").map((node) => node.textContent)).toEqual([
+        "true",
+        "false",
+      ])
+    })
+    expect(enabledEvaluator).toHaveBeenCalledTimes(1)
+    expect(disabledEvaluator).toHaveBeenCalledTimes(1)
   })
 })
 
-describe("FeatureGate - Advanced Edge Cases", () => {
-  test("handles gate returning empty string", async () => {
-    const gateFn = mock(() => "")
+describe("FeatureGate", () => {
+  test("shows loading while an async gate suspends inside its boundary", async () => {
+    const evaluation = deferred<boolean>()
+    const gateFn = mock(() => evaluation.promise)
+    const useBetaAccess = createReactGate(gateFn)
 
-    render(
-      <FeatureGate fallback={<div data-testid="fallback">No variant</div>} gate={gateFn} match="">
-        <div data-testid="feature">Empty string variant</div>
-      </FeatureGate>
-    )
+    await act(async () => {
+      render(
+        <FeatureGate
+          fallback={<div data-testid="fallback">Unavailable</div>}
+          gate={useBetaAccess}
+          loading={<div data-testid="loading">Loading</div>}
+        >
+          <div data-testid="feature">Beta</div>
+        </FeatureGate>
+      )
+      await Promise.resolve()
+    })
 
+    expect(screen.getByTestId("loading").textContent).toBe("Loading")
+    await act(async () => {
+      evaluation.resolve(true)
+      await evaluation.promise
+    })
     await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Empty string variant")
+      expect(screen.getByTestId("feature").textContent).toBe("Beta")
+    })
+    expect(gateFn).toHaveBeenCalledTimes(1)
+  })
+
+  test("uses an ancestor Suspense fallback when loading is omitted", async () => {
+    const evaluation = deferred<boolean>()
+    const useBetaAccess = createReactGate(() => evaluation.promise)
+
+    await act(async () => {
+      render(
+        <Suspense fallback={<div data-testid="ancestor-loading">Loading application</div>}>
+          <FeatureGate gate={useBetaAccess}>
+            <div data-testid="feature">Beta</div>
+          </FeatureGate>
+        </Suspense>
+      )
+      await Promise.resolve()
+    })
+
+    expect(screen.getByTestId("ancestor-loading").textContent).toBe("Loading application")
+    await act(async () => {
+      evaluation.resolve(true)
+      await evaluation.promise
+    })
+    await waitFor(() => {
+      expect(screen.getByTestId("feature").textContent).toBe("Beta")
     })
   })
 
-  test("handles gate returning 0 as string", async () => {
-    const gateFn = mock(() => "0")
-
+  test("renders fallback when a boolean gate does not match", () => {
     render(
-      <FeatureGate gate={gateFn} match="0">
-        <div data-testid="feature">Zero variant</div>
+      <FeatureGate fallback={<div data-testid="fallback">Unavailable</div>} gate={() => false}>
+        <div data-testid="feature">Beta</div>
       </FeatureGate>
     )
 
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Zero variant")
-    })
+    expect(screen.getByTestId("fallback").textContent).toBe("Unavailable")
+    expect(screen.queryByTestId("feature")).toBeNull()
   })
 
-  test("handles match with special characters", async () => {
-    const gateFn = mock(() => "variant-with-dashes_and_underscores")
-
+  test("supports an explicit false match", () => {
     render(
-      <FeatureGate gate={gateFn} match="variant-with-dashes_and_underscores">
-        <div data-testid="feature">Special chars</div>
+      <FeatureGate gate={() => false} match={false}>
+        <div data-testid="feature">Disabled experience</div>
       </FeatureGate>
     )
 
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Special chars")
-    })
+    expect(screen.getByTestId("feature").textContent).toBe("Disabled experience")
   })
 
-  test("boolean gate with explicit true match is type-safe", async () => {
-    const gateFn = mock(() => true)
-
+  test("matches string variants exactly", () => {
     render(
-      <FeatureGate gate={gateFn} match>
-        <div data-testid="feature">Feature</div>
+      <FeatureGate fallback="Light" gate={() => "dark"} match="dark">
+        <div data-testid="feature">Dark</div>
       </FeatureGate>
     )
 
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Feature")
-    })
+    expect(screen.getByTestId("feature").textContent).toBe("Dark")
   })
 
-  test("does not confuse string 'true' with boolean true", async () => {
-    const gateFn = mock(() => "true")
+  test("passes the override identity to the gate", () => {
+    type TestIdentity = Identity & { plan: "free" | "pro" }
+    const gate = mock((identity?: TestIdentity) => identity?.plan === "pro")
+    const identity: TestIdentity = { distinctId: "user-1", plan: "pro" }
 
     render(
-      <FeatureGate
-        fallback={<div data-testid="fallback">Not boolean</div>}
-        gate={gateFn}
-        // @ts-expect-error - verifies that a string gate cannot match a boolean
-        // oxlint-disable-next-line react/jsx-boolean-value -- Explicit boolean value is intentional for this type test.
-        match={true}
-      >
-        <div data-testid="feature">Feature</div>
+      <FeatureGate gate={gate} overrideIdentity={identity}>
+        <div data-testid="feature">Pro</div>
       </FeatureGate>
     )
 
-    // String "true" !== boolean true
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("Not boolean")
-    })
+    expect(screen.getByTestId("feature").textContent).toBe("Pro")
+    expect(gate).toHaveBeenCalledWith(identity)
   })
 
-  test("handles rapidly changing gate values", async () => {
-    let value = false
-    const gateFn = mock(() => value)
-
-    const { rerender } = render(
-      <FeatureGate fallback={<div data-testid="fallback">Off</div>} gate={gateFn}>
-        <div data-testid="feature">On</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("Off")
-    })
-
-    value = true
-    rerender(
-      <FeatureGate fallback={<div data-testid="fallback">Off</div>} gate={gateFn}>
-        <div data-testid="feature">On</div>
-      </FeatureGate>
-    )
-
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("On")
-    })
-  })
-
-  test("handles gate returning resolved promise", async () => {
-    // Test with a gate that returns a promise (though the actual implementation uses sync gates)
-    const gateFn = mock(() => true)
+  test("warns and renders fallback when a string gate has no match", () => {
+    const consoleError = spyOn(console, "error").mockImplementation(() => false)
+    const variantGate = (() => "dark") as unknown as () => boolean
 
     render(
-      <FeatureGate gate={gateFn} loading={<div data-testid="loading">Loading</div>}>
-        <div data-testid="feature">Feature</div>
+      <FeatureGate fallback={<div data-testid="fallback">No match</div>} gate={variantGate}>
+        <div data-testid="feature">Dark</div>
       </FeatureGate>
     )
 
-    // Feature should render
-    await waitFor(() => {
-      expect(screen.getByTestId("feature").textContent).toBe("Feature")
-    })
-  })
-
-  test("handles case-sensitive variant matching", async () => {
-    const gateFn = mock(() => "Dark")
-
-    render(
-      <FeatureGate fallback={<div data-testid="fallback">No match</div>} gate={gateFn} match="dark">
-        <div data-testid="feature">Dark theme</div>
-      </FeatureGate>
+    expect(screen.getByTestId("fallback").textContent).toBe("No match")
+    expect(screen.queryByTestId("feature")).toBeNull()
+    expect(consoleError).toHaveBeenCalledWith(
+      "FeatureGate requires a match prop when its gate returns a string variant."
     )
-
-    // "Dark" !== "dark" (case-sensitive)
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("No match")
-    })
-  })
-
-  test("handles whitespace in variant strings", async () => {
-    const gateFn = mock(() => " dark ")
-
-    render(
-      <FeatureGate fallback={<div data-testid="fallback">No match</div>} gate={gateFn} match="dark">
-        <div data-testid="feature">Dark theme</div>
-      </FeatureGate>
-    )
-
-    // " dark " !== "dark" (whitespace matters)
-    await waitFor(() => {
-      expect(screen.getByTestId("fallback").textContent).toBe("No match")
-    })
+    consoleError.mockRestore()
   })
 })
