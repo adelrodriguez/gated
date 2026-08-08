@@ -1,6 +1,12 @@
 export { buildGate } from "./core"
 export type { GateFactory } from "./core"
-export { createHook, HookResolutionAbortError } from "./hooks"
+export { createHook } from "./hooks"
+export {
+  DecisionTypeMismatchError,
+  GatedError,
+  IdentityNotFoundError,
+  InvalidVariantError,
+} from "./lib/errors"
 export type {
   AfterHookMeta,
   Decision,
@@ -9,6 +15,7 @@ export type {
   GatedConfig,
   Hook,
   HookContext,
+  HookErrorReport,
   Identity,
   MaybePromise,
 } from "./lib/types"

@@ -8,10 +8,17 @@ import type {
   GatedConfig,
   Hook,
   HookContext,
+  HookErrorReport,
   Identity,
   MaybePromise,
 } from "../index"
-import { buildGate, HookResolutionAbortError } from "../index"
+import {
+  buildGate,
+  DecisionTypeMismatchError,
+  GatedError,
+  IdentityNotFoundError,
+  InvalidVariantError,
+} from "../index"
 
 interface TestIdentity extends Identity {
   plan: "free" | "pro"
@@ -28,6 +35,15 @@ const hook: Hook<TestIdentity> = {
   resolve: () => decision,
 }
 const afterMeta: AfterHookMeta<TestIdentity> = { source: decisionSource }
+const hookAfterMeta: AfterHookMeta<TestIdentity> = { resolver: hook, source: "hook" }
+// @ts-expect-error hook-resolved metadata requires the exact resolver
+const invalidHookAfterMeta: AfterHookMeta<TestIdentity> = { source: "hook" }
+const hookErrorReport: HookErrorReport<TestIdentity> = {
+  context: hookContext,
+  error: new Error("Hook failed"),
+  hookIndex: 0,
+  phase: "before",
+}
 const config: GatedConfig<TestIdentity> = {
   decide: () => Promise.resolve(decision),
   hooks: [hook],
@@ -46,8 +62,13 @@ const variantEvaluator: GateEvaluator<TestIdentity, "dark" | "light"> = gate({
 
 test("exports consumer-facing root types", () => {
   expect(afterMeta.source).toBe("provider")
+  expect(hookAfterMeta.resolver).toBe(hook)
+  expect(hookErrorReport.context).toBe(hookContext)
+  expect(invalidHookAfterMeta.source).toBe("hook")
   expect(maybeDecision).toBe(decision)
   expect(typeof evaluator).toBe("function")
   expect(typeof variantEvaluator).toBe("function")
-  expect(new HookResolutionAbortError(new Error("stop"))).toBeInstanceOf(Error)
+  expect(new IdentityNotFoundError()).toBeInstanceOf(GatedError)
+  expect(new DecisionTypeMismatchError("boolean", { variant: "dark" })).toBeInstanceOf(GatedError)
+  expect(new InvalidVariantError("purple", ["light", "dark"])).toBeInstanceOf(GatedError)
 })

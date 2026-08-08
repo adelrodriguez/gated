@@ -7,11 +7,17 @@ import type {
   GatedConfig,
   Hook,
   HookContext,
+  HookErrorReport,
   Identity,
   MaybePromise,
 } from "gated"
-import { buildGate, HookResolutionAbortError } from "gated"
-import { HookResolutionAbortError as HookAbortError } from "gated/hooks"
+import {
+  buildGate,
+  DecisionTypeMismatchError,
+  GatedError,
+  IdentityNotFoundError,
+  InvalidVariantError,
+} from "gated"
 
 interface ConsumerIdentity extends Identity {
   plan: "free" | "pro"
@@ -24,9 +30,19 @@ declare const hookContext: HookContext<ConsumerIdentity>
 
 const decisionSource: DecisionSource = "provider"
 const factory: GateFactory<ConsumerIdentity> = buildGate(config)
-const abortError = new HookResolutionAbortError(new Error("stop resolution"))
-const hookAbortError = new HookAbortError(new Error("stop hook resolution"))
+const identityError: GatedError = new IdentityNotFoundError()
+const mismatchError: GatedError = new DecisionTypeMismatchError("boolean", { variant: "dark" })
+const variantError: GatedError = new InvalidVariantError("purple", ["light", "dark"])
 const afterMeta: AfterHookMeta<ConsumerIdentity> = { source: decisionSource }
+const hookAfterMeta: AfterHookMeta<ConsumerIdentity> = { resolver: hook, source: "hook" }
+// @ts-expect-error hook-resolved metadata requires the exact resolver
+const invalidHookAfterMeta: AfterHookMeta<ConsumerIdentity> = { source: "hook" }
+const hookErrorReport: HookErrorReport<ConsumerIdentity> = {
+  context: hookContext,
+  error: new Error("Hook failed"),
+  hookIndex: 0,
+  phase: "before",
+}
 const maybeDecision: MaybePromise<Decision> = decision
 const booleanGate: GateEvaluator<ConsumerIdentity, boolean> = factory({
   defaultValue: false,
@@ -45,12 +61,16 @@ type InvalidValueEvaluator = GateEvaluator<ConsumerIdentity, symbol>
 
 void booleanGate
 void afterMeta
-void abortError
 void decision
 void hook
+void hookAfterMeta
 void hookContext
-void hookAbortError
+void hookErrorReport
+void identityError
+void invalidHookAfterMeta
+void mismatchError
 void maybeDecision
 void (null as unknown as InvalidIdentityEvaluator)
 void (null as unknown as InvalidValueEvaluator)
+void variantError
 void variantGate
