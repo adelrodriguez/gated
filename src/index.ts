@@ -17,5 +17,6 @@ export type {
   HookContext,
   HookErrorReport,
   Identity,
+  IdentityValue,
   MaybePromise,
 } from "./lib/types"

@@ -13,12 +13,14 @@ afterEach(() => {
   cleanup()
 })
 
+const INVALID_VARIANT_GATE: () => boolean = () => "dark" as never
+
 function deferred<T>(): {
   promise: Promise<T>
-  reject: (error: unknown) => void
+  reject: (error: Error) => void
   resolve: (value: T) => void
 } {
-  let rejectPromise!: (error: unknown) => void
+  let rejectPromise!: (error: Error) => void
   let resolvePromise!: (value: T) => void
   const promise = new Promise<T>((resolve, reject) => {
     rejectPromise = reject
@@ -561,10 +563,11 @@ describe("FeatureGate", () => {
 
   test("warns and renders fallback when a string gate has no match", () => {
     const consoleError = spyOn(console, "error").mockImplementation(() => false)
-    const variantGate = (() => "dark") as unknown as () => boolean
-
     render(
-      <FeatureGate fallback={<div data-testid="fallback">No match</div>} gate={variantGate}>
+      <FeatureGate
+        fallback={<div data-testid="fallback">No match</div>}
+        gate={INVALID_VARIANT_GATE}
+      >
         <div data-testid="feature">Dark</div>
       </FeatureGate>
     )

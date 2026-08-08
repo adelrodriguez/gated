@@ -17,19 +17,28 @@ Rename `createReactHook` → `createReactGate` (no deprecated alias; the semanti
 `use(gateFn(overrideIdentity))` (src/integrations/react.tsx:40) creates a fresh promise per render. Cache instead, and return the hook function with cache controls attached (Zustand-style callable-with-statics):
 
 ```ts
-type AsyncGate<TArgs extends unknown[], TValue> = (...args: TArgs) => Promise<TValue>
+type GateArgument =
+  | boolean
+  | number
+  | string
+  | null
+  | undefined
+  | readonly GateArgument[]
+  | { readonly [key: string]: GateArgument }
 
-function trimTrailingUndefined<TArgs extends unknown[]>(args: TArgs): TArgs {
+type AsyncGate<TArgs extends GateArgument[], TValue> = (...args: TArgs) => Promise<TValue>
+
+function trimTrailingUndefined<TArgs extends GateArgument[]>(args: TArgs): TArgs {
   const normalized = [...args]
   while (normalized.length > 0 && normalized.at(-1) === undefined) normalized.pop()
   return normalized as TArgs
 }
 
-export function createReactGate<TArgs extends unknown[], TValue extends boolean | string>(
+export function createReactGate<TArgs extends GateArgument[], TValue extends boolean | string>(
   gateFn: AsyncGate<TArgs, TValue>,
   options?: {
     cache?: ReactGateCache
-    cacheKey?: (...args: TArgs) => unknown
+    cacheKey?: (...args: TArgs) => GateArgument
     maxEntries?: number
     ttlMs?: number
   }

@@ -39,7 +39,7 @@ type Evaluation<TIdentity> = {
   identity: TIdentity | null
   decision?: Decision
   source?: "hook" | "provider" | "default"
-  error?: unknown
+  error?: Error
 }
 ```
 

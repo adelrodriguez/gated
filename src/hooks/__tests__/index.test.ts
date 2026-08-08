@@ -3,7 +3,7 @@ import type { Decision, HookContext, Identity } from "../../lib/types"
 import { createHook } from "../index"
 
 const providerMeta = { source: "provider" } as const
-
+const BOOLEAN_HOOK_CONTEXT = { defaultValue: false, kind: "boolean" } as const
 const factory = () => ({})
 const noDecision = (): Decision | undefined => undefined
 
@@ -81,6 +81,7 @@ describe("createHook", () => {
 
     const result = hook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -99,6 +100,7 @@ describe("createHook", () => {
 
     const result = hook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -117,6 +119,7 @@ describe("createHook", () => {
 
     const result = hook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -135,6 +138,7 @@ describe("createHook", () => {
 
     const result = hook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -153,6 +157,7 @@ describe("createHook", () => {
 
     const result = hook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -217,6 +222,7 @@ describe("createHook", () => {
 
     const result = hook({ logPrefix: "TEST" })
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "my-flag",
       identity: { distinctId: "user123" },
     }
@@ -235,6 +241,7 @@ describe("createHook", () => {
 
     const result = hook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -252,6 +259,7 @@ describe("createHook", () => {
 
     const result = hook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
@@ -269,6 +277,7 @@ describe("createHook", () => {
 
     const result = hook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "theme-flag",
       identity: { distinctId: "user123" },
     }
@@ -287,6 +296,7 @@ describe("createHook", () => {
 
     const result = hook()
     const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
       flagKey: "test-flag",
       identity: null,
     }

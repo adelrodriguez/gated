@@ -1,10 +1,10 @@
 import { describe, expect, mock, test } from "bun:test"
-import type { Decision, Hook, HookErrorReport } from "../lib/types"
+import type { Decision, Hook, HookContext, HookErrorReport } from "../lib/types"
 import { buildGate } from "../core"
 import { cacheHook, dedupeHook } from "../hooks/recipes"
 
 function createDeferred<T>() {
-  let rejectDeferred!: (reason?: unknown) => void
+  let rejectDeferred!: (reason?: Error) => void
   let resolveDeferred!: (value: T | PromiseLike<T>) => void
   const promise = new Promise<T>((resolve, reject) => {
     rejectDeferred = reject
@@ -39,6 +39,16 @@ async function settleWithin<T>(promise: Promise<T>, timeoutMs = 100): Promise<T>
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function expectRejection<T>(promise: Promise<T>): Promise<Error> {
+  try {
+    await promise
+  } catch (error) {
+    return error instanceof Error ? error : new Error(String(error))
+  }
+
+  throw new Error("Expected promise to reject")
 }
 
 function createFailingHook(
@@ -124,8 +134,8 @@ describe("uniform hook lifecycle", () => {
   })
 
   test("handles a leader rejection when there are no followers", async () => {
-    const unhandledRejections: unknown[] = []
-    const onUnhandledRejection = (error: unknown) => unhandledRejections.push(error)
+    const unhandledRejections: Error[] = []
+    const onUnhandledRejection = (error: Error) => unhandledRejections.push(error)
     process.on("unhandledRejection", onUnhandledRejection)
 
     try {
@@ -163,15 +173,130 @@ describe("uniform hook lifecycle", () => {
 
     expect(await hookGate({ defaultValue: false, key: "hook" })()).toBe(true)
     expect(await providerGate({ defaultValue: false, key: "provider" })()).toBe(true)
-    expect(hookAfter).toHaveBeenCalledWith({ flagKey: "hook", identity }, hookDecision, {
-      resolver,
-      source: "hook",
-    })
+    expect(hookAfter).toHaveBeenCalledWith(
+      {
+        defaultValue: false,
+        flagKey: "hook",
+        identity,
+        kind: "boolean",
+        variants: undefined,
+      },
+      hookDecision,
+      { resolver, source: "hook" }
+    )
     expect(providerAfter).toHaveBeenCalledWith(
-      { flagKey: "provider", identity },
+      {
+        defaultValue: false,
+        flagKey: "provider",
+        identity,
+        kind: "boolean",
+        variants: undefined,
+      },
       { value: true },
       { source: "provider" }
     )
+  })
+
+  test("provides gate configuration to hooks for boolean and variant gates", async () => {
+    const contexts: HookContext[] = []
+    const identity = { distinctId: "user123" }
+    const gate = buildGate({
+      decide: (key) => (key === "theme" ? { variant: "dark" } : { value: true }),
+      hooks: [
+        {
+          before(context) {
+            contexts.push(context)
+          },
+        },
+      ],
+      identify: () => identity,
+    })
+
+    await gate({ defaultValue: false, key: "beta-access" })()
+    await gate({ defaultValue: "light", key: "theme", variants: ["light", "dark"] })()
+
+    expect(contexts).toEqual([
+      {
+        defaultValue: false,
+        flagKey: "beta-access",
+        identity,
+        kind: "boolean",
+        variants: undefined,
+      },
+      {
+        defaultValue: "light",
+        flagKey: "theme",
+        identity,
+        kind: "variant",
+        variants: ["light", "dark"],
+      },
+    ])
+  })
+
+  test("cacheHook replaces a cached decision whose shape does not match the gate", async () => {
+    const cache = createMemoryCache({ value: true })
+    const decide = mock(() => Promise.resolve<Decision>({ variant: "dark" }))
+    const reporter = mock(() => Promise.resolve())
+    const gate = buildGate({
+      decide,
+      hooks: [cacheHook(cache)],
+      identify: () => ({ distinctId: "user123" }),
+      onHookError: reporter,
+    })
+    const theme = gate({ defaultValue: "light", key: "theme", variants: ["light", "dark"] })
+
+    expect(await theme()).toBe("dark")
+    expect(await theme()).toBe("dark")
+    expect(decide).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledWith("theme:user123", { variant: "dark" })
+    expect(reporter).toHaveBeenCalledTimes(1)
+    expect(reporter).toHaveBeenCalledWith({
+      context: {
+        defaultValue: "light",
+        flagKey: "theme",
+        identity: { distinctId: "user123" },
+        kind: "variant",
+        variants: ["light", "dark"],
+      },
+      error: expect.objectContaining({
+        message: "Cached decision type mismatch: expected variant decision but received boolean",
+      }),
+      hookIndex: 0,
+      phase: "resolve",
+    })
+  })
+
+  test("cacheHook replaces a cached variant that the gate no longer supports", async () => {
+    const cache = createMemoryCache({ variant: "dark" })
+    const decide = mock(() => Promise.resolve<Decision>({ variant: "system" }))
+    const reporter = mock(() => Promise.resolve())
+    const gate = buildGate({
+      decide,
+      hooks: [cacheHook(cache)],
+      identify: () => ({ distinctId: "user123" }),
+      onHookError: reporter,
+    })
+    const theme = gate({ defaultValue: "light", key: "theme", variants: ["light", "system"] })
+
+    expect(await theme()).toBe("system")
+    expect(await theme()).toBe("system")
+    expect(decide).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledWith("theme:user123", { variant: "system" })
+    expect(reporter).toHaveBeenCalledTimes(1)
+    expect(reporter).toHaveBeenCalledWith({
+      context: {
+        defaultValue: "light",
+        flagKey: "theme",
+        identity: { distinctId: "user123" },
+        kind: "variant",
+        variants: ["light", "system"],
+      },
+      error: expect.objectContaining({ message: "Cached decision contains invalid variant: dark" }),
+      hookIndex: 0,
+      phase: "resolve",
+    })
   })
 
   test("continues to the provider after an invalid hook decision", async () => {
@@ -339,14 +464,9 @@ describe("uniform hook lifecycle", () => {
     await Bun.sleep(0)
     const follower = betaAccess()
 
-    await settleWithin(follower, 5).then(
-      () => {
-        throw new Error("Expected the consumer timeout to win")
-      },
-      (error: unknown) => {
-        expect((error as Error).message).toBe("Evaluation timed out")
-      }
-    )
+    const error = await expectRejection(settleWithin(follower, 5))
+
+    expect(error.message).toBe("Evaluation timed out")
 
     providerResult.resolve({ value: true })
     expect(await settleWithin(leader)).toBe(true)
@@ -403,7 +523,13 @@ describe("hook error policy", () => {
         await Bun.sleep(0)
         expect(reporter).toHaveBeenCalledTimes(1)
         expect(reporter).toHaveBeenCalledWith({
-          context: { flagKey: "beta-access", identity },
+          context: {
+            defaultValue: false,
+            flagKey: "beta-access",
+            identity,
+            kind: "boolean",
+            variants: undefined,
+          },
           error: hookError,
           hookIndex: 1,
           phase,
@@ -420,6 +546,49 @@ describe("hook error policy", () => {
       })
     }
   }
+
+  test("normalizes non-Error hook failures before reporting them", async () => {
+    const reporter = mock(() => Promise.resolve())
+    const gate = buildGate({
+      decide: () => ({ value: true }),
+      hooks: [
+        {
+          before() {
+            const malformedFailure = "Hook failed" as never
+            // oxlint-disable-next-line no-throw-literal, only-throw-error -- Simulate malformed JavaScript.
+            throw malformedFailure
+          },
+        },
+      ],
+      identify: () => ({ distinctId: "user123" }),
+      onHookError: reporter,
+    })
+
+    expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(true)
+    await Bun.sleep(0)
+    expect(reporter).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.objectContaining({ message: "Hook failed" }) })
+    )
+  })
+
+  test("normalizes non-Error gate failures before running error hooks", async () => {
+    const onError = mock(() => Promise.resolve())
+    const gate = buildGate({
+      decide() {
+        const malformedFailure = "Provider failed" as never
+        // oxlint-disable-next-line no-throw-literal, only-throw-error -- Simulate malformed JavaScript.
+        throw malformedFailure
+      },
+      hooks: [{ error: onError }],
+      identify: () => ({ distinctId: "user123" }),
+    })
+
+    expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(false)
+    expect(onError).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ message: "Provider failed" })
+    )
+  })
 
   for (const reporterBehavior of ["throws", "rejects", "never settles"] as const) {
     test(`does not wait when onHookError ${reporterBehavior}`, async () => {
