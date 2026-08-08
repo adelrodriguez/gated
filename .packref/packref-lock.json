@@ -21,6 +21,17 @@
       },
       "tracking": "manual",
       "version": "0.2.0"
+    },
+    {
+      "name": "zustand",
+      "registry": "npm",
+      "source": {
+        "host": "github.com",
+        "type": "repository",
+        "url": "https://github.com/pmndrs/zustand"
+      },
+      "tracking": "manual",
+      "version": "5.0.14"
     }
   ]
 }

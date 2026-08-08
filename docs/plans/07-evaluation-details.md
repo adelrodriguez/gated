@@ -34,7 +34,7 @@ export type EvaluationDetails<TValue> = {
 ## Changes
 
 - `src/lib/index.ts` — `executeGate` already builds the evaluation record (plan 03); add `executeGateDetails` (or make `executeGate` return the record and have `buildGate` unwrap `.value` for the plain call — prefer this: one code path).
-- `src/core.ts` — the `Gate` interface's returned evaluator becomes a callable object: `Object.assign(evaluator, { details })`. Update the exported evaluator type from plan 01.
+- `src/core.ts` — the `Gate` interface's returned evaluator becomes a callable object: `Object.assign(evaluator, { details })`. Update the exported evaluator type from plan 01. Type it the way zustand types `UseBoundStore` (`.packref/.../zustand/5.0.14/src/react.ts:39-42`): a named type that is an intersection of call signatures and the attached members — e.g. `type GateEvaluator<TIdentity, TValue> = { (overrideIdentity?: TIdentity): Promise<TValue> } & { details: (overrideIdentity?: TIdentity) => Promise<EvaluationDetails<TValue>> }` — rather than an anonymous `Object.assign` inference, so the shape survives in the public d.ts and matches plan 05's `ReactGate` convention.
 - `src/index.ts` — export `EvaluationDetails`.
 - README — "Evaluation details" section with the off-vs-down example (alerting when `error` is present).
 
