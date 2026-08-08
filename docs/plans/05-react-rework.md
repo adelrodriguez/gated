@@ -106,4 +106,4 @@ Replace the shallow assertions (src/**tests**/react.test.tsx:9-59 test `.name`/`
 
 ## Release
 
-- Changeset: major (rename is breaking). "React: `createReactHook` is now `createReactGate` and uses a bounded, configurable promise cache per identity (fixes infinite re-suspension without retaining identities indefinitely), with `invalidate(identity?)`/`clear()` cache controls. `FeatureGate`'s `loading` fallback now renders during suspension, and variant gates without `match` fail loudly in development."
+- Changeset: minor (pre-1.0 breaking; rename is breaking). "React: `createReactHook` is now `createReactGate` and uses a bounded, configurable promise cache per identity (fixes infinite re-suspension without retaining identities indefinitely), with `invalidate(identity?)`/`clear()` cache controls. `FeatureGate`'s `loading` fallback now renders during suspension, and variant gates without `match` fail loudly in development."
