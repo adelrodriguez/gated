@@ -185,21 +185,21 @@ not touch later caches that were never consulted.
 
 React is currently the only framework with dedicated integration. The core library works in any JavaScript environment.
 
-#### React Hooks
+#### React Gates
 
-Convert gate functions into React hooks using the `createReactHook()` function. Components using these hooks must be wrapped in a Suspense boundary:
+Convert evaluators into cached React hooks with `createReactGate()`. Components calling these hooks directly must be wrapped in a Suspense boundary:
 
 ```typescript
-import { createReactHook } from "gated/react";
+import { createReactGate } from "gated/react"
 
 // Using the gate from Quick Start
-const betaFlag = gate({ key: "beta-access", defaultValue: false });
-export const useBetaAccess = createReactHook(betaFlag);
+const betaFlag = gate({ key: "beta-access", defaultValue: false })
+export const useBetaAccess = createReactGate(betaFlag)
 
 // Use in components (wrapped in Suspense)
 function MyComponent() {
-  const hasBeta = useBetaAccess();
-  return hasBeta ? <BetaFeature /> : <OldFeature />;
+  const hasBeta = useBetaAccess()
+  return hasBeta ? <BetaFeature /> : <OldFeature />
 }
 
 function App() {
@@ -207,8 +207,32 @@ function App() {
     <Suspense fallback={<Loading />}>
       <MyComponent />
     </Suspense>
-  );
+  )
 }
+```
+
+Evaluations are cached by identity for five minutes by default, with a maximum of 100 entries. Identities are treated as flat records and their values must be JSON-serializable. Configure the bounds and explicitly invalidate cached decisions when application state changes:
+
+```typescript
+const useBetaAccess = createReactGate(betaFlag, {
+  maxEntries: 250,
+  ttlMs: 60_000,
+})
+
+useBetaAccess.invalidate({ distinctId: user.id }) // One identity
+useBetaAccess.invalidate() // The default identity
+useBetaAccess.clear() // Every identity, for example on logout
+```
+
+Invalidation, clearing, and TTL expiry are not reactive: they cause re-evaluation on the next render but do not schedule a render themselves.
+
+For server rendering, create and inject a cache for each React gate in each request. Never share a module-level cache across requests because it can retain identities and stale decisions across users:
+
+```typescript
+import { createReactGate, createReactGateCache } from "gated/react"
+
+const requestCache = createReactGateCache<boolean>()
+const useBetaAccess = createReactGate(betaFlag, { cache: requestCache })
 ```
 
 #### `<FeatureGate>` Component
@@ -231,7 +255,7 @@ function App() {
 }
 ```
 
-For variant flags, use the `match` prop to specify the expected value (defaults to `true` for boolean flags).
+For variant flags, `match` is required and specifies the expected value. Omitting it from JavaScript renders the fallback and logs a development warning. Boolean flags default to matching `true`.
 
 ## API Reference
 
@@ -286,9 +310,13 @@ const myHook = createHook((options: TOptions) => ({
 
 ### React API
 
-#### `createReactHook(gateFn)`
+#### `createReactGate(gateFn, options?)`
 
-Converts a gate function into a React hook using React 19's `use()` primitive. Components using the hook must be wrapped in a Suspense boundary.
+Converts an evaluator into a React hook using React 19's `use()` primitive and a bounded per-identity promise cache. Options include `maxEntries`, `ttlMs`, and an injectable `cache`. The returned hook exposes `invalidate(identity?)` and `clear()`; these controls take effect on the next render.
+
+#### `createReactGateCache(options?)`
+
+Creates a bounded TTL/LRU cache for injection into `createReactGate`. Create one per server request when rendering on the server.
 
 #### `<FeatureGate>`
 
