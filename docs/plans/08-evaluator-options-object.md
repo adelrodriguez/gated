@@ -50,8 +50,9 @@ const useCustomGate = createReactGate(customAsyncGate)
 
 // new
 <FeatureGate gate={betaAccess} identity={identity}>{children}</FeatureGate>
+// customAsyncGate(accountId, traceId) evaluates by account; traceId is operational
 const useCustomGate = createReactGate(customAsyncGate, {
-  cacheKey: (options) => options?.identity ?? null,
+  cacheKey: (accountId) => accountId,
 })
 ```
 
