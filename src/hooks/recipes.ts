@@ -1,8 +1,12 @@
 // Recipes for common and useful hooks
-import type { Decision, Hook, HookContext } from "../lib/types"
+import type { Decision, Hook, HookContext, IdentityValue } from "../lib/types"
 import { DedupeOwnerFinalizationError, HookResolutionAbortError } from "../lib/internal"
 import { createHook } from "./index"
 
+/**
+ * Cache implementations own serialization. A variant payload may contain provider metadata that is
+ * not JSON-safe, so persisted caches must either preserve it faithfully or normalize it.
+ */
 export interface Cache {
   get: (key: string) => Promise<Decision | null | undefined>
   set: (key: string, value: Decision) => Promise<void>
@@ -47,8 +51,26 @@ function getKey(context: HookContext) {
   return context.flagKey
 }
 
-function getCachedDecisionError(context: HookContext, decision: Decision): Error | undefined {
-  const decisionKind = "variant" in decision ? "variant" : "boolean"
+function isLegacyDecision(cached: IdentityValue): boolean {
+  return (
+    typeof cached === "object" &&
+    cached !== null &&
+    !Object.hasOwn(cached, "type") &&
+    (Object.hasOwn(cached, "value") || Object.hasOwn(cached, "variant"))
+  )
+}
+
+function getCachedDecisionError(context: HookContext, cached: IdentityValue): Error | undefined {
+  if (typeof cached !== "object" || cached === null) {
+    return new Error("Cached decision is invalid")
+  }
+
+  const type = Reflect.get(cached, "type")
+  const decisionKind = type === "variant" ? "variant" : type === "boolean" ? "boolean" : undefined
+
+  if (decisionKind === undefined) {
+    return new Error("Cached decision is missing a valid type discriminant")
+  }
 
   if (context.kind !== decisionKind) {
     return new Error(
@@ -56,12 +78,18 @@ function getCachedDecisionError(context: HookContext, decision: Decision): Error
     )
   }
 
-  if (
-    context.kind === "variant" &&
-    "variant" in decision &&
-    !context.variants.includes(decision.variant)
-  ) {
-    return new Error(`Cached decision contains invalid variant: ${decision.variant}`)
+  if (decisionKind === "boolean" && typeof Reflect.get(cached, "value") !== "boolean") {
+    return new Error("Cached boolean decision contains an invalid value")
+  }
+
+  if (decisionKind === "variant") {
+    const variant = Reflect.get(cached, "variant")
+    if (typeof variant !== "string") {
+      return new Error("Cached variant decision contains an invalid variant")
+    }
+    if (context.kind === "variant" && !context.variants.includes(variant)) {
+      return new Error(`Cached decision contains invalid variant: ${variant}`)
+    }
   }
 
   return undefined
@@ -79,6 +107,10 @@ export const cacheHook: (cache: Cache) => Hook = createHook<Cache>((cache) => {
       const cacheKey = getKey(context)
       const cachedDecision = await cache.get(cacheKey)
       if (!cachedDecision) {
+        return
+      }
+
+      if (isLegacyDecision(cachedDecision)) {
         return
       }
 

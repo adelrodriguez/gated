@@ -28,7 +28,7 @@ async function expectRejection<T>(promise: Promise<T>, message: string) {
 
 describe("cacheHook", () => {
   test("resolves from cache if available", async () => {
-    const cachedDecision: Decision = { value: true }
+    const cachedDecision: Decision = { type: "boolean", value: true }
     const cache = {
       get: mock(() => Promise.resolve(cachedDecision)),
       set: mock(() => Promise.resolve()),
@@ -65,9 +65,27 @@ describe("cacheHook", () => {
     expect(result).toBeUndefined()
   })
 
+  test("treats a persisted pre-discriminant decision as a cache miss", async () => {
+    const cache = {
+      get: mock(() => Promise.resolve({ value: true } as Decision)),
+      set: mock(() => Promise.resolve()),
+    }
+    const hook = cacheHook(cache)
+    const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
+      flagKey: "test-flag",
+      identity: { distinctId: "user123" },
+    }
+
+    const result = await Promise.resolve(hook.resolve?.(context))
+
+    expect(result).toBeUndefined()
+    expect(cache.get).toHaveBeenCalledWith("test-flag:user123")
+  })
+
   test("rejects a cached decision whose shape does not match the gate", async () => {
     const cache = {
-      get: mock(() => Promise.resolve<Decision>({ value: true })),
+      get: mock(() => Promise.resolve<Decision>({ type: "boolean", value: true })),
       set: mock(() => Promise.resolve()),
     }
     const hook = cacheHook(cache)
@@ -89,7 +107,7 @@ describe("cacheHook", () => {
 
   test("rejects a cached variant that the gate no longer supports", async () => {
     const cache = {
-      get: mock(() => Promise.resolve<Decision>({ variant: "dark" })),
+      get: mock(() => Promise.resolve<Decision>({ type: "variant", variant: "dark" })),
       set: mock(() => Promise.resolve()),
     }
     const hook = cacheHook(cache)
@@ -121,7 +139,7 @@ describe("cacheHook", () => {
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
-    const decision: Decision = { value: false }
+    const decision: Decision = { type: "boolean", value: false }
 
     await Promise.resolve(hook.resolve?.(context))
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
@@ -131,7 +149,7 @@ describe("cacheHook", () => {
 
   test("handles missing identity in resolve", async () => {
     const cache = {
-      get: mock(() => Promise.resolve({ value: true })),
+      get: mock(() => Promise.resolve({ type: "boolean", value: true } as const)),
       set: mock(() => Promise.resolve()),
     }
 
@@ -160,7 +178,7 @@ describe("cacheHook", () => {
       flagKey: "test-flag",
       identity: null,
     }
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
@@ -179,7 +197,7 @@ describe("cacheHook", () => {
       flagKey: "theme-flag",
       identity: { distinctId: 456 },
     }
-    const decision: Decision = { variant: "dark" }
+    const decision: Decision = { type: "variant", variant: "dark" }
 
     await Promise.resolve(hook.resolve?.(context))
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
@@ -189,7 +207,7 @@ describe("cacheHook", () => {
 
   test("creates different cache keys for different identities", async () => {
     const cache = {
-      get: mock(() => Promise.resolve({ value: true })),
+      get: mock(() => Promise.resolve({ type: "boolean", value: true } as const)),
       set: mock(() => Promise.resolve()),
     }
 
@@ -214,7 +232,7 @@ describe("cacheHook", () => {
 
   test("creates different cache keys for different flags", async () => {
     const cache = {
-      get: mock(() => Promise.resolve({ value: true })),
+      get: mock(() => Promise.resolve({ type: "boolean", value: true } as const)),
       set: mock(() => Promise.resolve()),
     }
 
@@ -270,7 +288,7 @@ describe("cacheHook", () => {
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     await Promise.resolve(hook.resolve?.(context))
     const error = await expectRejection(
@@ -304,7 +322,7 @@ describe("cacheHook", () => {
     expect(cache.get).toHaveBeenCalledTimes(1)
 
     // Store to cache
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
     expect(cache.set).toHaveBeenCalledWith("test-flag:user123", decision)
 
@@ -316,7 +334,7 @@ describe("cacheHook", () => {
 
   test("supports additional identity properties", async () => {
     const cache = {
-      get: mock(() => Promise.resolve({ value: true })),
+      get: mock(() => Promise.resolve({ type: "boolean", value: true } as const)),
       set: mock(() => Promise.resolve()),
     }
 
@@ -369,7 +387,7 @@ describe("dedupeHook", () => {
     const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
 
     // Complete first request
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // Second request should get the same decision
@@ -453,7 +471,7 @@ describe("dedupeHook", () => {
 
     // First request
     await Promise.resolve(hook.resolve?.(context))
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // New request should not be deduplicated (previous cleaned up)
@@ -511,7 +529,7 @@ describe("dedupeHook", () => {
     const secondResolvePromise = Promise.resolve(hook.resolve?.(context2))
 
     // Complete first request
-    const decision: Decision = { value: false }
+    const decision: Decision = { type: "boolean", value: false }
     await Promise.resolve(hook.after?.(context1, decision, providerMeta))
 
     // Second request should get the same decision
@@ -534,7 +552,7 @@ describe("dedupeHook", () => {
     const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
 
     // Complete first request with variant
-    const decision: Decision = { variant: "dark" }
+    const decision: Decision = { type: "variant", variant: "dark" }
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // Second request should get the same decision
@@ -559,7 +577,7 @@ describe("dedupeHook", () => {
     const request4 = Promise.resolve(hook.resolve?.(context))
 
     // Complete first request
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // All concurrent requests should get the same decision
@@ -575,7 +593,7 @@ describe("dedupeHook", () => {
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     expect(() => {
       void hook.after?.(context, decision, providerMeta)
@@ -616,7 +634,7 @@ describe("dedupeHook", () => {
     const secondResolvePromise = Promise.resolve(hook.resolve?.(context2))
 
     // Complete first request
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
     await Promise.resolve(hook.after?.(context1, decision, providerMeta))
 
     // Second request should get the same decision (treated as same key)
@@ -639,7 +657,7 @@ describe("dedupeHook", () => {
     const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
 
     // Complete first request
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // Second request should get the same decision
@@ -697,7 +715,7 @@ describe("dedupeHook", () => {
     const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
 
     // Complete first request
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // Second request should get the same decision
@@ -748,8 +766,8 @@ describe("dedupeHook", () => {
     const requestB2 = Promise.resolve(hook.resolve?.(contextB))
 
     // Complete both flags
-    const decisionA: Decision = { value: true }
-    const decisionB: Decision = { value: false }
+    const decisionA: Decision = { type: "boolean", value: true }
+    const decisionB: Decision = { type: "boolean", value: false }
 
     await Promise.resolve(hook.after?.(contextA, decisionA, providerMeta))
     await Promise.resolve(hook.after?.(contextB, decisionB, providerMeta))

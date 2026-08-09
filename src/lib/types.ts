@@ -12,13 +12,22 @@ export type Identity = {
 
 export type Decision =
   | {
+      type: "boolean"
       value: boolean
     }
-  | { variant: string }
+  | {
+      type: "variant"
+      variant: string
+      payload?: IdentityValue
+    }
 
 type EvaluationDetailsBase<TValue> = {
   value: TValue
   flagKey: string
+  /**
+   * Present only when a successful variant decision includes provider metadata.
+   */
+  payload?: IdentityValue
 }
 
 export type EvaluationDetails<TValue> = EvaluationDetailsBase<TValue> &

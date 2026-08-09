@@ -39,6 +39,18 @@ export class DecisionTypeMismatchError extends GatedError {
   }
 }
 
+export class MalformedDecisionError extends GatedError {
+  readonly decision: unknown
+  readonly reason: string
+
+  constructor(decision: unknown, reason: string) {
+    super(`Malformed decision: ${reason}`)
+    this.name = "MalformedDecisionError"
+    this.decision = decision
+    this.reason = reason
+  }
+}
+
 export class InvalidVariantError extends GatedError {
   readonly allowedVariants: readonly string[]
   readonly variant: string

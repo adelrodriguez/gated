@@ -96,7 +96,7 @@ describe("createHook", () => {
   })
 
   test("hook resolve method receives context and returns decision", async () => {
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
     const resolveFn = mock(() => Promise.resolve(decision))
     const hook = createHook(() => ({
       resolve: resolveFn,
@@ -127,7 +127,7 @@ describe("createHook", () => {
       flagKey: "test-flag",
       identity: { distinctId: "user123" },
     }
-    const decision: Decision = { value: false }
+    const decision: Decision = { type: "boolean", value: false }
 
     await result.after?.(context, decision, providerMeta)
 
@@ -230,7 +230,7 @@ describe("createHook", () => {
       flagKey: "my-flag",
       identity: { distinctId: "user123" },
     }
-    const decision: Decision = { value: true }
+    const decision: Decision = { type: "boolean", value: true }
 
     await result.before?.(context)
     await result.after?.(context, decision, providerMeta)
@@ -256,7 +256,7 @@ describe("createHook", () => {
   })
 
   test("hook resolve can return a decision to short-circuit", async () => {
-    const cachedDecision: Decision = { value: true }
+    const cachedDecision: Decision = { type: "boolean", value: true }
     const hook = createHook(() => ({
       resolve: () => Promise.resolve(cachedDecision),
     }))
@@ -285,7 +285,7 @@ describe("createHook", () => {
       flagKey: "theme-flag",
       identity: { distinctId: "user123" },
     }
-    const decision: Decision = { variant: "dark" }
+    const decision: Decision = { type: "variant", variant: "dark" }
 
     await result.after?.(context, decision, providerMeta)
 

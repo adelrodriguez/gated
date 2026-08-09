@@ -4,6 +4,7 @@ import {
   GatedError,
   IdentityNotFoundError,
   InvalidVariantError,
+  MalformedDecisionError,
 } from "../errors"
 
 describe("contextual errors", () => {
@@ -16,7 +17,7 @@ describe("contextual errors", () => {
   })
 
   test("describes decision kind mismatches", () => {
-    const decision = { variant: "dark" } as const
+    const decision = { type: "variant", variant: "dark" } as const
     const error = new DecisionTypeMismatchError("boolean", decision)
 
     expect(error).toMatchObject({
@@ -31,5 +32,17 @@ describe("contextual errors", () => {
 
     expect(error.variant).toBe("purple")
     expect(error.allowedVariants).toEqual(["light", "dark"])
+  })
+
+  test("retains malformed decision context", () => {
+    const decision = { value: "true" }
+    const error = new MalformedDecisionError(decision, 'type must be "boolean" or "variant"')
+
+    expect(error).toBeInstanceOf(GatedError)
+    expect(error).toMatchObject({
+      decision,
+      name: "MalformedDecisionError",
+      reason: 'type must be "boolean" or "variant"',
+    })
   })
 })

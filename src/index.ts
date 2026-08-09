@@ -1,5 +1,6 @@
 export { buildGate } from "./core"
 export type { GateFactory } from "./core"
+export { decision } from "./lib/decision"
 export { createHook } from "./hooks"
 export {
   DecisionTypeMismatchError,
@@ -7,6 +8,7 @@ export {
   GateTimeoutError,
   IdentityNotFoundError,
   InvalidVariantError,
+  MalformedDecisionError,
 } from "./lib/errors"
 export type {
   AfterHookMeta,

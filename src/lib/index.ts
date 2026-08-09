@@ -17,6 +17,7 @@ import {
   GateTimeoutError,
   IdentityNotFoundError,
   InvalidVariantError,
+  MalformedDecisionError,
 } from "./errors"
 import { HookResolutionAbortError, normalizeError } from "./internal"
 
@@ -24,6 +25,7 @@ const noop: () => void = () => null
 
 type Evaluation<TIdentity extends Identity> = {
   defaultValue: boolean | string
+  decision?: Decision
   key: string
   kind: "boolean" | "variant"
   identity: TIdentity | null
@@ -104,8 +106,7 @@ export async function identify<TIdentity extends Identity>(
 }
 
 export function extractDecisionValue(decision: Decision) {
-  const isVariant = "variant" in decision
-  return isVariant ? decision.variant : decision.value
+  return decision.type === "variant" ? decision.variant : decision.value
 }
 
 export async function evaluateDecision<TIdentity extends Identity>(
@@ -283,24 +284,46 @@ export async function runFinallyHooks<TIdentity extends Identity>(
   reportRejectedHooks(results, "finally", hookContext, reporter)
 }
 
-export function validateDecision<T extends string[]>(decision: Decision, options: GateOptions<T>) {
-  const isVariant = "variant" in decision
+export function validateDecision<T extends string[]>(
+  decision: unknown,
+  options: GateOptions<T>
+): asserts decision is Decision {
+  if (typeof decision !== "object" || decision === null) {
+    throw new MalformedDecisionError(decision, "expected an object")
+  }
+
+  const type = Reflect.get(decision, "type")
+
+  if (type !== "boolean" && type !== "variant") {
+    throw new MalformedDecisionError(decision, 'type must be "boolean" or "variant"')
+  }
+
+  if (type === "boolean" && typeof Reflect.get(decision, "value") !== "boolean") {
+    throw new MalformedDecisionError(decision, "boolean value must be a boolean")
+  }
+
+  if (type === "variant" && typeof Reflect.get(decision, "variant") !== "string") {
+    throw new MalformedDecisionError(decision, "variant must be a string")
+  }
+
+  const validDecision = decision as Decision
+  const isVariant = validDecision.type === "variant"
   const gateConfiguration = getGateConfiguration(options.variants)
 
   if (gateConfiguration.kind === "variant" && !isVariant) {
-    throw new DecisionTypeMismatchError("variant", decision)
+    throw new DecisionTypeMismatchError("variant", validDecision)
   }
 
   if (gateConfiguration.kind === "boolean" && isVariant) {
-    throw new DecisionTypeMismatchError("boolean", decision)
+    throw new DecisionTypeMismatchError("boolean", validDecision)
   }
 
   if (!isVariant || gateConfiguration.kind === "boolean") {
     return
   }
 
-  if (!gateConfiguration.variants.includes(decision.variant)) {
-    throw new InvalidVariantError(decision.variant, gateConfiguration.variants)
+  if (!gateConfiguration.variants.includes(validDecision.variant)) {
+    throw new InvalidVariantError(validDecision.variant, gateConfiguration.variants)
   }
 }
 
@@ -400,6 +423,7 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
       decision = resolution.decision
       evaluation.source = "hook"
     }
+    evaluation.decision = decision
     const afterMeta: AfterHookMeta<TIdentity> = resolution
       ? { resolver: resolution.resolver, source: "hook" }
       : { source: "provider" }
@@ -446,7 +470,16 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
     return { ...detailsBase, error: failure, source: "default" }
   }
 
-  return { ...detailsBase, source: evaluation.source as DecisionSource }
+  const details: EvaluationDetails<boolean | T[number]> = {
+    ...detailsBase,
+    source: evaluation.source as DecisionSource,
+  }
+
+  if (evaluation.decision?.type === "variant" && evaluation.decision.payload !== undefined) {
+    details.payload = evaluation.decision.payload
+  }
+
+  return details
 }
 
 export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(

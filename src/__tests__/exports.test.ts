@@ -22,13 +22,15 @@ import {
   GateTimeoutError,
   IdentityNotFoundError,
   InvalidVariantError,
+  MalformedDecisionError,
+  decision as decisions,
 } from "../index"
 
 interface TestIdentity extends Identity {
   plan: "free" | "pro"
 }
 
-const decision: Decision = { value: true }
+const decision: Decision = { type: "boolean", value: true }
 const decisionSource: DecisionSource = "provider"
 const maybeDecision: MaybePromise<Decision> = decision
 const identityValue: IdentityValue = { plan: "pro" }
@@ -92,6 +94,8 @@ test("exports consumer-facing root types", async () => {
     // @ts-expect-error -- Weak-type excess-property checking rejects a bare identity.
     void evaluator({ distinctId: "legacy-user", plan: "pro" })
   }
+  // @ts-expect-error -- Decision now requires an explicit type discriminant.
+  const legacyDecision: Decision = { value: true }
 
   expect(afterMeta.source).toBe("provider")
   expect(hookAfterMeta.resolver).toBe(hook)
@@ -107,7 +111,21 @@ test("exports consumer-facing root types", async () => {
   expect(readGateConfiguration(hookContext)).toEqual({ defaultValue: false, variants: undefined })
   expect(overriddenValue).toBe(true)
   expect(new IdentityNotFoundError()).toBeInstanceOf(GatedError)
-  expect(new DecisionTypeMismatchError("boolean", { variant: "dark" })).toBeInstanceOf(GatedError)
+  expect(
+    new DecisionTypeMismatchError("boolean", { type: "variant", variant: "dark" })
+  ).toBeInstanceOf(GatedError)
   expect(new GateTimeoutError(10).timeoutMs).toBe(10)
   expect(new InvalidVariantError("purple", ["light", "dark"])).toBeInstanceOf(GatedError)
+  expect(new MalformedDecisionError({}, "missing type")).toBeInstanceOf(GatedError)
+  expect(decisions.boolean(true).value).toBe(true)
+  expect(decisions.variant("dark").variant).toBe("dark")
+  expect(decisions.boolean(true)).toEqual({ type: "boolean", value: true })
+  expect(decisions.variant("dark", { experiment: "theme" })).toEqual({
+    payload: { experiment: "theme" },
+    type: "variant",
+    variant: "dark",
+  })
+  expect(decisions.variant("dark")).toEqual({ type: "variant", variant: "dark" })
+  expect("payload" in decisions.variant("dark")).toBe(false)
+  expect(legacyDecision).toHaveProperty("value", true)
 })
