@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import type {
   AfterHookMeta,
+  AnonymousGatedConfig,
   Decision,
   DecisionSource,
   EvaluationDetails,
@@ -69,6 +70,23 @@ const variantEvaluator: GateEvaluator<TestIdentity, "dark" | "light"> = gate({
   key: "theme",
   variants: ["light", "dark"],
 })
+const anonymousConfig: AnonymousGatedConfig<TestIdentity> = {
+  anonymous: "allow",
+  decide: (_key, identity) => decisions.boolean(identity === null),
+  identify: () => null,
+}
+const invalidAnonymousConfig: AnonymousGatedConfig<TestIdentity> = {
+  anonymous: "allow",
+  // @ts-expect-error -- Anonymous providers must handle a null identity.
+  decide: (_key, identity: TestIdentity) => decisions.boolean(identity.plan === "pro"),
+  identify: () => null,
+}
+const invalidAnonymousGate = buildGate<TestIdentity>({
+  anonymous: "allow",
+  // @ts-expect-error -- buildGate anonymous overloads require providers to accept null identity.
+  decide: (_key, identity: TestIdentity) => decisions.boolean(identity.plan === "pro"),
+  identify: () => null,
+})
 
 function readGateConfiguration(context: HookContext) {
   if (context.kind === "boolean") {
@@ -101,6 +119,7 @@ test("exports consumer-facing root types", async () => {
   expect(hookAfterMeta.resolver).toBe(hook)
   expect(hookErrorReport.context).toBe(hookContext)
   expect(invalidHookAfterMeta.source).toBe("hook")
+  expect(typeof invalidAnonymousGate).toBe("function")
   expect(identityValue).toEqual({ plan: "pro" })
   expect(maybeDecision).toBe(decision)
   expect(typeof evaluator).toBe("function")
@@ -128,4 +147,6 @@ test("exports consumer-facing root types", async () => {
   expect(decisions.variant("dark")).toEqual({ type: "variant", variant: "dark" })
   expect("payload" in decisions.variant("dark")).toBe(false)
   expect(legacyDecision).toHaveProperty("value", true)
+  expect(anonymousConfig.anonymous).toBe("allow")
+  expect(invalidAnonymousConfig.anonymous).toBe("allow")
 })

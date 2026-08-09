@@ -130,6 +130,23 @@ const details = await checkout.details({ signal: controller.signal })
 
 A timeout or caller abort before a decision and its `after` hooks complete returns the configured default. The deadline covers the complete lifecycle, including `error` and `finally` hooks; if only `finally` teardown exceeds it, the already-committed decision is preserved. Error hooks and `details().error` receive the original evaluation failure, a `GateTimeoutError`, or the caller signal's abort reason. The combined signal is available as `context.signal` in hooks and is passed to `decide`; work that ignores cancellation may finish in the background but cannot advance the operational gate lifecycle. Timeout values must be positive, finite, and no greater than 2,147,483,647 milliseconds.
 
+### Anonymous Evaluation
+
+Identity resolution remains strict by default: returning `null` is an error and the gate returns its default. Opt in when a provider supports anonymous subjects:
+
+```typescript
+const gate = buildGate({
+  anonymous: "allow",
+  identify: (): UserIdentity | null => null,
+  decide: (key, identity) => {
+    // identity is UserIdentity | null
+    return decision.boolean(provider.isEnabled(key, identity))
+  },
+})
+```
+
+Hooks receive `context.identity === null`, and successful `details()` results retain `source: "provider"` without an error. The cache and dedupe recipes deliberately bypass anonymous evaluations so decisions are neither retained nor shared between anonymous visitors.
+
 ### Hook System
 
 Intercept the flag evaluation lifecycle with hooks. Gated supports five lifecycle stages:

@@ -12,6 +12,7 @@ export {
 } from "./lib/errors"
 export type {
   AfterHookMeta,
+  AnonymousGatedConfig,
   Decision,
   DecisionSource,
   EvaluationDetails,

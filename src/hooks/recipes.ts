@@ -44,11 +44,8 @@ function createPendingRequest(owner: HookContext): PendingRequest {
   }
 }
 
-function getKey(context: HookContext) {
-  if (context.identity) {
-    return `${context.flagKey}:${context.identity.distinctId}`
-  }
-  return context.flagKey
+function getKey(flagKey: string, distinctId: NonNullable<HookContext["identity"]>["distinctId"]) {
+  return `${flagKey}:${distinctId}`
 }
 
 function isLegacyDecision(cached: IdentityValue): boolean {
@@ -104,7 +101,7 @@ export const cacheHook: (cache: Cache) => Hook = createHook<Cache>((cache) => {
       }
 
       consulted.add(context)
-      const cacheKey = getKey(context)
+      const cacheKey = getKey(context.flagKey, context.identity.distinctId)
       const cachedDecision = await cache.get(cacheKey)
       if (!cachedDecision) {
         return
@@ -133,7 +130,7 @@ export const cacheHook: (cache: Cache) => Hook = createHook<Cache>((cache) => {
         return
       }
 
-      const cacheKey = getKey(context)
+      const cacheKey = getKey(context.flagKey, context.identity.distinctId)
       await cache.set(cacheKey, decision)
     },
 
@@ -150,7 +147,11 @@ export const dedupeHook: () => Hook = createHook(() => {
 
   return {
     async resolve(context) {
-      const key = getKey(context)
+      if (!context.identity) {
+        return
+      }
+
+      const key = getKey(context.flagKey, context.identity.distinctId)
       const existing = pending.get(key)
       const result = existing?.promise
 
@@ -166,7 +167,11 @@ export const dedupeHook: () => Hook = createHook(() => {
     },
 
     after(context, decision) {
-      const key = getKey(context)
+      if (!context.identity) {
+        return
+      }
+
+      const key = getKey(context.flagKey, context.identity.distinctId)
       const existing = pending.get(key)
 
       if (existing?.owner === context) {
@@ -176,7 +181,11 @@ export const dedupeHook: () => Hook = createHook(() => {
     },
 
     error(context, error) {
-      const key = getKey(context)
+      if (!context.identity) {
+        return
+      }
+
+      const key = getKey(context.flagKey, context.identity.distinctId)
       const existing = pending.get(key)
 
       if (existing?.owner === context) {
@@ -186,7 +195,11 @@ export const dedupeHook: () => Hook = createHook(() => {
     },
 
     finally(context) {
-      const key = getKey(context)
+      if (!context.identity) {
+        return
+      }
+
+      const key = getKey(context.flagKey, context.identity.distinctId)
       const existing = pending.get(key)
 
       if (existing?.owner === context) {

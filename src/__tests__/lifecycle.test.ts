@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test"
-import type { Decision, Hook, HookContext, HookErrorReport } from "../lib/types"
+import type { Decision, Hook, HookContext, HookErrorReport, Identity } from "../lib/types"
 import { buildGate } from "../core"
 import { cacheHook, dedupeHook } from "../hooks/recipes"
 import { GateTimeoutError } from "../lib/errors"
@@ -742,6 +742,106 @@ describe("timeout and cancellation", () => {
     expect(await betaAccess({ signal: controller.signal })).toBe(true)
     expect(addEventListener).toHaveBeenCalledTimes(1)
     expect(removeEventListener).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("anonymous identity policy", () => {
+  test("keeps null identity rejection as the default", async () => {
+    const error = mock(() => Promise.resolve())
+    const decide = mock(() => ({ type: "boolean", value: true }) as const)
+    const gate = buildGate({
+      decide,
+      hooks: [{ error }],
+      identify: () => null,
+    })
+
+    expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(false)
+    expect(decide).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledWith(
+      expect.objectContaining({ identity: null }),
+      expect.any(Error)
+    )
+  })
+
+  test("allows a provider to evaluate a null identity when opted in", async () => {
+    const decide = mock((_key: string, identity: Identity | null) => ({
+      type: "boolean" as const,
+      value: identity === null,
+    }))
+    const gate = buildGate({
+      anonymous: "allow",
+      decide,
+      identify: () => null,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess()).toBe(true)
+    expect(await betaAccess.details()).toEqual({
+      flagKey: "beta-access",
+      source: "provider",
+      value: true,
+    })
+    expect(decide).toHaveBeenCalledWith("beta-access", null, expect.any(Object))
+  })
+
+  test("passes a resolved identity through in anonymous mode", async () => {
+    const identity = { distinctId: "user123" }
+    const decide = mock((_key: string, resolved: Identity | null) => ({
+      type: "boolean" as const,
+      value: resolved === identity,
+    }))
+    const gate = buildGate({
+      anonymous: "allow",
+      decide,
+      identify: () => identity,
+    })
+
+    expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(true)
+    expect(decide).toHaveBeenCalledWith("beta-access", identity, expect.any(Object))
+  })
+
+  test("bypasses cache reads and writes for anonymous evaluations", async () => {
+    const cache = {
+      get: mock(() => Promise.resolve<Decision | undefined>(void 0)),
+      set: mock(() => Promise.resolve()),
+    }
+    const decide = mock(() => ({ type: "boolean", value: true }) as const)
+    const gate = buildGate({
+      anonymous: "allow",
+      decide,
+      hooks: [cacheHook(cache)],
+      identify: () => null,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess()).toBe(true)
+    expect(await betaAccess()).toBe(true)
+    expect(decide).toHaveBeenCalledTimes(2)
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+  })
+
+  test("does not deduplicate concurrent anonymous evaluations", async () => {
+    const decide = mock(async () => {
+      await Bun.sleep(5)
+      return { type: "boolean", value: true } as const
+    })
+    const gate = buildGate({
+      anonymous: "allow",
+      decide,
+      hooks: [dedupeHook()],
+      identify: () => null,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await Promise.all([betaAccess(), betaAccess(), betaAccess()])).toEqual([
+      true,
+      true,
+      true,
+    ])
+    expect(decide).toHaveBeenCalledTimes(3)
+    expect(await betaAccess()).toBe(true)
+    expect(decide).toHaveBeenCalledTimes(4)
   })
 })
 
