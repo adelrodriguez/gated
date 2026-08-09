@@ -4,6 +4,7 @@ export { createHook } from "./hooks"
 export {
   DecisionTypeMismatchError,
   GatedError,
+  GateTimeoutError,
   IdentityNotFoundError,
   InvalidVariantError,
 } from "./lib/errors"

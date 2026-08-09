@@ -2,6 +2,7 @@ import { describe, expect, mock, test } from "bun:test"
 import type { Decision, Hook, HookContext, HookErrorReport } from "../lib/types"
 import { buildGate } from "../core"
 import { cacheHook, dedupeHook } from "../hooks/recipes"
+import { GateTimeoutError } from "../lib/errors"
 
 function createDeferred<T>() {
   let rejectDeferred!: (reason?: Error) => void
@@ -12,6 +13,12 @@ function createDeferred<T>() {
   })
 
   return { promise, reject: rejectDeferred, resolve: resolveDeferred }
+}
+
+function never<T>(): Promise<T> {
+  return new Promise<T>((resolve) => {
+    void resolve
+  })
 }
 
 function createMemoryCache(initialDecision?: Decision) {
@@ -174,24 +181,26 @@ describe("uniform hook lifecycle", () => {
     expect(await hookGate({ defaultValue: false, key: "hook" })()).toBe(true)
     expect(await providerGate({ defaultValue: false, key: "provider" })()).toBe(true)
     expect(hookAfter).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         defaultValue: false,
         flagKey: "hook",
         identity,
         kind: "boolean",
+        signal: expect.any(AbortSignal),
         variants: undefined,
-      },
+      }),
       hookDecision,
       { resolver, source: "hook" }
     )
     expect(providerAfter).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         defaultValue: false,
         flagKey: "provider",
         identity,
         kind: "boolean",
+        signal: expect.any(AbortSignal),
         variants: undefined,
-      },
+      }),
       { value: true },
       { source: "provider" }
     )
@@ -205,7 +214,7 @@ describe("uniform hook lifecycle", () => {
       hooks: [
         {
           before(context) {
-            contexts.push(context)
+            contexts.push({ ...context })
           },
         },
       ],
@@ -221,6 +230,7 @@ describe("uniform hook lifecycle", () => {
         flagKey: "beta-access",
         identity,
         kind: "boolean",
+        signal: expect.any(AbortSignal),
         variants: undefined,
       },
       {
@@ -228,9 +238,10 @@ describe("uniform hook lifecycle", () => {
         flagKey: "theme",
         identity,
         kind: "variant",
+        signal: expect.any(AbortSignal),
         variants: ["light", "dark"],
       },
-    ])
+    ] as never[])
   })
 
   test("cacheHook replaces a cached decision whose shape does not match the gate", async () => {
@@ -252,13 +263,14 @@ describe("uniform hook lifecycle", () => {
     expect(cache.set).toHaveBeenCalledWith("theme:user123", { variant: "dark" })
     expect(reporter).toHaveBeenCalledTimes(1)
     expect(reporter).toHaveBeenCalledWith({
-      context: {
+      context: expect.objectContaining({
         defaultValue: "light",
         flagKey: "theme",
         identity: { distinctId: "user123" },
         kind: "variant",
+        signal: expect.any(AbortSignal),
         variants: ["light", "dark"],
-      },
+      }),
       error: expect.objectContaining({
         message: "Cached decision type mismatch: expected variant decision but received boolean",
       }),
@@ -286,13 +298,14 @@ describe("uniform hook lifecycle", () => {
     expect(cache.set).toHaveBeenCalledWith("theme:user123", { variant: "system" })
     expect(reporter).toHaveBeenCalledTimes(1)
     expect(reporter).toHaveBeenCalledWith({
-      context: {
+      context: expect.objectContaining({
         defaultValue: "light",
         flagKey: "theme",
         identity: { distinctId: "user123" },
         kind: "variant",
+        signal: expect.any(AbortSignal),
         variants: ["light", "system"],
-      },
+      }),
       error: expect.objectContaining({ message: "Cached decision contains invalid variant: dark" }),
       hookIndex: 0,
       phase: "resolve",
@@ -478,6 +491,220 @@ describe("uniform hook lifecycle", () => {
   })
 })
 
+describe("timeout and cancellation", () => {
+  test("returns the default promptly and reports a factory timeout", async () => {
+    const errorHook = mock(() => Promise.resolve())
+    const finallyHook = mock(() => Promise.resolve())
+    let providerSignal: AbortSignal | undefined
+    const gate = buildGate({
+      decide: (_key, _identity, options) => {
+        providerSignal = options?.signal
+        return never<Decision>()
+      },
+      hooks: [{ error: errorHook, finally: finallyHook }],
+      identify: () => ({ distinctId: "user123" }),
+      timeoutMs: 25,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await settleWithin(betaAccess(), 1000)).toBe(false)
+    await Bun.sleep(0)
+    expect(errorHook).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect.any(GateTimeoutError)
+    )
+    expect(finallyHook).toHaveBeenCalledTimes(1)
+    expect(providerSignal?.aborted).toBe(true)
+  })
+
+  test("uses a per-gate timeout instead of the factory timeout", async () => {
+    const gate = buildGate({
+      decide: () => never<Decision>(),
+      identify: () => ({ distinctId: "user123" }),
+      timeoutMs: 1000,
+    })
+    const betaAccess = gate({
+      defaultValue: false,
+      key: "beta-access",
+      timeoutMs: 10,
+    })
+
+    const details = await betaAccess.details()
+
+    expect(details.source).toBe("default")
+    expect(details.error).toBeInstanceOf(GateTimeoutError)
+    expect((details.error as GateTimeoutError).timeoutMs).toBe(10)
+  })
+
+  test("returns the caller abort reason in evaluation details", async () => {
+    const controller = new AbortController()
+    const reason = new Error("request closed")
+    const gate = buildGate({
+      decide: () => never<Decision>(),
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+    setTimeout(() => {
+      controller.abort(reason)
+    }, 10)
+
+    expect(await betaAccess.details({ signal: controller.signal })).toEqual({
+      error: reason,
+      flagKey: "beta-access",
+      source: "default",
+      value: false,
+    })
+  })
+
+  test("does not advance the lifecycle after an abandoned provider settles", async () => {
+    const provider = createDeferred<Decision>()
+    const after = mock(() => Promise.resolve())
+    const finallyHook = mock(() => Promise.resolve())
+    const gate = buildGate({
+      decide: () => provider.promise,
+      hooks: [{ after, finally: finallyHook }],
+      identify: () => ({ distinctId: "user123" }),
+      timeoutMs: 10,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess()).toBe(false)
+    provider.resolve({ value: true })
+    await provider.promise
+    await Bun.sleep(0)
+
+    expect(after).not.toHaveBeenCalled()
+    expect(finallyHook).toHaveBeenCalledTimes(1)
+  })
+
+  test("a timeout during a hook prevents later operational stages", async () => {
+    const resolve = mock(() => Promise.resolve<Decision | undefined>(void 0))
+    const after = mock(() => Promise.resolve())
+    const error = mock(() => Promise.resolve())
+    const finallyHook = mock(() => Promise.resolve())
+    const decide = mock(() => ({ value: true }))
+    const gate = buildGate({
+      decide,
+      hooks: [
+        {
+          after,
+          before: () => never<undefined>(),
+          error,
+          finally: finallyHook,
+          resolve,
+        },
+      ],
+      identify: () => ({ distinctId: "user123" }),
+      timeoutMs: 10,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess()).toBe(false)
+    await Bun.sleep(0)
+
+    expect(resolve).not.toHaveBeenCalled()
+    expect(decide).not.toHaveBeenCalled()
+    expect(after).not.toHaveBeenCalled()
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(finallyHook).toHaveBeenCalledTimes(1)
+  })
+
+  test("preserves normal evaluation when no timeout is configured", async () => {
+    let providerSignal: AbortSignal | undefined
+    const gate = buildGate({
+      decide: (_key, _identity, options) => {
+        providerSignal = options?.signal
+        return { value: true }
+      },
+      identify: () => ({ distinctId: "user123" }),
+    })
+
+    expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(true)
+    expect(providerSignal?.aborted).toBe(false)
+  })
+
+  test("consumes a late rejection from an abandoned provider", async () => {
+    const unhandledRejection = mock(() => false)
+    process.on("unhandledRejection", unhandledRejection)
+
+    try {
+      const gate = buildGate({
+        decide: () =>
+          new Promise<Decision>((_resolve, reject) => {
+            setTimeout(() => {
+              reject(new Error("late provider rejection"))
+            }, 20)
+          }),
+        identify: () => ({ distinctId: "user123" }),
+        timeoutMs: 5,
+      })
+
+      expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(false)
+      await Bun.sleep(30)
+      expect(unhandledRejection).not.toHaveBeenCalled()
+    } finally {
+      process.off("unhandledRejection", unhandledRejection)
+    }
+  })
+
+  test("bounds error hooks after an ordinary evaluation failure", async () => {
+    const providerError = new Error("Provider failed")
+    const error = mock(() => never<undefined>())
+    const finallyHook = mock(() => Promise.resolve())
+    const gate = buildGate({
+      decide: () => Promise.reject(providerError),
+      hooks: [{ error, finally: finallyHook }],
+      identify: () => ({ distinctId: "user123" }),
+      timeoutMs: 10,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    const details = await settleWithin(betaAccess.details(), 1000)
+
+    expect(details.value).toBe(false)
+    expect(details.source).toBe("default")
+    expect(details.error).toBe(providerError)
+    expect(error).toHaveBeenCalledTimes(1)
+    expect(finallyHook).toHaveBeenCalledTimes(1)
+  })
+
+  test("bounds finally hooks on a successful decision", async () => {
+    const finallyHook = mock(() => never<undefined>())
+    const gate = buildGate({
+      decide: () => ({ value: true }),
+      hooks: [{ finally: finallyHook }],
+      identify: () => ({ distinctId: "user123" }),
+      timeoutMs: 10,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    const details = await settleWithin(betaAccess.details(), 1000)
+
+    expect(details).toEqual({ flagKey: "beta-access", source: "provider", value: true })
+    expect(finallyHook).toHaveBeenCalledTimes(1)
+  })
+
+  test("detaches the caller abort listener after a combined evaluation", async () => {
+    const controller = new AbortController()
+    const addEventListener = mock(controller.signal.addEventListener.bind(controller.signal))
+    const removeEventListener = mock(controller.signal.removeEventListener.bind(controller.signal))
+    Object.defineProperties(controller.signal, {
+      addEventListener: { value: addEventListener },
+      removeEventListener: { value: removeEventListener },
+    })
+    const gate = buildGate({
+      decide: () => ({ value: true }),
+      identify: () => ({ distinctId: "user123" }),
+      timeoutMs: 1000,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess({ signal: controller.signal })).toBe(true)
+    expect(addEventListener).toHaveBeenCalledTimes(1)
+    expect(removeEventListener).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe("hook error policy", () => {
   const phases = ["before", "resolve", "after", "error", "finally"] as const
   const failureModes = ["synchronous", "asynchronous"] as const
@@ -523,13 +750,14 @@ describe("hook error policy", () => {
         await Bun.sleep(0)
         expect(reporter).toHaveBeenCalledTimes(1)
         expect(reporter).toHaveBeenCalledWith({
-          context: {
+          context: expect.objectContaining({
             defaultValue: false,
             flagKey: "beta-access",
             identity,
             kind: "boolean",
+            signal: expect.any(AbortSignal),
             variants: undefined,
-          },
+          }),
           error: hookError,
           hookIndex: 1,
           phase,

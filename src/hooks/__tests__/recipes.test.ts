@@ -3,7 +3,11 @@ import type { Decision, HookContext } from "../../lib/types"
 import { cacheHook, dedupeHook } from "../recipes"
 
 const providerMeta = { source: "provider" } as const
-const BOOLEAN_HOOK_CONTEXT = { defaultValue: false, kind: "boolean" } as const
+const BOOLEAN_HOOK_CONTEXT = {
+  defaultValue: false,
+  kind: "boolean",
+  signal: new AbortController().signal,
+} as const
 
 async function expectRejection<T>(promise: Promise<T>, message: string) {
   let caughtError: Error | undefined
@@ -72,6 +76,7 @@ describe("cacheHook", () => {
       flagKey: "theme",
       identity: { distinctId: "user123" },
       kind: "variant",
+      signal: new AbortController().signal,
       variants: ["light", "dark"],
     }
 
@@ -93,6 +98,7 @@ describe("cacheHook", () => {
       flagKey: "theme",
       identity: { distinctId: "user123" },
       kind: "variant",
+      signal: new AbortController().signal,
       variants: ["light", "system"],
     }
 

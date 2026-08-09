@@ -15,7 +15,11 @@ import {
 } from "../index"
 import { HookResolutionAbortError } from "../internal"
 
-const BOOLEAN_HOOK_CONTEXT = { defaultValue: false, kind: "boolean" } as const
+const BOOLEAN_HOOK_CONTEXT = {
+  defaultValue: false,
+  kind: "boolean",
+  signal: new AbortController().signal,
+} as const
 
 async function expectRejection<T>(promise: Promise<T>, message: string) {
   let caughtError: Error | undefined
@@ -139,7 +143,7 @@ describe("evaluateDecision", () => {
     const result = await evaluateDecision(decideFn, "test-flag", identity)
 
     expect(result).toEqual(decision)
-    expect(decideFn).toHaveBeenCalledWith("test-flag", identity)
+    expect(decideFn).toHaveBeenCalledWith("test-flag", identity, { signal: undefined })
   })
 
   test("evaluates variant decision", async () => {
@@ -363,6 +367,7 @@ describe("runResolveHooks", () => {
       flagKey: "theme",
       identity: { distinctId: "user123" },
       kind: "variant",
+      signal: new AbortController().signal,
       variants: ["current"],
     }
 
@@ -621,7 +626,7 @@ describe("executeGate", () => {
 
     expect(result).toBe(true)
     expect(config.identify).toHaveBeenCalled()
-    expect(config.decide).toHaveBeenCalledWith("test-flag", identity)
+    expect(config.decide).toHaveBeenCalledWith("test-flag", identity, expect.any(Object))
   })
 
   test("executes variant gate successfully", async () => {
@@ -664,7 +669,7 @@ describe("executeGate", () => {
 
     expect(result).toBe(true)
     expect(config.identify).not.toHaveBeenCalled()
-    expect(config.decide).toHaveBeenCalledWith("test-flag", overrideIdentity)
+    expect(config.decide).toHaveBeenCalledWith("test-flag", overrideIdentity, expect.any(Object))
   })
 
   test("returns default value on error", async () => {
@@ -773,6 +778,7 @@ describe("executeGate", () => {
         flagKey: "test-flag",
         identity: { distinctId: "user123" },
         kind: "boolean",
+        signal: expect.any(AbortSignal),
         variants: undefined,
       },
       error
@@ -843,6 +849,7 @@ describe("executeGate", () => {
         flagKey: "test-flag",
         identity: null,
         kind: "boolean",
+        signal: expect.any(AbortSignal),
         variants: undefined,
       },
       expect.any(Error)

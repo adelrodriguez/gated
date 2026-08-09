@@ -12,16 +12,23 @@ import type {
   IdentityValue,
   MaybePromise,
 } from "./types"
-import { DecisionTypeMismatchError, IdentityNotFoundError, InvalidVariantError } from "./errors"
+import {
+  DecisionTypeMismatchError,
+  GateTimeoutError,
+  IdentityNotFoundError,
+  InvalidVariantError,
+} from "./errors"
 import { HookResolutionAbortError, normalizeError } from "./internal"
+
+const noop: () => void = () => null
 
 type Evaluation<TIdentity extends Identity> = {
   defaultValue: boolean | string
   key: string
   kind: "boolean" | "variant"
   identity: TIdentity | null
-  decision?: Decision
   source: DecisionSource | "default"
+  signal: AbortSignal
   variants?: readonly string[]
 }
 
@@ -34,6 +41,7 @@ type GateOptions<T extends string[]> = {
   key: string
   defaultValue: boolean | T[number]
   variants?: T
+  timeoutMs?: number
 }
 
 function getGateConfiguration(
@@ -101,11 +109,90 @@ export function extractDecisionValue(decision: Decision) {
 }
 
 export async function evaluateDecision<TIdentity extends Identity>(
-  decide: (key: string, identity: TIdentity) => MaybePromise<Decision>,
+  decide: (
+    key: string,
+    identity: TIdentity,
+    options?: { signal?: AbortSignal }
+  ) => MaybePromise<Decision>,
   gateKey: string,
-  gateIdentity: TIdentity
+  gateIdentity: TIdentity,
+  signal?: AbortSignal
 ): Promise<Decision> {
-  return await decide(gateKey, gateIdentity)
+  return await decide(gateKey, gateIdentity, { signal })
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return normalizeError(signal.reason as IdentityValue)
+}
+
+function createEvaluationSignal(
+  callerSignal: AbortSignal | undefined,
+  timeoutMs: number | undefined
+): { cleanup: () => void; signal: AbortSignal } {
+  if (timeoutMs === undefined) {
+    const signal = callerSignal ?? new AbortController().signal
+    return { cleanup: noop, signal }
+  }
+
+  const controller = new AbortController()
+  let removeCallerListener = noop
+
+  if (callerSignal) {
+    const forwardCallerAbort = () => {
+      controller.abort(callerSignal.reason)
+    }
+
+    if (callerSignal.aborted) {
+      forwardCallerAbort()
+    } else {
+      callerSignal.addEventListener("abort", forwardCallerAbort, { once: true })
+      removeCallerListener = () => {
+        callerSignal.removeEventListener("abort", forwardCallerAbort)
+      }
+    }
+  }
+
+  const timer = setTimeout(() => {
+    controller.abort(new GateTimeoutError(timeoutMs))
+  }, timeoutMs)
+
+  return {
+    cleanup() {
+      removeCallerListener()
+      clearTimeout(timer)
+    },
+    signal: controller.signal,
+  }
+}
+
+async function raceWithSignal<T>(operation: () => T | Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    throw abortReason(signal)
+  }
+
+  let removeAbortListener = noop
+  const aborted = new Promise<never>((resolve, reject) => {
+    void resolve
+    const onAbort = () => {
+      reject(abortReason(signal))
+    }
+    signal.addEventListener("abort", onAbort, { once: true })
+    removeAbortListener = () => {
+      signal.removeEventListener("abort", onAbort)
+    }
+  })
+  const pending = Promise.resolve().then(operation)
+  void pending.catch(() => null)
+
+  try {
+    return await Promise.race([pending, aborted])
+  } finally {
+    removeAbortListener()
+  }
+}
+
+function consumeCleanup(promise: Promise<void>): void {
+  void promise.catch(() => null)
 }
 
 export async function runBeforeHooks<TIdentity extends Identity>(
@@ -126,6 +213,10 @@ export async function runResolveHooks<TIdentity extends Identity>(
   reporter?: HookErrorReporter<TIdentity>
 ): Promise<HookResolution<TIdentity> | undefined> {
   for (const [hookIndex, hook] of hooks.entries()) {
+    if (hookContext.signal.aborted) {
+      throw abortReason(hookContext.signal)
+    }
+
     try {
       // Hooks resolve in registration order and short-circuit on the first decision.
       // oxlint-disable-next-line no-await-in-loop
@@ -220,11 +311,16 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
 ): Promise<EvaluationDetails<boolean | T[number]>> {
   const hooks = config.hooks ?? []
   const gateConfiguration = getGateConfiguration(options.variants)
+  const { cleanup, signal } = createEvaluationSignal(
+    callOptions?.signal,
+    options.timeoutMs ?? config.timeoutMs
+  )
   const evaluation: Evaluation<TIdentity> = {
     defaultValue: options.defaultValue,
     identity: null,
     key: options.key,
     kind: gateConfiguration.kind,
+    signal,
     source: "default",
     variants: gateConfiguration.kind === "variant" ? gateConfiguration.variants : undefined,
   }
@@ -244,6 +340,9 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
             return evaluation.identity
           },
           kind: "variant",
+          get signal() {
+            return evaluation.signal
+          },
           get variants() {
             return gateConfiguration.variants
           },
@@ -259,53 +358,83 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
             return evaluation.identity
           },
           kind: "boolean",
+          get signal() {
+            return evaluation.signal
+          },
           variants: undefined,
         }
   let result: boolean | T[number] | undefined
   let failure: Error | undefined
 
   try {
-    evaluation.identity = await identify(config.identify, callOptions?.identity)
+    const identity = await raceWithSignal(
+      () => identify(config.identify, callOptions?.identity),
+      signal
+    )
+    evaluation.identity = identity
 
-    await runBeforeHooks(hooks, hookContext, config.onHookError)
+    await raceWithSignal(() => runBeforeHooks(hooks, hookContext, config.onHookError), signal)
 
-    const resolution = await runResolveHooks(
-      hooks,
-      hookContext,
-      (decision) => {
-        validateDecision(decision, options)
-      },
-      config.onHookError
+    const resolution = await raceWithSignal(
+      () =>
+        runResolveHooks(
+          hooks,
+          hookContext,
+          (decision) => {
+            validateDecision(decision, options)
+          },
+          config.onHookError
+        ),
+      signal
     )
 
+    let decision: Decision
     if (resolution === undefined) {
-      evaluation.decision = await evaluateDecision(
-        config.decide,
-        evaluation.key,
-        evaluation.identity
+      decision = await raceWithSignal(
+        () => evaluateDecision(config.decide, evaluation.key, identity, signal),
+        signal
       )
       evaluation.source = "provider"
-      validateDecision(evaluation.decision, options)
+      validateDecision(decision, options)
     } else {
-      evaluation.decision = resolution.decision
+      decision = resolution.decision
       evaluation.source = "hook"
     }
-
     const afterMeta: AfterHookMeta<TIdentity> = resolution
       ? { resolver: resolution.resolver, source: "hook" }
       : { source: "provider" }
 
-    await runAfterHooks(hooks, hookContext, evaluation.decision, afterMeta, config.onHookError)
+    await raceWithSignal(
+      () => runAfterHooks(hooks, hookContext, decision, afterMeta, config.onHookError),
+      signal
+    )
 
-    result = extractDecisionValue(evaluation.decision)
+    result = extractDecisionValue(decision)
   } catch (error) {
     const gateError = normalizeError(error as IdentityValue)
     // Plan 07 exposes these forward-looking evaluation details to package consumers.
     failure = gateError
     evaluation.source = "default"
-    await runErrorHooks(hooks, hookContext, gateError, config.onHookError)
+    const errorHooks = runErrorHooks(hooks, hookContext, gateError, config.onHookError)
+
+    if (signal.aborted) {
+      consumeCleanup(errorHooks)
+    } else {
+      try {
+        await raceWithSignal(() => errorHooks, signal)
+      } catch {
+        consumeCleanup(errorHooks)
+      }
+    }
   } finally {
-    await runFinallyHooks(hooks, hookContext, config.onHookError)
+    const finallyHooks = runFinallyHooks(hooks, hookContext, config.onHookError)
+
+    try {
+      await raceWithSignal(() => finallyHooks, signal)
+    } catch {
+      consumeCleanup(finallyHooks)
+    }
+    cleanup()
   }
 
   const detailsBase = {

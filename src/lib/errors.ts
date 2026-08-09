@@ -50,3 +50,13 @@ export class InvalidVariantError extends GatedError {
     this.variant = variant
   }
 }
+
+export class GateTimeoutError extends GatedError {
+  readonly timeoutMs: number
+
+  constructor(timeoutMs: number) {
+    super(`Gate evaluation timed out after ${timeoutMs}ms`)
+    this.name = "GateTimeoutError"
+    this.timeoutMs = timeoutMs
+  }
+}

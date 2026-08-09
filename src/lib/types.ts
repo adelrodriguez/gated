@@ -35,6 +35,7 @@ export type EvaluationDetails<TValue> = EvaluationDetailsBase<TValue> &
 
 export type GateCallOptions<TIdentity extends Identity> = {
   identity?: TIdentity
+  signal?: AbortSignal
 }
 
 export type GateEvaluator<TIdentity extends Identity, TValue extends boolean | string> = ((
@@ -48,6 +49,7 @@ export type MaybePromise<T> = T | Promise<T>
 type HookContextBase<TIdentity extends Identity> = {
   readonly flagKey: string
   readonly identity: TIdentity | null
+  readonly signal: AbortSignal
 }
 
 export type HookContext<TIdentity extends Identity = Identity> = HookContextBase<TIdentity> &
@@ -91,7 +93,12 @@ export interface Hook<T extends Identity = Identity> {
 
 export type GatedConfig<TIdentity extends Identity = Identity> = {
   identify: () => MaybePromise<TIdentity | null>
-  decide: (key: string, identity: TIdentity) => MaybePromise<Decision>
+  decide: (
+    key: string,
+    identity: TIdentity,
+    options?: { signal?: AbortSignal }
+  ) => MaybePromise<Decision>
   hooks?: Array<Hook<TIdentity>>
   onHookError?: (report: HookErrorReport<TIdentity>) => MaybePromise<void>
+  timeoutMs?: number
 }
