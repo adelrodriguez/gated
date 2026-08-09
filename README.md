@@ -399,7 +399,8 @@ const gate = buildGate({
     Record<string, Decision> | Promise<Record<string, Decision>>,
   hooks?: Hook[],
   onHookError?: (report: HookErrorReport<TIdentity>) => void | Promise<void>,
-  timeoutMs?: number
+  timeoutMs?: number,
+  anonymous?: "allow"
 })
 ```
 
@@ -428,11 +429,11 @@ type GateEvaluator<
   details(options?: { identity?: TIdentity }): Promise<EvaluationDetails<TValue>>
 }
 
-gate.snapshot(flags, options?): Promise<GateSnapshot<typeof flags>>
+gate.batch(flags, options?): Promise<GateBatch<typeof flags>>
 ```
 
 See [Evaluation Details](#evaluation-details) for the result shape returned by `details()`.
-Both the evaluator and `details()` accept `{ identity?, signal? }`. `details()` reports source, fallback errors, and variant payloads without rejecting. `snapshot()` resolves identity once and returns typed synchronous `get()` reads after evaluation completes.
+Both the evaluator and `details()` accept `{ identity?, signal? }`. `details()` reports source, fallback errors, and variant payloads without rejecting. `batch()` resolves identity once and returns typed synchronous `get()` reads after evaluation completes.
 
 #### `defineHook(hook)` / `defineHook<TOptions>(factory)`
 

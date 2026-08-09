@@ -229,7 +229,13 @@ describe("uniform hook lifecycle", () => {
                   }
                 : undefined,
             finally:
-              index % 2 === 0 ? () => Promise.reject(new Error(`finally-${index}`)) : undefined,
+              index % 4 === 0
+                ? () => {
+                    fail("finally")
+                  }
+                : index % 2 === 0
+                  ? () => Promise.reject(new Error(`finally-${index}`))
+                  : undefined,
             resolve:
               index % 11 === 0
                 ? () => Promise.reject(new Error(`resolve-${index}`))
@@ -245,7 +251,11 @@ describe("uniform hook lifecycle", () => {
     })
 
     const results = await Promise.all(evaluations)
-    expect(results.findIndex((value) => typeof value !== "boolean")).toBe(-1)
+    const expected = Array.from(
+      { length: 100 },
+      (_, index) => !((index % 13 === 0 && index % 11 !== 0) || index % 17 === 0)
+    )
+    expect(results).toEqual(expected)
   })
 
   test("handles a leader rejection when there are no followers", async () => {
