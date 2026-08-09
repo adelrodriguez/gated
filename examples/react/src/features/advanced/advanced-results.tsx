@@ -4,6 +4,7 @@ import {
   clearAdvancedTelemetry,
   generateAdvancedEvidence,
 } from "#features/advanced/server/functions"
+import { CodeBlock } from "#features/shell/code-block"
 import { getLog, getProviderCalls } from "#shared/demo-provider/store"
 import { anonymousDashboard, hookErrorGate, malformedGate } from "#shared/gates/server"
 import { getIdentity } from "#shared/server/user"
@@ -11,55 +12,60 @@ import { getIdentity } from "#shared/server/user"
 export async function AdvancedResults() {
   const identity = await getIdentity()
   const options = identity ? { identity } : undefined
+  const log = getLog().slice(0, 20)
+  const providerCalls = getProviderCalls()
   const [anonymous, malformed, hookSuccess] = await Promise.all([
     anonymousDashboard.details(options),
     malformedGate.details(options),
     hookErrorGate.details(options),
   ])
-  const log = getLog().slice(0, 80)
   return (
-    <div className="stack section">
+    <div className="showcase-stack">
       <ActionDemos />
-      <div className="cards grid">
-        <article className="card">
-          <h2>Anonymous evaluation</h2>
-          <p className="metric value">{String(anonymous.value)}</p>
-          <p className="muted">
-            identity: {identity?.distinctId ?? "null"} · source: {anonymous.source}
-          </p>
-          <p>
-            With <code>anonymous: "allow"</code>, null reaches the provider and hooks. Cache and
-            dedupe recipes bypass null identities.
-          </p>
-        </article>
-        <article className="card">
-          <h2>Typed failure</h2>
-          <p className="metric danger">{malformed.error?.name ?? "none"}</p>
-          <p className="muted">
-            Malformed provider output falls back to {String(malformed.value)} from{" "}
-            {malformed.source}.
-          </p>
-        </article>
-        <article className="card">
-          <h2>Hook error isolation</h2>
-          <p className="metric success">{String(hookSuccess.value)}</p>
-          <p className="muted">
-            A before hook throws, <code>onHookError</code> records it, and the provider evaluation
-            still succeeds.
-          </p>
-        </article>
-        <article className="card">
-          <h2>Provider calls</h2>
-          <p className="metric value">{getProviderCalls()}</p>
-          <p className="muted">Shared counter across RSC, route handlers, decide and decideMany.</p>
-          <form action={clearAdvancedCache}>
-            <button className="button secondary" type="submit">
-              Clear server cache
-            </button>
-          </form>
-        </article>
-      </div>
-      <section className="card">
+      <section className="experiment">
+        <div className="experiment-copy edge-grid">
+          <article className="edge-result">
+            <h2>Anonymous evaluation</h2>
+            <p className="metric value">{String(anonymous.value)}</p>
+            <p className="muted mono">
+              identity: {identity?.distinctId ?? "null"} · source: {anonymous.source}
+            </p>
+          </article>
+          <article className="edge-result">
+            <h2>Typed failure</h2>
+            <p className="metric danger">{malformed.error?.name ?? "none"}</p>
+            <p className="muted mono">
+              fallback: {String(malformed.value)} · source: {malformed.source}
+            </p>
+          </article>
+          <article className="edge-result">
+            <h2>Hook error isolation</h2>
+            <p className="metric success">{String(hookSuccess.value)}</p>
+            <p className="muted mono">before hook threw · source: {hookSuccess.source}</p>
+          </article>
+          <article className="edge-result">
+            <h2>Provider calls</h2>
+            <p className="metric value">{providerCalls}</p>
+            <p className="muted mono">decide + decideMany · all entry points</p>
+            <form action={clearAdvancedCache}>
+              <button className="button secondary" type="submit">
+                Clear server cache
+              </button>
+            </form>
+          </article>
+        </div>
+        <CodeBlock label="Error and anonymous factories">{`const anonymousGate = buildGate({
+  anonymous: "allow",
+  // ...provider config
+})
+
+const hookErrorGate = buildGate({
+  hooks: [throwingHook],
+  onHookError,
+  // evaluation continues
+})`}</CodeBlock>
+      </section>
+      <section className="log-panel">
         <div className="row">
           <div>
             <p className="eyebrow">defineHook lifecycle</p>

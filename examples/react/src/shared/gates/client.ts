@@ -24,8 +24,8 @@ export function getClientFetches(): number {
 }
 
 // This is consumer-facing gated setup. The HTTP routes hide the showcase-only provider store.
-export const clientGate = buildGate<DemoIdentity>({
-  identify: () => ({ distinctId: "alice" }),
+export const clientGate = buildGate({
+  identify: (): DemoIdentity => ({ distinctId: "alice" }),
   decide: (key, identity, options) =>
     post<Decision>("/api/decide", { key, identity }, options?.signal),
   decideMany: (keys, identity, options) =>

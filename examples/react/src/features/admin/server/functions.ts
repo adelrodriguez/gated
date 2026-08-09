@@ -35,7 +35,7 @@ export async function updateGlobal(formData: FormData): Promise<void> {
         : null
   if (allowed && !allowed.some((candidate) => candidate === value)) return
   setGlobalValue(key, value)
-  revalidatePath("/", "layout")
+  revalidatePath("/admin")
 }
 
 export async function updateOverride(formData: FormData): Promise<void> {
@@ -47,16 +47,16 @@ export async function updateOverride(formData: FormData): Promise<void> {
   else if (BOOLEAN_KEYS.some((candidate) => candidate === key))
     setOverride(key, user, raw === "true")
   else setOverride(key, user, raw)
-  revalidatePath("/", "layout")
+  revalidatePath("/admin")
 }
 
 export async function updateFlaky(formData: FormData): Promise<void> {
   const latency = Number(formData.get("latencyMs"))
   setFlakyKnobs(Number.isFinite(latency) ? latency : 0, formData.get("fail") === "on")
-  revalidatePath("/", "layout")
+  revalidatePath("/admin")
 }
 
 export async function resetDemo(): Promise<void> {
   resetStore()
-  revalidatePath("/", "layout")
+  revalidatePath("/admin")
 }

@@ -72,6 +72,7 @@ export async function clearAdvancedCache(): Promise<void> {
 }
 
 export async function generateAdvancedEvidence(): Promise<void> {
+  clearTelemetry()
   setFlakyKnobs(0, true)
   try {
     await Promise.all([

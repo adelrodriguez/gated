@@ -23,6 +23,6 @@
     "@types/node": "latest",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "typescript": "latest"
+    "typescript": "7.0.2"
   }
 }

@@ -1,4 +1,5 @@
 import type { EvaluationDetails } from "gated"
+import { CodeBlock } from "#features/shell/code-block"
 import { getProviderCalls } from "#shared/demo-provider/store"
 import {
   allMainGates,
@@ -19,7 +20,7 @@ function DetailsCard({
   details: EvaluationDetails<boolean | string>
 }) {
   return (
-    <article className="card">
+    <article className="details-card">
       <div className="row">
         <h2>{title}</h2>
         <span className="pill">{typeof details.value}</span>
@@ -65,35 +66,60 @@ export async function ServerResults() {
   const batchTheme = batch.details(checkoutTheme)
 
   return (
-    <>
-      <div className="row">
-        <span className="pill">identity: {identity?.distinctId ?? "null"}</span>
-        <span className="pill">selected: {user}</span>
-      </div>
-      <div className="cards section grid">
-        <DetailsCard title="new-dashboard" details={dashboard} />
-        <DetailsCard title="beta-banner" details={banner} />
-        <DetailsCard title="checkout-theme" details={theme} />
-        <DetailsCard title="pricing-experiment" details={pricing} />
-        <DetailsCard title="flaky-flag" details={flaky} />
-      </div>
-      <section className="card section">
-        <p className="eyebrow">gate.batch + decideMany</p>
-        <h2 className="section-title">
-          5 evaluations → {after - before} provider call{after - before === 1 ? "" : "s"}
-        </h2>
-        <p className="muted">
-          Counter moved from {before} to {after}. The batch resolved identity once and used one
-          provider-level round trip.
-        </p>
-        <pre>
-          {JSON.stringify(
-            { checkoutTheme: batch.get(checkoutTheme), details: batchTheme },
-            null,
-            2
-          )}
-        </pre>
+    <div className="showcase-stack">
+      <section className="control-bar" aria-label="Evaluation context">
+        <div className="context-readout">
+          <span>Resolved identity</span>
+          <strong>{identity?.distinctId ?? "null"}</strong>
+        </div>
+        <div className="context-readout">
+          <span>Selected identity</span>
+          <strong>{user}</strong>
+        </div>
       </section>
-    </>
+      <section className="experiment">
+        <div className="experiment-copy">
+          <p className="eyebrow">Evaluation details</p>
+          <h2>Value, source, payload, and fallback error</h2>
+          <div className="details-grid">
+            <DetailsCard title="new-dashboard" details={dashboard} />
+            <DetailsCard title="beta-banner" details={banner} />
+            <DetailsCard title="checkout-theme" details={theme} />
+            <DetailsCard title="pricing-experiment" details={pricing} />
+            <DetailsCard title="flaky-flag" details={flaky} />
+          </div>
+        </div>
+        <CodeBlock label="Server component evaluation">{`const details = await checkoutTheme.details({ identity })
+
+details.value   // typed gate value
+details.source  // "hook" | "provider" | "default"
+details.payload // optional variant payload
+details.error   // fallback error, when present`}</CodeBlock>
+      </section>
+      <section className="experiment">
+        <div className="experiment-copy">
+          <p className="eyebrow">batch() + decideMany</p>
+          <h2>
+            5 evaluations → {after - before} provider call{after - before === 1 ? "" : "s"}
+          </h2>
+          <div className="row">
+            <span className="pill">
+              provider calls {before} → {after}
+            </span>
+          </div>
+          <pre className="result-json">
+            {JSON.stringify(
+              { checkoutTheme: batch.get(checkoutTheme), details: batchTheme },
+              null,
+              2
+            )}
+          </pre>
+        </div>
+        <CodeBlock label="Provider-level batch">{`const batch = await gate.batch(allMainGates, { identity })
+
+const theme = batch.get(checkoutTheme)
+const details = batch.details(checkoutTheme)`}</CodeBlock>
+      </section>
+    </div>
   )
 }

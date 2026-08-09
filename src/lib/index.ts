@@ -178,6 +178,9 @@ function createEvaluationSignal(
     return { cleanup: noop, signal }
   }
 
+  // AbortSignal.any would be simpler, but polyfilled implementations (e.g. happy-dom) attach a
+  // public listener to the caller signal and never detach it on the success path; explicit
+  // forwarding keeps caller-signal cleanup deterministic in every environment.
   const controller = new AbortController()
   let removeCallerListener = noop
 
@@ -214,24 +217,19 @@ async function raceWithSignal<T>(operation: () => T | Promise<T>, signal: AbortS
     throw abortReason(signal)
   }
 
-  let removeAbortListener = noop
-  const aborted = new Promise<never>((resolve, reject) => {
-    void resolve
-    const onAbort = () => {
-      reject(abortReason(signal))
-    }
-    signal.addEventListener("abort", onAbort, { once: true })
-    removeAbortListener = () => {
-      signal.removeEventListener("abort", onAbort)
-    }
-  })
+  const aborted = Promise.withResolvers<never>()
+  const onAbort = () => {
+    aborted.reject(abortReason(signal))
+  }
+  signal.addEventListener("abort", onAbort, { once: true })
+  void aborted.promise.catch(() => null)
   const pending = Promise.resolve().then(operation)
   void pending.catch(() => null)
 
   try {
-    return await Promise.race([pending, aborted])
+    return await Promise.race([pending, aborted.promise])
   } finally {
-    removeAbortListener()
+    signal.removeEventListener("abort", onAbort)
   }
 }
 
@@ -553,16 +551,9 @@ type DecisionRequest = {
 }
 
 function createDecisionRequest(): DecisionRequest {
-  let rejectRequest!: (error: Error) => void
-  let resolveRequest!: (decision: Decision) => void
-  const promise = new Promise<Decision>((resolve, reject) => {
-    rejectRequest = (error) => {
-      reject(error)
-    }
-    resolveRequest = resolve
-  })
+  const { promise, reject, resolve } = Promise.withResolvers<Decision>()
   void promise.catch(() => null)
-  return { promise, reject: rejectRequest, resolve: resolveRequest }
+  return { promise, reject, resolve }
 }
 
 export async function executeGateBatch<TIdentity extends Identity>(

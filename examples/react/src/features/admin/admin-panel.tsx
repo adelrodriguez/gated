@@ -5,6 +5,7 @@ import {
   updateGlobal,
   updateOverride,
 } from "#features/admin/server/functions"
+import { CodeBlock } from "#features/shell/code-block"
 import {
   BOOLEAN_KEYS,
   CHECKOUT_VARIANTS,
@@ -21,16 +22,28 @@ function valuesFor(key: FlagKey): readonly string[] {
 
 export function AdminPanel({ flags }: { flags: Record<FlagKey, FlagConfig> }) {
   return (
-    <div className="stack section">
+    <div className="showcase-stack">
+      <section className="experiment compact-experiment">
+        <div className="experiment-copy">
+          <p className="eyebrow">Decision precedence</p>
+          <h2>Identity override → global value</h2>
+        </div>
+        <CodeBlock label="Provider decision logic">{`const value = flag.overrides[identity.distinctId]
+  ?? flag.value
+
+return flag.kind === "boolean"
+  ? decision.boolean(value)
+  : decision.variant(value)`}</CodeBlock>
+      </section>
       {FLAG_KEYS.map((key) => {
         const flag = flags[key]
         return (
-          <section className="card" key={key}>
+          <section className="config-card" key={key}>
             <div className="row">
               <h2>{key}</h2>
               <span className="pill">{flag.kind}</span>
             </div>
-            <form action={updateGlobal} className="row">
+            <form action={updateGlobal} className="row" key={`global-${String(flag.value)}`}>
               <input name="key" type="hidden" value={key} />
               <div className="field">
                 <label htmlFor={`${key}-global`}>Global value</label>
@@ -46,7 +59,11 @@ export function AdminPanel({ flags }: { flags: Record<FlagKey, FlagConfig> }) {
             </form>
             <div className="cards section grid">
               {USERS.map((user) => (
-                <form action={updateOverride} className="row" key={user}>
+                <form
+                  action={updateOverride}
+                  className="row"
+                  key={`${user}-${String(flag.overrides[user] ?? "inherit")}`}
+                >
                   <input name="key" type="hidden" value={key} />
                   <input name="user" type="hidden" value={user} />
                   <div className="field">
@@ -69,7 +86,11 @@ export function AdminPanel({ flags }: { flags: Record<FlagKey, FlagConfig> }) {
               ))}
             </div>
             {key === "flaky-flag" ? (
-              <form action={updateFlaky} className="row section">
+              <form
+                action={updateFlaky}
+                className="row section"
+                key={`simulation-${flag.latencyMs}-${String(flag.fail)}`}
+              >
                 <div className="field">
                   <label htmlFor="latency">Latency (ms)</label>
                   <input

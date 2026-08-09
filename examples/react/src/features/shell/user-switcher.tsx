@@ -3,8 +3,8 @@ import { USERS, type SelectedUser } from "#shared/flags"
 
 export function UserSwitcher({ selected }: { selected: SelectedUser }) {
   return (
-    <form action={switchUser} className="user-switcher">
-      <label htmlFor="user">Identity</label>
+    <form action={switchUser} className="user-switcher" key={selected}>
+      <label htmlFor="user">Test identity</label>
       <select id="user" name="user" defaultValue={selected}>
         {USERS.map((user) => (
           <option key={user} value={user}>
@@ -14,7 +14,7 @@ export function UserSwitcher({ selected }: { selected: SelectedUser }) {
         <option value="anonymous">Anonymous</option>
       </select>
       <button className="button" type="submit">
-        Switch
+        Apply
       </button>
     </form>
   )

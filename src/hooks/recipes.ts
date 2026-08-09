@@ -20,27 +20,16 @@ interface PendingRequest {
 }
 
 function createPendingRequest(owner: HookContext): PendingRequest {
-  let controls:
-    | {
-        reject: (error: Error) => void
-        resolve: (decision: Decision) => void
-      }
-    | undefined
-
-  const promise = new Promise<Decision>((resolve, reject) => {
-    controls = { reject, resolve }
-  })
+  const { promise, reject, resolve } = Promise.withResolvers<Decision>()
   void promise.catch(() => null)
 
   return {
     owner,
     promise,
     reject(error) {
-      controls?.reject(new HookResolutionAbortError(error))
+      reject(new HookResolutionAbortError(error))
     },
-    resolve(decision) {
-      controls?.resolve(decision)
-    },
+    resolve,
   }
 }
 

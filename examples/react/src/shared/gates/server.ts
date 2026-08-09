@@ -65,20 +65,23 @@ function onHookError(report: {
   })
 }
 
-function factory(hooks: Hook<DemoIdentity>[]) {
-  return buildGate<DemoIdentity>({
-    identify: getIdentity,
-    ...demoProvider,
-    hooks,
-    onHookError,
-    timeoutMs: 1000,
-  })
-}
+export const gate = buildGate({
+  identify: getIdentity,
+  ...demoProvider,
+  hooks: [loggingHook, dedupeHook()],
+  onHookError,
+  timeoutMs: 1000,
+})
 
-export const gate = factory([loggingHook, dedupeHook()])
-export const cachedGate = factory([loggingHook, cacheHook(visibleCache), dedupeHook()])
+const cachedGate = buildGate({
+  identify: getIdentity,
+  ...demoProvider,
+  hooks: [loggingHook, cacheHook(visibleCache), dedupeHook()],
+  onHookError,
+  timeoutMs: 1000,
+})
 
-export const anonymousGate = buildGate<DemoIdentity>({
+const anonymousGate = buildGate({
   anonymous: "allow",
   identify: getIdentity,
   ...demoProvider,
@@ -104,7 +107,7 @@ export const flakyFlag = gate({ key: "flaky-flag", defaultValue: false })
 export const cachedDashboard = cachedGate({ key: "new-dashboard", defaultValue: false })
 export const anonymousDashboard = anonymousGate({ key: "new-dashboard", defaultValue: false })
 
-export const malformedGate = buildGate<DemoIdentity>({
+export const malformedGate = buildGate({
   identify: getIdentity,
   decide: () => ({ value: "not a discriminated decision" }) as never,
 })({ key: "malformed-demo", defaultValue: false })
@@ -114,7 +117,7 @@ const throwingHook: Hook<DemoIdentity> = {
     throw new Error("Deliberate hook failure")
   },
 }
-export const hookErrorGate = buildGate<DemoIdentity>({
+export const hookErrorGate = buildGate({
   identify: getIdentity,
   decide: () => decision.boolean(true),
   hooks: [throwingHook],

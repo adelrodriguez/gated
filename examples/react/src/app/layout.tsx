@@ -1,5 +1,4 @@
 import type { Metadata } from "next"
-import { MemoryNote } from "#features/shell/memory-note"
 import { SiteHeader } from "#features/shell/site-header"
 import { UsersProvider } from "#features/shell/users-provider"
 import { getSelectedUser } from "#shared/server/user"
@@ -17,7 +16,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
       <body>
         <UsersProvider user={user}>
           <SiteHeader selected={user} />
-          <MemoryNote />
           {children}
         </UsersProvider>
       </body>
