@@ -89,7 +89,7 @@ const betaAccess = gate({ key: "beta-access", defaultValue: false })
 const enabled = await betaAccess() // boolean
 const details = await betaAccess.details()
 
-if (details.source === "default" && "error" in details) {
+if (details.source === "default") {
   alertOperations(details.error)
 }
 ```
@@ -315,8 +315,11 @@ gate({
   variants: readonly T[]
 }): GateEvaluator<TIdentity, T>
 
-type GateEvaluator<TIdentity, TValue> = ((identity?: TIdentity) => Promise<TValue>) & {
-  details(identity?: TIdentity): Promise<EvaluationDetails<TValue>>
+type GateEvaluator<
+  TIdentity extends Identity,
+  TValue extends boolean | string,
+> = ((overrideIdentity?: TIdentity) => Promise<TValue>) & {
+  details(overrideIdentity?: TIdentity): Promise<EvaluationDetails<TValue>>
 }
 ```
 

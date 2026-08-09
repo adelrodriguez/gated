@@ -84,6 +84,49 @@ describe("buildGate", () => {
     })
   })
 
+  test("normalizes undefined rejections without hiding the failure", async () => {
+    const gate = buildGate({
+      // oxlint-disable-next-line eslint/arrow-body-style -- Keep the intentional invalid rejection localized.
+      decide: () => {
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Exercise hostile JavaScript callers.
+        return Promise.reject<Decision>()
+      },
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaFlag()).toBe(false)
+
+    const details = await betaFlag.details()
+    expect(details.source).toBe("default")
+    if (details.source === "default") {
+      expect(details.error).toBeInstanceOf(Error)
+      expect(details.error.message).toBe("undefined")
+    }
+  })
+
+  test("never rejects when error inspection throws", async () => {
+    const { proxy, revoke } = Proxy.revocable({}, {})
+    revoke()
+    const gate = buildGate({
+      decide: () => {
+        // oxlint-disable-next-line typescript/only-throw-error -- Exercise hostile JavaScript callers.
+        throw proxy
+      },
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaFlag()).toBe(false)
+
+    const details = await betaFlag.details()
+    expect(details.source).toBe("default")
+    if (details.source === "default") {
+      expect(details.error).toBeInstanceOf(Error)
+      expect(details.error.message).toBe("Uninspectable value thrown")
+    }
+  })
+
   test("returns the identity error with default evaluation details", async () => {
     const gate = buildGate({
       decide: () => ({ value: true }),

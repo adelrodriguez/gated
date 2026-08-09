@@ -8,23 +8,29 @@ class HookControlError extends Error {
 }
 
 export function normalizeError(error: IdentityValue): Error {
-  if (error instanceof Error) {
-    return error
-  }
-
-  if (typeof error === "object" && error !== null) {
-    try {
-      return new Error(JSON.stringify(error) || "Non-Error object thrown")
-    } catch {
-      return new Error("Non-Error object thrown")
+  try {
+    if (error instanceof Error) {
+      return error
     }
-  }
 
-  if (typeof error === "function") {
-    return new Error("Non-Error function thrown")
-  }
+    if (typeof error === "object" && error !== null) {
+      try {
+        return new Error(JSON.stringify(error) || "Non-Error object thrown")
+      } catch {
+        return new Error("Non-Error object thrown")
+      }
+    }
 
-  return new Error(String(error))
+    if (typeof error === "function") {
+      return new Error("Non-Error function thrown")
+    }
+
+    return new Error(String(error))
+  } catch {
+    // Even inspecting a thrown value can fail (for example, a revoked Proxy throws from
+    // `instanceof`). Error normalization must remain total to preserve fail-soft evaluation.
+    return new Error("Uninspectable value thrown")
+  }
 }
 
 export class DedupeOwnerFinalizationError extends HookControlError {

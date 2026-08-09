@@ -21,7 +21,6 @@ type Evaluation<TIdentity extends Identity> = {
   identity: TIdentity | null
   decision?: Decision
   source: DecisionSource | "default"
-  error?: Error
   variants?: readonly string[]
 }
 
@@ -262,6 +261,7 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
           variants: undefined,
         }
   let result: boolean | T[number] | undefined
+  let failure: Error | undefined
 
   try {
     evaluation.identity = await identify(config.identify, overrideIdentity)
@@ -300,7 +300,7 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
   } catch (error) {
     const gateError = normalizeError(error as IdentityValue)
     // Plan 07 exposes these forward-looking evaluation details to package consumers.
-    evaluation.error = gateError
+    failure = gateError
     evaluation.source = "default"
     await runErrorHooks(hooks, hookContext, gateError, config.onHookError)
   } finally {
@@ -312,8 +312,8 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
     value: result ?? options.defaultValue,
   }
 
-  if (evaluation.error) {
-    return { ...detailsBase, error: evaluation.error, source: "default" }
+  if (failure !== undefined) {
+    return { ...detailsBase, error: failure, source: "default" }
   }
 
   return { ...detailsBase, source: evaluation.source as DecisionSource }
