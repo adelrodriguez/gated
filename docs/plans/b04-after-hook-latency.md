@@ -17,7 +17,7 @@ Two viable designs; pick one before implementation:
 1. **Fire-and-forget after hooks (recommended).** `after` becomes observational like `finally`: the decision is committed first, after-hooks run detached, failures still report to `onHookError`. Dedupe must then settle followers at commit time, not in `after` — which b07/w11 machinery makes natural, but in this plan the dedupe recipe simply settles from a detached after-hook (followers already tolerate late settlement; the `finally` backstop remains).
 2. **Per-hook opt-in (`after` stays blocking; hooks may declare `{ blocking: false }`).** Preserves current semantics for hooks that need read-your-write consistency (a cache warming before a follower's resolve), at the cost of a wider Hook type.
 
-Recommendation: option 1. The only in-repo consumer needing ordering is dedupe, and its correctness derives from settle-on-commit, not from blocking the caller. Read-your-write cache consistency across *sequential* evaluations is not guaranteed today anyway (async cache backends), so option 1 formalizes reality.
+Recommendation: option 1. The only in-repo consumer needing ordering is dedupe, and its correctness derives from settle-on-commit, not from blocking the caller. Read-your-write cache consistency across _sequential_ evaluations is not guaranteed today anyway (async cache backends), so option 1 formalizes reality.
 
 ## Design (assuming option 1)
 

@@ -36,7 +36,7 @@ type HookContext<TIdentity> = {
 ## Tests
 
 - `src/__tests__/lifecycle.test.ts` — a hook writing in `before` reads the same value in `resolve`/`after`/`error`/`finally`; two hooks using distinct symbol keys do not observe each other; two concurrent evaluations of the same gate get distinct state maps; state is absent-by-default (no allocation observable — assert via a context snapshot that `state` is only materialized on access, e.g. spy on the getter path if practical, otherwise drop this assertion).
-- `src/hooks/__tests__/recipes.test.ts` — existing recipe suites pass unchanged (behavioral parity); add a regression that a hook receiving a *cloned* context (spread) still works for reads that only need `state` passed along — documents that cloning drops live getters and is unsupported.
+- `src/hooks/__tests__/recipes.test.ts` — existing recipe suites pass unchanged (behavioral parity); add a regression that a hook receiving a _cloned_ context (spread) still works for reads that only need `state` passed along — documents that cloning drops live getters and is unsupported.
 
 ## Verification
 

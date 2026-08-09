@@ -4,21 +4,21 @@
 
 Each plan is a vertical slice: implementation + tests + docs (README/CONTEXT/domain.md as applicable) + changeset. Execute in numeric order unless the dependency notes say otherwise.
 
-| #   | Plan                                      | Fixes / Delivers          | Depends on   | Breaking?                                  |
-| --- | ----------------------------------------- | ------------------------- | ------------ | ------------------------------------------ |
-| b01 | Collision-safe, pluggable recipe keys     | F1, F2, F8 (test), T1     | —            | Behavioral (persisted cache keys change)   |
-| b02 | Runtime gate-option validation, hardening | F3, F5, F9, T1            | —            | Behavioral (invalid configs now throw)     |
-| b03 | React cache-key safety + invalidation DX  | F4, F11, T1               | —            | Yes (previously accepted keys now throw)   |
-| b04 | After-hook latency policy                 | F7                        | —            | Behavioral (after hooks leave hot path)    |
-| b05 | Anonymous per-call override               | F6                        | —            | No (additive)                              |
-| b06 | Typed variant payloads                    | A1                        | —            | Yes (type-level; runtime unchanged)        |
-| b07 | Per-evaluation hook state                 | A2                        | b01, b04     | No (additive; recipes migrate internally)  |
-| b08 | Fallback observability (`onFallback`)     | A3                        | —            | No (additive)                              |
-| b09 | Optional `identify`                       | A4                        | b05          | No (additive overload)                     |
-| b10 | Engine module split + explicit batch seam | W1, W2                    | b02, b04–b08 | No (pure refactor)                         |
-| b11 | Core coalescing spike (dedupe in core)    | W3                        | b07, b10     | TBD by spike outcome                       |
-| b12 | Reactive flag updates (`subscribe`)       | A5                        | b10          | No (additive)                              |
-| b13 | React SSR cache provider + pending bounds | A6, F10                   | b03          | No (additive)                              |
+| #   | Plan                                      | Fixes / Delivers      | Depends on   | Breaking?                                 |
+| --- | ----------------------------------------- | --------------------- | ------------ | ----------------------------------------- |
+| b01 | Collision-safe, pluggable recipe keys     | F1, F2, F8 (test), T1 | —            | Behavioral (persisted cache keys change)  |
+| b02 | Runtime gate-option validation, hardening | F3, F5, F9, T1        | —            | Behavioral (invalid configs now throw)    |
+| b03 | React cache-key safety + invalidation DX  | F4, F11, T1           | —            | Yes (previously accepted keys now throw)  |
+| b04 | After-hook latency policy                 | F7                    | —            | Behavioral (after hooks leave hot path)   |
+| b05 | Anonymous per-call override               | F6                    | —            | No (additive)                             |
+| b06 | Typed variant payloads                    | A1                    | —            | Yes (type-level; runtime unchanged)       |
+| b07 | Per-evaluation hook state                 | A2                    | b01, b04     | No (additive; recipes migrate internally) |
+| b08 | Fallback observability (`onFallback`)     | A3                    | —            | No (additive)                             |
+| b09 | Optional `identify`                       | A4                    | b05          | No (additive overload)                    |
+| b10 | Engine module split + explicit batch seam | W1, W2                | b02, b04–b08 | No (pure refactor)                        |
+| b11 | Core coalescing spike (dedupe in core)    | W3                    | b07, b10     | TBD by spike outcome                      |
+| b12 | Reactive flag updates (`subscribe`)       | A5                    | b10          | No (additive)                             |
+| b13 | React SSR cache provider + pending bounds | A6, F10               | b03          | No (additive)                             |
 
 Notes:
 

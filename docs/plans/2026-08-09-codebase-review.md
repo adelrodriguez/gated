@@ -71,7 +71,12 @@ Cache key collision (`bun` against `src/`):
 
 ```ts
 const store = new Map<string, Decision>()
-const cache = { get: async (k) => store.get(k) ?? null, set: async (k, v) => { store.set(k, v) } }
+const cache = {
+  get: async (k) => store.get(k) ?? null,
+  set: async (k, v) => {
+    store.set(k, v)
+  },
+}
 const gate1 = buildGate({
   identify: async () => ({ distinctId: "2" }),
   decide: async () => ({ type: "boolean", value: true }),
@@ -90,7 +95,12 @@ await gate2({ key: "a", defaultValue: false })() // → true from flag "a:1"'s c
 Out-of-list default:
 
 ```ts
-const g = buildGate({ identify: async () => ({ distinctId: "u" }), decide: async () => { throw new Error("down") } })
+const g = buildGate({
+  identify: async () => ({ distinctId: "u" }),
+  decide: async () => {
+    throw new Error("down")
+  },
+})
 // @ts-expect-error JS consumer
 await g({ key: "theme", defaultValue: "purple", variants: ["light", "dark"] })() // → "purple"
 ```

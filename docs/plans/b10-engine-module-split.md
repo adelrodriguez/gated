@@ -15,12 +15,12 @@ Fixes: W1, W2. Depends on: b02, b04, b05, b08 (the behavioral plans that touch `
 
 New layout under `src/lib/` (import graph is one-way, top to bottom):
 
-| Module               | Contents                                                                              |
-| -------------------- | ------------------------------------------------------------------------------------- |
-| `signals.ts`         | `createEvaluationSignal`, `raceWithSignal`, `abortReason`, `consumeCleanup`, `noop`    |
-| `hook-runner.ts`     | `runBeforeHooks` … `runFinallyHooks`, `reportHookError`, `reportRejectedHooks`         |
-| `evaluate.ts`        | `Evaluation` record, hook-context construction, `validateDecision`, `executeGateDetails`, `executeGate`, `identify`, `extractDecisionValue` |
-| `batch.ts`           | `executeGateBatch`, `DecisionRequest`, flush/scheduling machinery                      |
+| Module           | Contents                                                                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `signals.ts`     | `createEvaluationSignal`, `raceWithSignal`, `abortReason`, `consumeCleanup`, `noop`                                                         |
+| `hook-runner.ts` | `runBeforeHooks` … `runFinallyHooks`, `reportHookError`, `reportRejectedHooks`                                                              |
+| `evaluate.ts`    | `Evaluation` record, hook-context construction, `validateDecision`, `executeGateDetails`, `executeGate`, `identify`, `extractDecisionValue` |
+| `batch.ts`       | `executeGateBatch`, `DecisionRequest`, flush/scheduling machinery                                                                           |
 
 - `lib/index.ts` remains as a barrel re-exporting the current names so `src/core.ts` and tests need only import-path-neutral changes; internal test imports (`src/lib/__tests__`) update to the concrete modules.
 - Rename consideration for `src/core.ts` → `src/factory.ts`: **do it now or never** — it is internal (root `index.ts` re-exports), so it is free today and misleading forever otherwise. Update `src/index.ts` imports.
@@ -39,7 +39,7 @@ New layout under `src/lib/` (import graph is one-way, top to bottom):
 export type ExecutionOverrides<TIdentity extends Identity> = { ... }
 ```
 
-  Add a debug-cheap runtime assertion that `onPrepared` fires at most once (already tracked via `preparationReported` — hoist that flag into the contract's documentation).
+Add a debug-cheap runtime assertion that `onPrepared` fires at most once (already tracked via `preparationReported` — hoist that flag into the contract's documentation).
 
 - Extract the duplicated boolean/variant hook-context literals into one builder parameterized by kind, preserving the getter-over-`Evaluation` behavior and reference stability (b07's documented guarantee).
 
