@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import type * as hooksEntry from "../hooks"
 import type {
   AfterHookMeta,
   AnonymousGatedConfig,
@@ -17,6 +18,7 @@ import type {
   IdentityValue,
   MaybePromise,
 } from "../index"
+import type * as gated from "../index"
 import {
   buildGate,
   DecisionTypeMismatchError,
@@ -105,6 +107,8 @@ function readGateConfiguration(context: HookContext) {
 }
 
 test("exports consumer-facing root types", async () => {
+  const rootHasCreateHook: "createHook" extends keyof typeof gated ? true : false = false
+  const hooksEntryHasCreateHook: "createHook" extends keyof typeof hooksEntry ? true : false = false
   // @ts-expect-error -- HookContext no longer accepts an options type argument.
   const legacyContext: HookContext<TestIdentity, { custom: boolean }> = hookContext
   const details: EvaluationDetails<boolean> = await evaluator.details()
@@ -160,4 +164,6 @@ test("exports consumer-facing root types", async () => {
   expect(legacyDecision).toHaveProperty("value", true)
   expect(anonymousConfig.anonymous).toBe("allow")
   expect(invalidAnonymousConfig.anonymous).toBe("allow")
+  expect(rootHasCreateHook).toBe(false)
+  expect(hooksEntryHasCreateHook).toBe(false)
 })

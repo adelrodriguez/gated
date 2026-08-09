@@ -1,329 +1,162 @@
-import { describe, expect, mock, test } from "bun:test"
-import type { Decision, HookContext, Identity } from "../../lib/types"
-import { createHook } from "../index"
+import { describe, expect, test } from "bun:test"
+import type { Hook, Identity } from "../../lib/types"
+import { buildGate } from "../../core"
+import { decision } from "../../lib/decision"
+import { defineHook } from "../index"
 
-const providerMeta = { source: "provider" } as const
-const BOOLEAN_HOOK_CONTEXT = {
-  defaultValue: false,
-  kind: "boolean",
-  signal: new AbortController().signal,
-} as const
-const factory = () => ({})
-const noDecision = (): Decision | undefined => undefined
-
-describe("createHook", () => {
-  test("returns the factory function", () => {
-    const hook = createHook(factory)
-
-    expect(hook).toBe(factory)
-  })
-
-  test("creates a hook with no options", () => {
-    const beforeFn = mock(() => {
-      // Hook function
+describe("defineHook", () => {
+  test("returns a direct hook unchanged and integrates with a gate", async () => {
+    let source: "hook" | "provider" | undefined
+    let afterCalls = 0
+    const definition: Hook = {
+      after(_context, _decision, metadata) {
+        const typedSource: "hook" | "provider" = metadata.source
+        afterCalls += 1
+        source = typedSource
+      },
+    }
+    const hook = defineHook(definition)
+    const gate = buildGate({
+      decide: () => decision.boolean(true),
+      hooks: [hook],
+      identify: () => ({ distinctId: "user-1" }),
     })
-    const hook = createHook(() => ({
-      before: beforeFn,
-    }))
 
-    const result = hook()
-
-    expect(result).toBeDefined()
-    // oxlint-disable-next-line typescript/unbound-method -- Asserts the hook retains the supplied callback reference.
-    expect(result.before).toBe(beforeFn)
+    expect(hook).toBe(definition)
+    expect(await gate({ defaultValue: false, key: "beta" })()).toBe(true)
+    expect(afterCalls).toBe(1)
+    expect(source).toBe("provider")
   })
 
-  test("creates a hook with options", () => {
-    type Options = { prefix: string }
-    const beforeFn = mock(() => {
-      // Hook function
-    })
-    const hook = createHook((_options: Options) => ({
-      before: beforeFn,
-    }))
-
-    const result = hook({ prefix: "LOG" })
-
-    expect(result).toBeDefined()
-    expect(typeof result.before).toBe("function")
-  })
-
-  test("supports all hook lifecycle methods", () => {
-    const beforeFn = mock(() => Promise.resolve())
-    const resolveFn = mock(() => Promise.resolve(noDecision()))
-    const afterFn = mock(() => Promise.resolve())
-    const errorFn = mock(() => Promise.resolve())
-    const finallyFn = mock(() => Promise.resolve())
-
-    const hook = createHook(() => ({
-      after: afterFn,
-      before: beforeFn,
-      error: errorFn,
-      finally: finallyFn,
-      resolve: resolveFn,
-    }))
-
-    const result = hook()
-
-    // oxlint-disable-next-line typescript/unbound-method -- Asserts the hook retains the supplied callback reference.
-    expect(result.before).toBe(beforeFn)
-    // oxlint-disable-next-line typescript/unbound-method -- Asserts the hook retains the supplied callback reference.
-    expect(result.resolve).toBe(resolveFn)
-    // oxlint-disable-next-line typescript/unbound-method -- Asserts the hook retains the supplied callback reference.
-    expect(result.after).toBe(afterFn)
-    // oxlint-disable-next-line typescript/unbound-method -- Asserts the hook retains the supplied callback reference.
-    expect(result.error).toBe(errorFn)
-    // oxlint-disable-next-line typescript/unbound-method -- Asserts the hook retains the supplied callback reference.
-    expect(result.finally).toBe(finallyFn)
-  })
-
-  test("hook before method receives context", async () => {
-    const beforeFn = mock(() => Promise.resolve())
-    const hook = createHook(() => ({
-      before: beforeFn,
-    }))
-
-    const result = hook()
-    const context: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "test-flag",
-      identity: { distinctId: "user123" },
-    }
-
-    await result.before?.(context)
-
-    expect(beforeFn).toHaveBeenCalledWith(context)
-  })
-
-  test("hook resolve method receives context and returns decision", async () => {
-    const decision: Decision = { type: "boolean", value: true }
-    const resolveFn = mock(() => Promise.resolve(decision))
-    const hook = createHook(() => ({
-      resolve: resolveFn,
-    }))
-
-    const result = hook()
-    const context: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "test-flag",
-      identity: { distinctId: "user123" },
-    }
-
-    const resolvedDecision = await result.resolve?.(context)
-
-    expect(resolveFn).toHaveBeenCalledWith(context)
-    expect(resolvedDecision).toEqual(decision)
-  })
-
-  test("hook after method receives context and decision", async () => {
-    const afterFn = mock(() => Promise.resolve())
-    const hook = createHook(() => ({
-      after: afterFn,
-    }))
-
-    const result = hook()
-    const context: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "test-flag",
-      identity: { distinctId: "user123" },
-    }
-    const decision: Decision = { type: "boolean", value: false }
-
-    await result.after?.(context, decision, providerMeta)
-
-    expect(afterFn).toHaveBeenCalledWith(context, decision, providerMeta)
-  })
-
-  test("hook error method receives context and error", async () => {
-    const errorFn = mock(() => Promise.resolve())
-    const hook = createHook(() => ({
-      error: errorFn,
-    }))
-
-    const result = hook()
-    const context: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "test-flag",
-      identity: { distinctId: "user123" },
-    }
-    const error = new Error("Test error")
-
-    await result.error?.(context, error)
-
-    expect(errorFn).toHaveBeenCalledWith(context, error)
-  })
-
-  test("hook finally method receives context", async () => {
-    const finallyFn = mock(() => Promise.resolve())
-    const hook = createHook(() => ({
-      finally: finallyFn,
-    }))
-
-    const result = hook()
-    const context: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "test-flag",
-      identity: { distinctId: "user123" },
-    }
-
-    await result.finally?.(context)
-
-    expect(finallyFn).toHaveBeenCalledWith(context)
-  })
-
-  test("supports custom identity types", () => {
-    interface CustomIdentity extends Identity {
-      email: string
+  test("contextually types direct hooks for custom identities", () => {
+    interface AccountIdentity extends Identity {
       plan: "free" | "pro"
     }
 
-    const beforeFn = mock(() => Promise.resolve())
-
-    // oxlint-disable-next-line typescript/no-invalid-void-type -- `void` represents a hook factory without options.
-    const hook = createHook<void, CustomIdentity>(() => ({
-      before: beforeFn,
-    }))
-
-    const result = hook()
-
-    expect(result).toBeDefined()
-    expect(typeof result.before).toBe("function")
-  })
-
-  test("supports partial hook implementations", () => {
-    const hook = createHook(() => ({
-      before: () => Promise.resolve(),
-      // Only before is implemented
-    }))
-
-    const result = hook()
-
-    // oxlint-disable-next-line typescript/unbound-method -- Verifies the implemented callback exists.
-    expect(result.before).toBeDefined()
-    // oxlint-disable-next-line typescript/unbound-method -- Verifies the optional callback is absent.
-    expect(result.resolve).toBeUndefined()
-    // oxlint-disable-next-line typescript/unbound-method -- Verifies the optional callback is absent.
-    expect(result.after).toBeUndefined()
-    // oxlint-disable-next-line typescript/unbound-method -- Verifies the optional callback is absent.
-    expect(result.error).toBeUndefined()
-    // oxlint-disable-next-line typescript/unbound-method -- Verifies the optional callback is absent.
-    expect(result.finally).toBeUndefined()
-  })
-
-  test("hook with options can access options in all lifecycle methods", async () => {
-    type Options = { logPrefix: string }
-    const logs: string[] = []
-
-    const hook = createHook<Options>((options) => ({
-      after: (ctx, dec) => {
-        const value = "value" in dec ? dec.value : dec.variant
-        logs.push(`${options.logPrefix}:after:${ctx.flagKey}:${value}`)
+    const hook = defineHook<AccountIdentity>({
+      before(context) {
+        const plan: "free" | "pro" | undefined = context.identity?.plan
+        expect(plan).toBe("pro")
       },
-      before: (ctx) => {
-        logs.push(`${options.logPrefix}:before:${ctx.flagKey}`)
-      },
-    }))
-
-    const result = hook({ logPrefix: "TEST" })
-    const context: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "my-flag",
-      identity: { distinctId: "user123" },
-    }
-    const decision: Decision = { type: "boolean", value: true }
-
-    await result.before?.(context)
-    await result.after?.(context, decision, providerMeta)
-
-    expect(logs).toEqual(["TEST:before:my-flag", "TEST:after:my-flag:true"])
-  })
-
-  test("hook resolve can return undefined to skip resolution", async () => {
-    const hook = createHook(() => ({
-      resolve: () => Promise.resolve(noDecision()),
-    }))
-
-    const result = hook()
-    const context: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "test-flag",
-      identity: { distinctId: "user123" },
-    }
-
-    const decision = await result.resolve?.(context)
-
-    expect(decision).toBeUndefined()
-  })
-
-  test("hook resolve can return a decision to short-circuit", async () => {
-    const cachedDecision: Decision = { type: "boolean", value: true }
-    const hook = createHook(() => ({
-      resolve: () => Promise.resolve(cachedDecision),
-    }))
-
-    const result = hook()
-    const context: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "test-flag",
-      identity: { distinctId: "user123" },
-    }
-
-    const decision = await result.resolve?.(context)
-
-    expect(decision).toEqual(cachedDecision)
-  })
-
-  test("supports variant decisions", async () => {
-    const afterFn = mock(() => Promise.resolve())
-    const hook = createHook(() => ({
-      after: afterFn,
-    }))
-
-    const result = hook()
-    const context: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "theme-flag",
-      identity: { distinctId: "user123" },
-    }
-    const decision: Decision = { type: "variant", variant: "dark" }
-
-    await result.after?.(context, decision, providerMeta)
-
-    expect(afterFn).toHaveBeenCalledWith(context, decision, providerMeta)
-  })
-
-  test("supports null identity in context", async () => {
-    const beforeFn = mock(() => Promise.resolve())
-    const hook = createHook(() => ({
-      before: beforeFn,
-    }))
-
-    const result = hook()
-    const context: HookContext = {
-      ...BOOLEAN_HOOK_CONTEXT,
-      flagKey: "test-flag",
-      identity: null,
-    }
-
-    await result.before?.(context)
-
-    expect(beforeFn).toHaveBeenCalledWith(context)
-  })
-
-  test("multiple hooks can be created from same factory", () => {
-    const beforeFn = mock(() => {
-      // Hook function
     })
 
-    const hook = createHook((_prefix: string) => ({
-      before: beforeFn,
+    expect(typeof hook.before).toBe("function")
+    return hook.before?.({
+      defaultValue: false,
+      flagKey: "beta",
+      identity: { distinctId: "user-1", plan: "pro" },
+      kind: "boolean",
+      signal: new AbortController().signal,
+    })
+  })
+
+  test("contextually types direct after-hook metadata", () => {
+    const hook = defineHook({
+      after(_context, _decision, metadata) {
+        const source: "hook" | "provider" = metadata.source
+        expect(source).toBe("provider")
+      },
+    })
+
+    expect(typeof hook.after).toBe("function")
+    return hook.after?.(
+      {
+        defaultValue: false,
+        flagKey: "beta",
+        identity: { distinctId: "user-1" },
+        kind: "boolean",
+        signal: new AbortController().signal,
+      },
+      decision.boolean(true),
+      { source: "provider" }
+    )
+  })
+
+  test("defines a typed options factory", () => {
+    const factory = defineHook<{ prefix: string }>((options) => ({
+      before(context) {
+        expect(`${options.prefix}:${context.flagKey}`).toBe("audit:beta")
+      },
     }))
 
-    const hook1 = hook("HOOK1")
-    const hook2 = hook("HOOK2")
+    const hook: Hook = factory({ prefix: "audit" })
 
-    expect(hook1).toBeDefined()
-    expect(hook2).toBeDefined()
-    expect(hook1).not.toBe(hook2)
+    expect(typeof hook.before).toBe("function")
+    return hook.before?.({
+      defaultValue: false,
+      flagKey: "beta",
+      identity: { distinctId: "user-1" },
+      kind: "boolean",
+      signal: new AbortController().signal,
+    })
+  })
+
+  test("contextually types annotated and optional factory options", () => {
+    interface AuditOptions {
+      prefix: string
+    }
+
+    const annotatedFactory = defineHook((options: AuditOptions) => ({
+      finally(context) {
+        const flagKey: string = context.flagKey
+        expect(`${options.prefix}:${flagKey}`).toBe("audit:beta")
+      },
+    }))
+    const optionalFactory = defineHook((options?: AuditOptions) => ({
+      before() {
+        void options?.prefix
+      },
+    }))
+    const context = {
+      defaultValue: false,
+      flagKey: "beta",
+      identity: { distinctId: "user-1" },
+      kind: "boolean",
+      signal: new AbortController().signal,
+    } as const
+
+    const annotated = annotatedFactory({ prefix: "audit" })
+    const optional = optionalFactory({ prefix: "audit" })
+    const defaults = optionalFactory()
+
+    expect(typeof optional.before).toBe("function")
+    expect(typeof defaults.before).toBe("function")
+    expect(typeof annotated.finally).toBe("function")
+    return annotated.finally?.(context)
+  })
+
+  test("keeps state isolated between factory invocations", async () => {
+    const factory = defineHook(() => {
+      let calls = 0
+      return {
+        resolve() {
+          calls += 1
+          return decision.boolean(calls > 1)
+        },
+      }
+    })
+    const first = factory()
+    const second = factory()
+    const context = {
+      defaultValue: false,
+      flagKey: "beta",
+      identity: { distinctId: "user-1" },
+      kind: "boolean",
+      signal: new AbortController().signal,
+    } as const
+
+    expect(await first.resolve?.(context)).toEqual(decision.boolean(false))
+    expect(await first.resolve?.(context)).toEqual(decision.boolean(true))
+    expect(await second.resolve?.(context)).toEqual(decision.boolean(false))
+  })
+
+  test("accepts partial hook implementations", () => {
+    const hook = defineHook({ before: () => Promise.resolve() })
+
+    expect(typeof hook.before).toBe("function")
+    expect("resolve" in hook).toBe(false)
+    expect("after" in hook).toBe(false)
+    expect("error" in hook).toBe(false)
+    expect("finally" in hook).toBe(false)
   })
 })

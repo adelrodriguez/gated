@@ -1,7 +1,7 @@
 // Recipes for common and useful hooks
 import type { Decision, Hook, HookContext, IdentityValue } from "../lib/types"
 import { DedupeOwnerFinalizationError, HookResolutionAbortError } from "../lib/internal"
-import { createHook } from "./index"
+import { defineHook } from "./index"
 
 /**
  * Cache implementations own serialization. A variant payload may contain provider metadata that is
@@ -92,7 +92,7 @@ function getCachedDecisionError(context: HookContext, cached: IdentityValue): Er
   return undefined
 }
 
-export const cacheHook: (cache: Cache) => Hook = createHook<Cache>((cache) => {
+export const cacheHook: (cache: Cache) => Hook = defineHook<Cache>((cache) => {
   const consulted = new WeakSet<HookContext>()
   const hook: Hook = {
     async resolve(context) {
@@ -142,7 +142,7 @@ export const cacheHook: (cache: Cache) => Hook = createHook<Cache>((cache) => {
   return hook
 })
 
-export const dedupeHook: () => Hook = createHook(() => {
+export const dedupeHook: () => Hook = defineHook(() => {
   const pending = new Map<string, PendingRequest>()
 
   return {

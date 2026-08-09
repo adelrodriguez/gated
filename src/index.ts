@@ -1,7 +1,7 @@
 export { buildGate } from "./core"
 export type { GateFactory, GateSnapshot } from "./core"
 export { decision } from "./lib/decision"
-export { createHook } from "./hooks"
+export { defineHook } from "./hooks"
 export {
   DecisionTypeMismatchError,
   DuplicateSnapshotKeyError,

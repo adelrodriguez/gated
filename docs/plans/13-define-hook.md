@@ -15,12 +15,18 @@ export function defineHook<TIdentity extends Identity = Identity>(
   hook: Hook<TIdentity>
 ): Hook<TIdentity>
 
-export function defineHook<TOptions, TIdentity extends Identity = Identity>(
+export function defineHook<TOptions = void, TIdentity extends Identity = Identity>(
   factory: (options: TOptions) => Hook<TIdentity>
-): (options: TOptions) => Hook<TIdentity>
+): undefined extends TOptions
+  ? (options?: Exclude<TOptions, undefined>) => Hook<TIdentity>
+  : (options: TOptions) => Hook<TIdentity>
 ```
 
-The implementation returns the supplied object or factory unchanged. Its value is contextual typing and one consistent authoring vocabulary; lifecycle execution, validation, error isolation, and ordering remain behind the gate evaluation module rather than being duplicated here.
+The implementation returns the supplied object or factory unchanged. `TOptions` defaults to `void`
+so a zero-argument factory remains callable without an argument. When a factory declares optional
+options, the returned factory accepts either the defined options value or no argument. Its value is
+contextual typing and one consistent authoring vocabulary; lifecycle execution, validation, error
+isolation, and ordering remain behind the gate evaluation module rather than being duplicated here.
 
 ### Direct hook
 
