@@ -1,13 +1,14 @@
 # Triage Labels
 
-Use these GitHub label strings for the canonical triage roles.
+The skills use five canonical triage roles. This file maps those roles to the labels in
+this repository's issue tracker.
 
-| Role              | Label             | Meaning                                       |
-| ----------------- | ----------------- | --------------------------------------------- |
-| Needs triage      | `needs-triage`    | Awaiting maintainer assessment.               |
-| Needs information | `needs-info`      | Waiting for reporter details or reproduction. |
-| Ready for agent   | `ready-for-agent` | Fully specified and suitable for an agent.    |
-| Ready for human   | `ready-for-human` | Requires human implementation or judgment.    |
-| Will not fix      | `wontfix`         | Will not be actioned.                         |
+| Role              | Label             | Meaning                                     |
+| ----------------- | ----------------- | ------------------------------------------- |
+| `needs-triage`    | `needs-triage`    | A maintainer must evaluate the issue.       |
+| `needs-info`      | `needs-info`      | More information is required.               |
+| `ready-for-agent` | `ready-for-agent` | An agent can implement the specified work.  |
+| `ready-for-human` | `ready-for-human` | The work requires a human.                  |
+| `wontfix`         | `wontfix`         | The project will not implement the request. |
 
-Apply only the label that represents the issue's current triage state.
+Use the label in the second column when a skill refers to a triage role.
