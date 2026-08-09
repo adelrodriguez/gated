@@ -81,7 +81,7 @@ function reportHookError<TIdentity extends Identity>(
   }
 
   // The report retains the stable, live HookContext reused across lifecycle phases; it is not
-  // a batch. Its key and identity remain fixed after evaluation begins.
+  // a snapshot. Its key and identity remain fixed after evaluation begins.
   void Promise.resolve()
     .then(() => reporter(report))
     .catch(() => null)
