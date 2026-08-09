@@ -6,7 +6,7 @@ import type {
   EvaluationDetails,
   GateEvaluator,
   GateFactory,
-  GateSnapshot,
+  GateBatch,
   GatedConfig,
   Hook,
   HookContext,
@@ -18,14 +18,14 @@ import type {
 import {
   buildGate,
   DecisionTypeMismatchError,
-  DuplicateSnapshotKeyError,
+  DuplicateBatchKeyError,
   ForeignGateEvaluatorError,
   GateTimeoutError,
   GatedError,
   IdentityNotFoundError,
   InvalidVariantError,
   MalformedDecisionError,
-  SnapshotFlagNotFoundError,
+  BatchFlagNotFoundError,
   decision as decisions,
 } from "gated"
 
@@ -47,9 +47,9 @@ const mismatchError: GatedError = new DecisionTypeMismatchError("boolean", {
   variant: "dark",
 })
 const timeoutError: GatedError = new GateTimeoutError(100)
-const duplicateSnapshotKeyError: GatedError = new DuplicateSnapshotKeyError("theme")
+const duplicateBatchKeyError: GatedError = new DuplicateBatchKeyError("theme")
 const foreignGateEvaluatorError: GatedError = new ForeignGateEvaluatorError()
-const snapshotFlagNotFoundError: GatedError = new SnapshotFlagNotFoundError()
+const batchFlagNotFoundError: GatedError = new BatchFlagNotFoundError()
 const variantError: GatedError = new InvalidVariantError("purple", ["light", "dark"])
 const malformedError: GatedError = new MalformedDecisionError({}, "missing type")
 const constructedBooleanValue: boolean = decisions.boolean(true).value
@@ -75,12 +75,16 @@ const variantGate: GateEvaluator<ConsumerIdentity, "dark" | "light"> = factory({
   key: "theme",
   variants: ["light", "dark"],
 })
-const snapshotPromise: Promise<GateSnapshot<readonly [typeof booleanGate, typeof variantGate]>> =
-  factory.snapshot([booleanGate, variantGate])
-declare const snapshot: GateSnapshot<readonly [typeof booleanGate, typeof variantGate]>
-const snapshotBooleanValue: boolean = snapshot.get(booleanGate)
-const snapshotVariantValue: "dark" | "light" = snapshot.get(variantGate)
-const snapshotVariantDetails: EvaluationDetails<"dark" | "light"> = snapshot.details(variantGate)
+const batchPromise: Promise<GateBatch<readonly [typeof booleanGate, typeof variantGate]>> =
+  factory.batch([booleanGate, variantGate])
+declare const batch: GateBatch<readonly [typeof booleanGate, typeof variantGate]>
+const batchBooleanValue: boolean = batch.get(booleanGate)
+const batchVariantValue: "dark" | "light" = batch.get(variantGate)
+const batchVariantDetails: EvaluationDetails<"dark" | "light"> = batch.details(variantGate)
+const assertSnapshotApiIsRemoved = () => {
+  // @ts-expect-error -- The pre-release snapshot name was replaced by batch.
+  void factory.snapshot([booleanGate, variantGate])
+}
 
 // @ts-expect-error evaluator identities must satisfy the public Identity contract
 type InvalidIdentityEvaluator = GateEvaluator<string, boolean>
@@ -92,8 +96,9 @@ void anonymousConfig
 void constructedBooleanValue
 void constructedVariantValue
 void afterMeta
+void assertSnapshotApiIsRemoved
 void decision
-void duplicateSnapshotKeyError
+void duplicateBatchKeyError
 void foreignGateEvaluatorError
 void hook
 void hookAfterMeta
@@ -106,11 +111,11 @@ void malformedError
 void mismatchError
 void maybeDecision
 void timeoutError
-void snapshotBooleanValue
-void snapshotFlagNotFoundError
-void snapshotPromise
-void snapshotVariantDetails
-void snapshotVariantValue
+void batchBooleanValue
+void batchFlagNotFoundError
+void batchPromise
+void batchVariantDetails
+void batchVariantValue
 void (null as never as InvalidIdentityEvaluator)
 void (null as never as InvalidValueEvaluator)
 void variantError

@@ -73,26 +73,26 @@ export class GateTimeoutError extends GatedError {
   }
 }
 
-export class DuplicateSnapshotKeyError extends GatedError {
+export class DuplicateBatchKeyError extends GatedError {
   readonly key: string
 
   constructor(key: string) {
-    super(`Snapshot requires unique flag keys; duplicate: ${key}`)
-    this.name = "DuplicateSnapshotKeyError"
+    super(`Batch requires unique flag keys; duplicate: ${key}`)
+    this.name = "DuplicateBatchKeyError"
     this.key = key
   }
 }
 
 export class ForeignGateEvaluatorError extends GatedError {
   constructor() {
-    super("Snapshot flags must be created by this gate factory")
+    super("Batch flags must be created by this gate factory")
     this.name = "ForeignGateEvaluatorError"
   }
 }
 
-export class SnapshotFlagNotFoundError extends GatedError {
+export class BatchFlagNotFoundError extends GatedError {
   constructor() {
-    super("Flag is not part of this snapshot")
-    this.name = "SnapshotFlagNotFoundError"
+    super("Flag is not part of this batch")
+    this.name = "BatchFlagNotFoundError"
   }
 }

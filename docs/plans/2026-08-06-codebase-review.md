@@ -53,7 +53,7 @@ The overloads force TS users to pass `match` for string gates, but a JS consumer
 - **Timeouts.** `defaultValue` covers rejection but not latency; a hung provider hangs the gate forever. A per-gate or per-build `timeoutMs` falling back to default is a big practical win.
 - **`Decision` discriminant + payloads.** `"variant" in decision` checks are fragile; a `type` field is self-documenting and leaves room for variant payloads (most providers attach JSON to variants).
 - **Anonymous identities.** `identify` returning null throws "Identity not found" → default (src/lib/index.ts:13-15). Most flag systems support anonymous evaluation; consider making it first-class rather than an error path.
-- **Batch evaluation.** Providers typically return all flags in one call; per-gate `decide` forces N round-trips. A snapshot/`decideMany` concept fits the existing architecture.
+- **Batch evaluation.** Providers typically return all flags in one call; per-gate `decide` forces N round-trips. A batch/`decideMany` concept fits the existing architecture.
 - **Export the `Gate` type** (src/core.ts:4) and a named type for the returned evaluator — consumers can't currently type a gate they pass around.
 
 ## 3. Architecture wins

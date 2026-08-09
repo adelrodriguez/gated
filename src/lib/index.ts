@@ -15,7 +15,7 @@ import type {
 } from "./types"
 import {
   DecisionTypeMismatchError,
-  DuplicateSnapshotKeyError,
+  DuplicateBatchKeyError,
   GateTimeoutError,
   IdentityNotFoundError,
   InvalidVariantError,
@@ -62,7 +62,7 @@ type ExecutionOverrides<TIdentity extends Identity> = {
   provider: () => Promise<Decision>
 }
 
-export type SnapshotEntry = {
+export type BatchEntry = {
   flag: object
   options: GateOptions<string[]>
 }
@@ -81,7 +81,7 @@ function reportHookError<TIdentity extends Identity>(
   }
 
   // The report retains the stable, live HookContext reused across lifecycle phases; it is not
-  // a snapshot. Its key and identity remain fixed after evaluation begins.
+  // a batch. Its key and identity remain fixed after evaluation begins.
   void Promise.resolve()
     .then(() => reporter(report))
     .catch(() => null)
@@ -562,29 +562,29 @@ function createDecisionRequest(): DecisionRequest {
   return { promise, reject: rejectRequest, resolve: resolveRequest }
 }
 
-export async function executeGateSnapshot<TIdentity extends Identity>(
+export async function executeGateBatch<TIdentity extends Identity>(
   config: AnyGatedConfig<TIdentity>,
-  entries: readonly SnapshotEntry[],
+  entries: readonly BatchEntry[],
   callOptions?: GateCallOptions<TIdentity>
 ): Promise<Map<object, EvaluationDetails<boolean | string>>> {
   const duplicateKey = entries
     .map((entry) => entry.options.key)
     .find((key, index, keys) => keys.indexOf(key) !== index)
   if (duplicateKey !== undefined) {
-    throw new DuplicateSnapshotKeyError(duplicateKey)
+    throw new DuplicateBatchKeyError(duplicateKey)
   }
 
   const effectiveTimeouts = entries.map((entry) => entry.options.timeoutMs ?? config.timeoutMs)
-  const snapshotTimeoutMs =
+  const batchTimeoutMs =
     effectiveTimeouts.length === 0
       ? config.timeoutMs
       : effectiveTimeouts.includes(undefined)
         ? undefined
         : Math.max(...(effectiveTimeouts as number[]))
-  const snapshotTimeout = createEvaluationSignal(callOptions?.signal, snapshotTimeoutMs)
+  const batchTimeout = createEvaluationSignal(callOptions?.signal, batchTimeoutMs)
   // Aborting this controller on the way out cancels a batch left in flight by an early return.
   const batchController = new AbortController()
-  const signal = AbortSignal.any([snapshotTimeout.signal, batchController.signal])
+  const signal = AbortSignal.any([batchTimeout.signal, batchController.signal])
   const entrySignals = new Map(
     entries.map((entry) => [
       entry.flag,
@@ -603,7 +603,7 @@ export async function executeGateSnapshot<TIdentity extends Identity>(
   }
 
   const requests = new Map<object, DecisionRequest>()
-  const queued = new Map<object, SnapshotEntry>()
+  const queued = new Map<object, BatchEntry>()
   let batchTimer: ReturnType<typeof setTimeout> | undefined
 
   const flushBatch = async (): Promise<void> => {
@@ -708,7 +708,7 @@ export async function executeGateSnapshot<TIdentity extends Identity>(
       clearTimeout(batchTimer)
     }
     batchController.abort()
-    snapshotTimeout.cleanup()
+    batchTimeout.cleanup()
   }
 }
 

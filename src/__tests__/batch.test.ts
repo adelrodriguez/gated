@@ -10,7 +10,7 @@ async function expectRejection(promise: Promise<IdentityValue>, message: string)
     expect(error).toHaveProperty("message", message)
     return
   }
-  throw new Error("Expected snapshot to reject")
+  throw new Error("Expected batch to reject")
 }
 
 function delay(milliseconds: number): Promise<void> {
@@ -19,7 +19,7 @@ function delay(milliseconds: number): Promise<void> {
   })
 }
 
-describe("gate snapshots", () => {
+describe("gate batches", () => {
   test("resolves identity once and batches unresolved flags", async () => {
     const identity = { distinctId: "user123" }
     const identify = mock(() => identity)
@@ -38,9 +38,9 @@ describe("gate snapshots", () => {
       variants: ["light", "dark"],
     })
 
-    const snapshot = await gate.snapshot([betaAccess, theme] as const)
-    const booleanValue: boolean = snapshot.get(betaAccess)
-    const variantValue: "light" | "dark" = snapshot.get(theme)
+    const batch = await gate.batch([betaAccess, theme] as const)
+    const booleanValue: boolean = batch.get(betaAccess)
+    const variantValue: "light" | "dark" = batch.get(theme)
 
     expect(booleanValue).toBe(true)
     expect(variantValue).toBe("dark")
@@ -65,9 +65,9 @@ describe("gate snapshots", () => {
     })
     const broken = gate({ defaultValue: false, key: "broken" })
 
-    const snapshot = await gate.snapshot([theme, broken] as const)
-    const themeDetails = snapshot.details(theme)
-    const brokenDetails = snapshot.details(broken)
+    const batch = await gate.batch([theme, broken] as const)
+    const themeDetails = batch.details(theme)
+    const brokenDetails = batch.details(broken)
 
     expect(themeDetails).toEqual({
       flagKey: "theme",
@@ -113,10 +113,10 @@ describe("gate snapshots", () => {
       variants: ["light", "dark"],
     })
 
-    const snapshot = await gate.snapshot([betaAccess, theme])
+    const batch = await gate.batch([betaAccess, theme])
 
-    expect(snapshot.get(betaAccess)).toBe(true)
-    expect(snapshot.get(theme)).toBe("dark")
+    expect(batch.get(betaAccess)).toBe(true)
+    expect(batch.get(theme)).toBe("dark")
     expect(decideMany).toHaveBeenCalledWith(["theme"], expect.any(Object), expect.any(Object))
     expect(phases.filter((phase) => phase.startsWith("beta-access:"))).toEqual([
       "beta-access:before",
@@ -148,10 +148,10 @@ describe("gate snapshots", () => {
       variants: ["light", "dark"],
     })
 
-    const snapshot = await gate.snapshot([betaAccess, theme])
+    const batch = await gate.batch([betaAccess, theme])
 
-    expect(snapshot.get(betaAccess)).toBe(true)
-    expect(snapshot.get(theme)).toBe("light")
+    expect(batch.get(betaAccess)).toBe(true)
+    expect(batch.get(theme)).toBe("light")
   })
 
   test("isolates a rejected batch while preserving hook-resolved flags", async () => {
@@ -169,10 +169,10 @@ describe("gate snapshots", () => {
     const hooked = gate({ defaultValue: false, key: "hooked" })
     const unresolved = gate({ defaultValue: false, key: "unresolved" })
 
-    const snapshot = await gate.snapshot([hooked, unresolved])
+    const batch = await gate.batch([hooked, unresolved])
 
-    expect(snapshot.get(hooked)).toBe(true)
-    expect(snapshot.get(unresolved)).toBe(false)
+    expect(batch.get(hooked)).toBe(true)
+    expect(batch.get(unresolved)).toBe(false)
   })
 
   test("falls back to one single decision for a missing batch key", async () => {
@@ -193,10 +193,10 @@ describe("gate snapshots", () => {
       variants: ["light", "dark"],
     })
 
-    const snapshot = await gate.snapshot([betaAccess, theme])
+    const batch = await gate.batch([betaAccess, theme])
 
-    expect(snapshot.get(betaAccess)).toBe(true)
-    expect(snapshot.get(theme)).toBe("dark")
+    expect(batch.get(betaAccess)).toBe(true)
+    expect(batch.get(theme)).toBe("dark")
     expect(decide).toHaveBeenCalledTimes(1)
     expect(decide).toHaveBeenCalledWith("theme", expect.any(Object), expect.any(Object))
   })
@@ -210,9 +210,9 @@ describe("gate snapshots", () => {
     })
     const inheritedKey = gate({ defaultValue: false, key: "toString" })
 
-    const snapshot = await gate.snapshot([inheritedKey])
+    const batch = await gate.batch([inheritedKey])
 
-    expect(snapshot.get(inheritedKey)).toBe(true)
+    expect(batch.get(inheritedKey)).toBe(true)
     expect(decide).toHaveBeenCalledTimes(1)
   })
 
@@ -231,10 +231,10 @@ describe("gate snapshots", () => {
       variants: ["light", "dark"],
     })
 
-    const snapshot = await gate.snapshot([betaAccess, theme])
+    const batch = await gate.batch([betaAccess, theme])
 
-    expect(snapshot.get(betaAccess)).toBe(true)
-    expect(snapshot.get(theme)).toBe("dark")
+    expect(batch.get(betaAccess)).toBe(true)
+    expect(batch.get(theme)).toBe("dark")
     expect(decide).toHaveBeenCalledTimes(2)
   })
 
@@ -266,10 +266,10 @@ describe("gate snapshots", () => {
       variants: ["light", "dark"],
     })
 
-    const snapshot = await gate.snapshot([betaAccess, theme])
+    const batch = await gate.batch([betaAccess, theme])
 
-    expect(snapshot.get(betaAccess)).toBe(true)
-    expect(snapshot.get(theme)).toBe("dark")
+    expect(batch.get(betaAccess)).toBe(true)
+    expect(batch.get(theme)).toBe("dark")
     expect(decideMany).toHaveBeenCalledWith(["theme"], expect.any(Object), expect.any(Object))
     expect(cache.set).toHaveBeenCalledWith("theme:user123", {
       type: "variant",
@@ -277,7 +277,7 @@ describe("gate snapshots", () => {
     })
   })
 
-  test("does not deadlock concurrent snapshots with cross-key dedupe leaders", async () => {
+  test("does not deadlock concurrent batches with cross-key dedupe leaders", async () => {
     const invocationCount = new Map<string, number>()
     const dispatchedKeys = new Set<string>()
     let releaseBatches!: () => void
@@ -317,15 +317,15 @@ describe("gate snapshots", () => {
     const first = gate({ defaultValue: false, key: "first" })
     const second = gate({ defaultValue: false, key: "second" })
 
-    const [firstSnapshot, secondSnapshot] = await Promise.all([
-      gate.snapshot([first, second]),
-      gate.snapshot([first, second]),
+    const [firstBatch, secondBatch] = await Promise.all([
+      gate.batch([first, second]),
+      gate.batch([first, second]),
     ])
 
-    expect(firstSnapshot.get(first)).toBe(true)
-    expect(firstSnapshot.get(second)).toBe(true)
-    expect(secondSnapshot.get(first)).toBe(true)
-    expect(secondSnapshot.get(second)).toBe(true)
+    expect(firstBatch.get(first)).toBe(true)
+    expect(firstBatch.get(second)).toBe(true)
+    expect(secondBatch.get(first)).toBe(true)
+    expect(secondBatch.get(second)).toBe(true)
     expect(decideMany).toHaveBeenCalledTimes(2)
   })
 
@@ -358,7 +358,7 @@ describe("gate snapshots", () => {
     const first = gate({ defaultValue: false, key: "first" })
     const second = gate({ defaultValue: false, key: "second" })
 
-    await gate.snapshot([first, second], { signal: controller.signal })
+    await gate.batch([first, second], { signal: controller.signal })
 
     expect(hookSignals).toHaveLength(2)
     expect(hookSignals[0]).toBe(controller.signal)
@@ -379,12 +379,12 @@ describe("gate snapshots", () => {
     const factoryTimed = gate({ defaultValue: false, key: "factory-timed" })
     const slow = gate({ defaultValue: false, key: "slow", timeoutMs: 100 })
 
-    const snapshot = await gate.snapshot([factoryTimed, slow])
+    const batch = await gate.batch([factoryTimed, slow])
 
-    expect(snapshot.get(factoryTimed)).toBe(false)
-    expect(snapshot.details(factoryTimed).source).toBe("default")
-    expect(snapshot.get(slow)).toBe(true)
-    expect(snapshot.details(slow).source).toBe("provider")
+    expect(batch.get(factoryTimed)).toBe(false)
+    expect(batch.details(factoryTimed).source).toBe("default")
+    expect(batch.get(slow)).toBe(true)
+    expect(batch.details(slow).source).toBe("provider")
   })
 
   test("gives the single-decision fallback the flag's own deadline", async () => {
@@ -400,7 +400,7 @@ describe("gate snapshots", () => {
     const capped = gate({ defaultValue: false, key: "capped", timeoutMs: 20 })
     const unbounded = gate({ defaultValue: false, key: "unbounded" })
 
-    await gate.snapshot([capped, unbounded])
+    await gate.batch([capped, unbounded])
 
     expect(signals.capped?.aborted).toBe(true)
     expect(signals.unbounded?.aborted).toBe(false)
@@ -425,13 +425,13 @@ describe("gate snapshots", () => {
     const fast = gate({ defaultValue: false, key: "fast", timeoutMs: 50 })
     const slow = gate({ defaultValue: false, key: "slow", timeoutMs: 5000 })
 
-    const snapshot = await gate.snapshot([fast, slow])
+    const batch = await gate.batch([fast, slow])
 
-    expect(snapshot.get(fast)).toBe(true)
+    expect(batch.get(fast)).toBe(true)
     expect(signals.fast?.aborted).toBe(false)
   })
 
-  test("passes null identity to anonymous batches without deduplicating snapshots", async () => {
+  test("passes null identity to anonymous batches without deduplicating batches", async () => {
     const decideMany = mock((keys: readonly string[], identity: Identity | null) => {
       expect(identity).toBeNull()
       return Object.fromEntries(keys.map((key) => [key, { type: "boolean", value: true } as const]))
@@ -445,10 +445,7 @@ describe("gate snapshots", () => {
     })
     const anonymous = gate({ defaultValue: false, key: "anonymous" })
 
-    const [first, second] = await Promise.all([
-      gate.snapshot([anonymous]),
-      gate.snapshot([anonymous]),
-    ])
+    const [first, second] = await Promise.all([gate.batch([anonymous]), gate.batch([anonymous])])
 
     expect(first.get(anonymous)).toBe(true)
     expect(second.get(anonymous)).toBe(true)
@@ -463,14 +460,14 @@ describe("gate snapshots", () => {
     const second = gate({ defaultValue: true, key: "duplicate" })
 
     await expectRejection(
-      gate.snapshot([first, second]),
-      "Snapshot requires unique flag keys; duplicate: duplicate"
+      gate.batch([first, second]),
+      "Batch requires unique flag keys; duplicate: duplicate"
     )
     expect(identify).not.toHaveBeenCalled()
     expect(decide).not.toHaveBeenCalled()
   })
 
-  test("rejects legacy bare-identity snapshot options", async () => {
+  test("rejects legacy bare-identity batch options", async () => {
     const gate = buildGate({
       decide: () => ({ type: "boolean", value: true }),
       identify: () => ({ distinctId: "identified" }),
@@ -478,8 +475,8 @@ describe("gate snapshots", () => {
     const flag = gate({ defaultValue: false, key: "flag" })
 
     await expectRejection(
-      // @ts-expect-error -- Snapshot options use the same { identity } shape as evaluators.
-      gate.snapshot([flag], { distinctId: "legacy-user" }),
+      // @ts-expect-error -- Batch options use the same { identity } shape as evaluators.
+      gate.batch([flag], { distinctId: "legacy-user" }),
       "Gate evaluators now accept an options object; pass the identity as { identity }."
     )
   })
@@ -496,8 +493,8 @@ describe("gate snapshots", () => {
     const foreign = secondGate({ defaultValue: false, key: "foreign" })
 
     await expectRejection(
-      firstGate.snapshot([foreign]),
-      "Snapshot flags must be created by this gate factory"
+      firstGate.batch([foreign]),
+      "Batch flags must be created by this gate factory"
     )
   })
 })
