@@ -90,7 +90,11 @@ export type HookErrorReport<TIdentity extends Identity = Identity> = {
 
 export interface Hook<T extends Identity = Identity> {
   before?(hookContext: HookContext<T>): MaybePromise<void>
-  resolve?(hookContext: HookContext<T>): MaybePromise<Decision | null | undefined>
+  /**
+   * Return a decision to bypass the provider, or return nothing to continue evaluation.
+   */
+  // oxlint-disable-next-line typescript/no-invalid-void-type -- void is intentional for observation-only resolving hooks.
+  resolve?(hookContext: HookContext<T>): MaybePromise<Decision | null | void>
   after?(
     hookContext: HookContext<T>,
     decision: Decision,
