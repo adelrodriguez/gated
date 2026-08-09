@@ -8,9 +8,9 @@ The fallback value can never violate the gate's own contract, misconfiguration f
 
 ## Problem
 
-- **F3.** `gate({ key: "theme", defaultValue: "purple", variants: ["light", "dark"] })` is accepted at runtime; on any fallback the gate returns `"purple"`, a value outside the declared variant set that `validateDecision` (src/lib/index.ts:333) would reject from any provider or hook. Empty `key`, empty `variants`, and duplicate variant entries are also unchecked. TypeScript catches these for TS consumers only.
-- **F5.** `gate.batch([])` resolves identity (src/lib/index.ts:568 onward) before discovering there is nothing to evaluate — a wasted, potentially side-effectful round trip.
-- **F9.** `executeGateDetails` captures `config.hooks` by reference (src/lib/index.ts:382); a consumer mutating the array mid-evaluation changes phase membership between phases and skews `hookIndex` in `HookErrorReport`.
+- **F3.** `gate({ key: "theme", defaultValue: "purple", variants: ["light", "dark"] })` is accepted at runtime; on any fallback the gate returns `"purple"`, a value outside the declared variant set that `validateDecision` (src/lib/index.ts:330) would reject from any provider or hook. Empty `key`, empty `variants`, and duplicate variant entries are also unchecked. TypeScript catches these for TS consumers only.
+- **F5.** `gate.batch([])` resolves identity (src/lib/index.ts:565 onward) before discovering there is nothing to evaluate — a wasted, potentially side-effectful round trip.
+- **F9.** `executeGateDetails` captures `config.hooks` by reference (src/lib/index.ts:379); a consumer mutating the array mid-evaluation changes phase membership between phases and skews `hookIndex` in `HookErrorReport`.
 
 ## Design
 

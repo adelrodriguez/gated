@@ -19,19 +19,19 @@ A provider deciding on `identity.plan` cached `false` for `{distinctId: "u", pla
 
 ### F3. Variant `defaultValue` is never validated at runtime (reproduced)
 
-`gate({ key: "theme", defaultValue: "purple", variants: ["light", "dark"] })` is accepted at runtime (TypeScript-only enforcement); on fallback the gate returns `"purple"` — a value outside the declared variant set — while `validateDecision` (src/lib/index.ts:333) strictly rejects the same value from a provider or hook. Empty `key`, empty `variants`, and duplicate variant entries are also unchecked.
+`gate({ key: "theme", defaultValue: "purple", variants: ["light", "dark"] })` is accepted at runtime (TypeScript-only enforcement); on fallback the gate returns `"purple"` — a value outside the declared variant set — while `validateDecision` (src/lib/index.ts:330) strictly rejects the same value from a provider or hook. Empty `key`, empty `variants`, and duplicate variant entries are also unchecked.
 
 ### F4. React `stableSerialize` silently collapses non-plain objects into identical cache keys (code-proven)
 
-`stableSerialize` (src/integrations/react.tsx:196) walks only own enumerable keys: every `Date` serializes to `object:{}`, as do `Map`, `Set`, `URL`, and class instances. Symbols collapse by description, functions by name. Two identities differing only by such a value share one cache entry — wrong flag value, no error. `IdentityValue` permits objects and symbols, so the type system invites this; the serializer's `TypeError` branch is effectively unreachable.
+`stableSerialize` (src/integrations/react.tsx:196) walks only own enumerable keys: every `Date` serializes to `object:{}`, as do `Map`, `Set`, `URL`, and class instances. Symbols collapse by description, functions by name. Two identities differing only by such a value share one cache entry — wrong flag value, no error. `IdentityValue` permits objects and symbols, so the type system invites this; the serializer's `TypeError` branch is effectively unreachable. A second symptom of the same walker: `references` is a _seen_-set rather than an ancestor stack (react.tsx:221-227 registers every object and never unregisters), so shared but acyclic subobjects also diverge — `{ a: o, b: o }` and a structurally identical `{ a: {…}, b: {…} }` serialize differently. That direction is a spurious cache miss, not a wrong value, but any fix must be ancestor-scoped to avoid keeping it.
 
 ## 2. Smaller gaps
 
-- **F5.** `gate.batch([])` still resolves identity (src/lib/index.ts:568 onward) before discovering there are no entries.
+- **F5.** `gate.batch([])` still resolves identity (src/lib/index.ts:565 onward) before discovering there are no entries.
 - **F6.** In `anonymous: "allow"` mode a caller cannot force anonymous evaluation: `identify()` treats a `null` override as absent (src/lib/index.ts:114) and `GateCallOptions.identity` does not admit `null`.
-- **F7.** `after` hooks are awaited on the hot path (src/lib/index.ts:494): `cacheHook`'s `cache.set` (a Redis write in the documented setup) adds its full latency to every provider-sourced evaluation.
+- **F7.** `after` hooks are awaited on the hot path (src/lib/index.ts:491): `cacheHook`'s `cache.set` (a Redis write in the documented setup) adds its full latency to every provider-sourced evaluation.
 - **F8.** Dedupe abort race: if a leader's deadline expires during its `after` hooks, error hooks reject the pending entry while the abandoned after-hook task can still resolve it concurrently — followers may receive the real decision while the leader reports a timeout. Benign but undocumented and untested nondeterminism.
-- **F9.** `config.hooks` is captured by reference (src/lib/index.ts:382); mutating the array mid-evaluation skews `hookIndex` reporting and phase membership across phases.
+- **F9.** `config.hooks` is captured by reference (src/lib/index.ts:379); mutating the array mid-evaluation skews `hookIndex` reporting and phase membership across phases.
 - **F10.** Pending React cache entries are exempt from TTL/LRU by design; with no core timeout, a hung provider pins entries forever and the cache grows without bound under identity churn.
 - **F11.** Custom React gate `invalidate` requires the full argument tuple, forcing fabricated operational args (`invalidate("account-1", "ignored-for-cache-key")`).
 
@@ -46,7 +46,7 @@ A provider deciding on `identity.plan` cached `false` for `{distinctId: "u", pla
 
 ## 4. Architecture wins
 
-- **W1. Split `src/lib/index.ts` (725 lines).** Four separable concerns: signal/timeout plumbing, hook runners, the single-evaluation engine, the batch orchestrator. Also `core.ts` (public factory) vs `lib/index.ts` (engine) naming is opaque.
+- **W1. Split `src/lib/index.ts` (722 lines).** Four separable concerns: signal/timeout plumbing, hook runners, the single-evaluation engine, the batch orchestrator. Also `core.ts` (public factory) vs `lib/index.ts` (engine) naming is opaque.
 - **W2. Make the batch↔evaluation seam explicit.** `ExecutionOverrides` with `onPrepared(providerRequired)` and injected `provider: () => request.promise` has an implicit contract that lives only in call sites.
 - **W3. Revisit dedupe-as-hook before 1.0.** The design survives via three backstops (owner token, `finally` rejection, `HookResolutionAbortError` laundering) spread across `recipes.ts` and `internal.ts`, plus a special-cased reporting rule. A first-class `coalesce` option in core would delete the internal-error channel and ownership machinery.
 

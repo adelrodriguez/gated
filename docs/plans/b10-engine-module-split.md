@@ -4,7 +4,7 @@ Fixes: W1, W2. Depends on: b02, b04, b05, b08 (the behavioral plans that touch `
 
 ## Goal
 
-`src/lib/index.ts` (725 lines) becomes four focused modules with self-describing names, and the batch↔evaluation contract becomes a named, documented type instead of an implicit call-site convention.
+`src/lib/index.ts` (722 lines) becomes four focused modules with self-describing names, and the batch↔evaluation contract becomes a named, documented type instead of an implicit call-site convention.
 
 ## Problem
 
