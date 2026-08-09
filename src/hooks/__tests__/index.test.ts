@@ -50,6 +50,28 @@ describe("defineHook", () => {
     })
   })
 
+  test("contextually types direct after-hook metadata", () => {
+    const hook = defineHook({
+      after(_context, _decision, metadata) {
+        const source: "hook" | "provider" = metadata.source
+        expect(source).toBe("provider")
+      },
+    })
+
+    expect(typeof hook.after).toBe("function")
+    return hook.after?.(
+      {
+        defaultValue: false,
+        flagKey: "beta",
+        identity: { distinctId: "user-1" },
+        kind: "boolean",
+        signal: new AbortController().signal,
+      },
+      decision.boolean(true),
+      { source: "provider" }
+    )
+  })
+
   test("defines a typed options factory", () => {
     const factory = defineHook<{ prefix: string }>((options) => ({
       before(context) {

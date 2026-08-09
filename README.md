@@ -434,13 +434,16 @@ const loggingHook = defineHook({
   before: (context) => console.log(context.flagKey),
 })
 
-const prefixedHook = defineHook((options: TOptions) => ({
-  before?: (context: HookContext) => void | Promise<void>,
-  resolve?: (context: HookContext) => Decision | undefined | Promise<Decision | undefined>,
-  after?: (context: HookContext, decision: Decision) => void | Promise<void>,
-  error?: (context: HookContext, error: Error) => void | Promise<void>,
-  finally?: (context: HookContext) => void | Promise<void>
+type PrefixOptions = { prefix: string }
+
+const prefixedHook = defineHook((options: PrefixOptions) => ({
+  before: (context) => console.log(`${options.prefix}:${context.flagKey}`),
+  after: (context, decision, metadata) => {
+    console.log(context.flagKey, decision, metadata.source) // "hook" | "provider"
+  },
 }))
+
+const auditHook = prefixedHook({ prefix: "audit" })
 ```
 
 ### React API
