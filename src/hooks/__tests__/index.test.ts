@@ -8,19 +8,21 @@ describe("defineHook", () => {
   test("returns a direct hook unchanged and integrates with a gate", async () => {
     let source: "hook" | "provider" | undefined
     let afterCalls = 0
-    const hook = defineHook({
+    const definition: Hook = {
       after(_context, _decision, metadata) {
         const typedSource: "hook" | "provider" = metadata.source
         afterCalls += 1
         source = typedSource
       },
-    })
+    }
+    const hook = defineHook(definition)
     const gate = buildGate({
       decide: () => decision.boolean(true),
       hooks: [hook],
       identify: () => ({ distinctId: "user-1" }),
     })
 
+    expect(hook).toBe(definition)
     expect(await gate({ defaultValue: false, key: "beta" })()).toBe(true)
     expect(afterCalls).toBe(1)
     expect(source).toBe("provider")
@@ -38,6 +40,7 @@ describe("defineHook", () => {
       },
     })
 
+    expect(typeof hook.before).toBe("function")
     return hook.before?.({
       defaultValue: false,
       flagKey: "beta",
@@ -55,6 +58,8 @@ describe("defineHook", () => {
     }))
 
     const hook: Hook = factory({ prefix: "audit" })
+
+    expect(typeof hook.before).toBe("function")
     return hook.before?.({
       defaultValue: false,
       flagKey: "beta",
@@ -94,6 +99,7 @@ describe("defineHook", () => {
 
     expect(typeof optional.before).toBe("function")
     expect(typeof defaults.before).toBe("function")
+    expect(typeof annotated.finally).toBe("function")
     return annotated.finally?.(context)
   })
 

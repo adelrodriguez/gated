@@ -427,7 +427,7 @@ Both the evaluator and `details()` accept an optional options object. Override i
 
 #### `defineHook(hook)` / `defineHook<TOptions>(factory)`
 
-Defines a hook directly or a reusable hook factory with typed options. Factory invocations can keep isolated state in their closure. See Hook System for lifecycle methods.
+Defines a hook directly or a reusable hook factory with typed options. A direct hook object is shared by every gate it is registered on, so its closure state is shared too; each factory invocation produces a fresh hook with isolated state. Prefer the factory form when the hook holds mutable state. See Hook System for lifecycle methods.
 
 ```typescript
 const loggingHook = defineHook({
