@@ -9,9 +9,8 @@ Before you explore or change code, read `CONTEXT.md` and
 
 ### Source references
 
-When a skill requires a local dependency source checkout, use Packref. Add the package
-with `bunx packref add <package>` and read its version-locked source under
-`.packref/packages/`.
+When a skill requires a local dependency source checkout, use Packref. See the Packref
+section below.
 
 ### Issue tracker
 
@@ -37,6 +36,8 @@ Use Changesets for versioning and changelog management. See
 - Run `bun run test`, `bun run build`, `bun run check`, `bun run fix`, and
   `bun run format` after edits.
 - Run `bun run analyze` after dependency, import, or export changes.
+- Run `bun run build` and then `bun run check:exports` after changes to a public entry
+  point or its types.
 - Keep tests colocated in `src/**/__tests__/`.
 - Keep core implementation in `src/core.ts` and `src/lib/`, hooks and recipes in
   `src/hooks/`, and the React integration in `src/integrations/react.tsx`.

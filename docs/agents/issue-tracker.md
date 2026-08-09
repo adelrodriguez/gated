@@ -20,7 +20,7 @@ Infer the repository from the Git remote when possible.
 
 ## Pull requests as a request surface
 
-PRs as a request surface: no.
+PRs are not a triage request surface.
 
 ## Skill operations
 

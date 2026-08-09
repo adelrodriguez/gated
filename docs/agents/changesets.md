@@ -11,5 +11,5 @@ This repository uses Changesets for versioning and changelog management.
 - Use `bunx changeset` to create a changeset and commit the generated `.changeset/*.md`
   file.
 - Never make a major version bump unless the user requests it.
-- If a change is breaking and the current package version is 1.0.0 or higher, alert the
-  user.
+- Alert the user when a change is breaking. Before version 1.0.0, release a breaking
+  change as a minor bump.

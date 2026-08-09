@@ -5,10 +5,10 @@ this repository's issue tracker.
 
 | Role              | Label             | Meaning                                     |
 | ----------------- | ----------------- | ------------------------------------------- |
-| `needs-triage`    | `needs-triage`    | A maintainer must evaluate the issue.       |
-| `needs-info`      | `needs-info`      | More information is required.               |
-| `ready-for-agent` | `ready-for-agent` | An agent can implement the specified work.  |
-| `ready-for-human` | `ready-for-human` | The work requires a human.                  |
-| `wontfix`         | `wontfix`         | The project will not implement the request. |
+| Needs triage      | `needs-triage`    | A maintainer must evaluate the issue.       |
+| Needs information | `needs-info`      | More information is required.               |
+| Ready for agent   | `ready-for-agent` | An agent can implement the specified work.  |
+| Ready for human   | `ready-for-human` | The work requires a human.                  |
+| Will not fix      | `wontfix`         | The project will not implement the request. |
 
 Use the label in the second column when a skill refers to a triage role.
