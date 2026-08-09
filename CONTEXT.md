@@ -6,6 +6,6 @@ Gated is a provider-agnostic, type-safe feature-flag library for TypeScript appl
 
 Factories can evaluate several of their own gates through `batch()`. A batch resolves identity once, preserves per-gate lifecycle and fallback semantics, and uses optional provider-level `decideMany` batching. The cache and dedupe recipes compose in either order.
 
-React support is an optional integration at `gated/react`. It uses React 19's `use()` API. Components that call a `createReactGate` hook directly need a Suspense boundary; `FeatureGate` supplies its own. React evaluation promises are cached by stable identity keys with bounded TTL/LRU storage and explicit invalidation.
+React support is an optional integration at `gated/react`. It uses React 19's `use()` API. Components that call a `createReactGate` hook directly need a Suspense boundary. `FeatureGate` supplies one when `loading` is provided; otherwise suspension propagates to an ancestor boundary. React evaluation promises are cached by stable identity keys with bounded TTL/LRU storage and explicit invalidation.
 
 Use the vocabulary in [docs/agents/domain.md](docs/agents/domain.md). The package's public entry points are `gated`, `gated/hooks`, `gated/hooks/recipes`, and `gated/react`.

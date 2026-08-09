@@ -400,12 +400,28 @@ const gate = buildGate({
   hooks?: Hook[],
   onHookError?: (report: HookErrorReport<TIdentity>) => void | Promise<void>,
   timeoutMs?: number,
-  anonymous?: "allow"
+  anonymous?: "reject"
 })
 ```
 
 Configuration functions may return their values directly or as promises. When calling them from
 wrapper code, use `Promise.resolve(config.identify()).then(...)` before chaining promise methods.
+Strict identity resolution is the default; `anonymous: "reject"` may also be specified explicitly.
+The anonymous overload uses `anonymous: "allow"` and widens provider identities to include `null`:
+
+```typescript
+const anonymousGate = buildGate({
+  anonymous: "allow",
+  identify: () => TIdentity | null | Promise<TIdentity | null>,
+  decide: (key: string, identity: TIdentity | null, options?: { signal?: AbortSignal }) =>
+    Decision | Promise<Decision>,
+  decideMany?: (
+    keys: readonly string[],
+    identity: TIdentity | null,
+    options?: { signal?: AbortSignal }
+  ) => Record<string, Decision> | Promise<Record<string, Decision>>
+})
+```
 
 Returns a gate factory function that creates individual feature flags.
 
@@ -425,8 +441,13 @@ gate({
 type GateEvaluator<
   TIdentity extends Identity,
   TValue extends boolean | string,
-> = ((options?: { identity?: TIdentity }) => Promise<TValue>) & {
-  details(options?: { identity?: TIdentity }): Promise<EvaluationDetails<TValue>>
+> = ((options?: GateCallOptions<TIdentity>) => Promise<TValue>) & {
+  details(options?: GateCallOptions<TIdentity>): Promise<EvaluationDetails<TValue>>
+}
+
+type GateCallOptions<TIdentity extends Identity> = {
+  identity?: TIdentity
+  signal?: AbortSignal
 }
 
 gate.batch(flags, options?): Promise<GateBatch<typeof flags>>

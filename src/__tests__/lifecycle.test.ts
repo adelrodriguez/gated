@@ -130,15 +130,21 @@ describe("uniform hook lifecycle", () => {
               ? [true, true, true, true, true]
               : [false, false, false, false, false]
           )
+
+          if (scenario === "concurrent-error") {
+            expect(await settleWithin(betaAccess(), 75)).toBe(false)
+          }
         } else {
           const expected = scenario !== "provider-error"
           expect(await settleWithin(betaAccess(), 75)).toBe(expected)
-          if (scenario === "cache-miss") {
+          if (scenario === "cache-hit" || scenario === "cache-miss") {
             expect(await settleWithin(betaAccess(), 75)).toBe(true)
           }
         }
 
-        expect(decide).toHaveBeenCalledTimes(scenario === "cache-hit" ? 0 : 1)
+        expect(decide).toHaveBeenCalledTimes(
+          scenario === "cache-hit" ? 0 : scenario === "concurrent-error" ? 2 : 1
+        )
         expect(cache.set).toHaveBeenCalledTimes(
           scenario === "concurrent-success" && order === "cache-first"
             ? 5
