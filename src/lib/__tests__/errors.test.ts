@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import {
   DecisionTypeMismatchError,
-  DuplicateSnapshotKeyError,
+  DuplicateBatchKeyError,
   ForeignGateEvaluatorError,
   GatedError,
   IdentityNotFoundError,
   InvalidVariantError,
   MalformedDecisionError,
-  SnapshotFlagNotFoundError,
+  BatchFlagNotFoundError,
 } from "../errors"
 
 describe("contextual errors", () => {
@@ -49,22 +49,22 @@ describe("contextual errors", () => {
     })
   })
 
-  test("describes snapshot misuse with discriminable errors", () => {
-    const duplicate = new DuplicateSnapshotKeyError("theme")
+  test("describes batch misuse with discriminable errors", () => {
+    const duplicate = new DuplicateBatchKeyError("theme")
 
     expect(duplicate).toBeInstanceOf(GatedError)
     expect(duplicate).toMatchObject({
       key: "theme",
-      message: "Snapshot requires unique flag keys; duplicate: theme",
-      name: "DuplicateSnapshotKeyError",
+      message: "Batch requires unique flag keys; duplicate: theme",
+      name: "DuplicateBatchKeyError",
     })
     expect(new ForeignGateEvaluatorError()).toMatchObject({
-      message: "Snapshot flags must be created by this gate factory",
+      message: "Batch flags must be created by this gate factory",
       name: "ForeignGateEvaluatorError",
     })
-    expect(new SnapshotFlagNotFoundError()).toMatchObject({
-      message: "Flag is not part of this snapshot",
-      name: "SnapshotFlagNotFoundError",
+    expect(new BatchFlagNotFoundError()).toMatchObject({
+      message: "Flag is not part of this batch",
+      name: "BatchFlagNotFoundError",
     })
   })
 })

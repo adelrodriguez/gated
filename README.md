@@ -149,7 +149,7 @@ Hooks receive `context.identity === null`, and successful `details()` results re
 
 ### Batch Evaluation
 
-Provide `decideMany` to evaluate several gates in one provider round trip, then read their typed values synchronously from a snapshot. For example, a server-rendered page can evaluate everything it needs before rendering:
+Provide `decideMany` to evaluate several gates in one provider round trip, then read their typed values synchronously from a batch. For example, a server-rendered page can evaluate everything it needs before rendering:
 
 ```typescript
 const gate = buildGate({
@@ -166,21 +166,21 @@ const theme = gate({
 })
 
 export async function DashboardPage() {
-  const snapshot = await gate.snapshot([betaAccess, theme])
+  const batch = await gate.batch([betaAccess, theme])
 
   return renderDashboard({
-    betaAccess: snapshot.get(betaAccess), // boolean
-    theme: snapshot.get(theme), // "light" | "dark"
-    themeEvaluation: snapshot.details(theme), // source, error, and payload
+    betaAccess: batch.get(betaAccess), // boolean
+    theme: batch.get(theme), // "light" | "dark"
+    themeEvaluation: batch.details(theme), // source, error, and payload
   })
 }
 ```
 
-Snapshots resolve identity once and preserve each flag's hooks, validation, timeout, default, source, error, and variant-payload behavior. `snapshot.details(flag)` returns the same typed evaluation details as `flag.details()`. Hook-resolved keys are omitted from provider work. Ready unresolved keys are grouped into a batch without waiting on dedupe followers, so asynchronous hooks can produce more than one provider batch instead of deadlocking concurrent snapshots. A missing batch result falls back to that flag's single `decide` call under that flag's own deadline; without `decideMany`, unresolved flags are evaluated in parallel. The signal passed to `decideMany` spans the batch and is aborted once the snapshot returns, so a provider call still in flight is cancelled. Snapshot keys must be unique.
+Batches resolve identity once and preserve each flag's hooks, validation, timeout, default, source, error, and variant-payload behavior. `batch.details(flag)` returns the same typed evaluation details as `flag.details()`. Hook-resolved keys are omitted from provider work. Ready unresolved keys are grouped into a batch without waiting on dedupe followers, so asynchronous hooks can produce more than one provider batch instead of deadlocking concurrent batches. A missing batch result falls back to that flag's single `decide` call under that flag's own deadline; without `decideMany`, unresolved flags are evaluated in parallel. Calling `gate.batch()` therefore does not guarantee exactly one provider request. The signal passed to `decideMany` spans the batch and is aborted once the batch returns, so a provider call still in flight is cancelled. Batch keys must be unique.
 
-In anonymous mode, snapshots pass `null` to `decideMany`. The built-in cache and dedupe recipes continue to bypass anonymous evaluations, including concurrent snapshots.
+In anonymous mode, batches pass `null` to `decideMany`. The built-in cache and dedupe recipes continue to bypass anonymous evaluations, including concurrent batches.
 
-Evaluation failures remain fail-soft and appear through `snapshot.details(flag)`. API misuse rejects snapshot creation: keys must be unique, every evaluator must come from the same gate factory, and call options use `{ identity }`. These cases throw `DuplicateSnapshotKeyError`, `ForeignGateEvaluatorError`, and the existing migration `TypeError`, respectively. Reading an evaluator that was not included throws `SnapshotFlagNotFoundError`.
+Evaluation failures remain fail-soft and appear through `batch.details(flag)`. API misuse rejects batch creation: keys must be unique, every evaluator must come from the same gate factory, and call options use `{ identity }`. These cases throw `DuplicateBatchKeyError`, `ForeignGateEvaluatorError`, and the existing migration `TypeError`, respectively. Reading an evaluator that was not included throws `BatchFlagNotFoundError`.
 
 ### Hook System
 

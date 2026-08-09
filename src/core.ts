@@ -9,17 +9,17 @@ import type {
 import {
   executeGate,
   executeGateDetails,
-  executeGateSnapshot,
+  executeGateBatch,
   type GateOptions,
-  type SnapshotEntry,
+  type BatchEntry,
 } from "./lib"
-import { ForeignGateEvaluatorError, SnapshotFlagNotFoundError } from "./lib/errors"
+import { ForeignGateEvaluatorError, BatchFlagNotFoundError } from "./lib/errors"
 
 type AnyGateEvaluator = GateEvaluator<never, boolean | string>
 type GateValue<TEvaluator> = TEvaluator extends GateEvaluator<never, infer TValue> ? TValue : never
 type GateDetails<TEvaluator> = EvaluationDetails<GateValue<TEvaluator>>
 
-export type GateSnapshot<TFlags extends readonly AnyGateEvaluator[]> = {
+export type GateBatch<TFlags extends readonly AnyGateEvaluator[]> = {
   details<TFlag extends TFlags[number]>(flag: TFlag): GateDetails<TFlag>
   get<TFlag extends TFlags[number]>(flag: TFlag): GateValue<TFlag>
 }
@@ -62,10 +62,10 @@ export interface GateFactory<TIdentity extends Identity> {
     variants: T
     timeoutMs?: number
   }): GateEvaluator<TIdentity, T[number]>
-  snapshot<const TFlags extends readonly AnyGateEvaluator[]>(
+  batch<const TFlags extends readonly AnyGateEvaluator[]>(
     flags: TFlags,
     options?: GateCallOptions<TIdentity>
-  ): Promise<GateSnapshot<TFlags>>
+  ): Promise<GateBatch<TFlags>>
 }
 
 /**
@@ -138,23 +138,23 @@ export function buildGate<TIdentity extends Identity>(
   }
 
   return Object.assign(gate, {
-    async snapshot<const TFlags extends readonly AnyGateEvaluator[]>(
+    async batch<const TFlags extends readonly AnyGateEvaluator[]>(
       flags: TFlags,
       callOptions?: GateCallOptions<TIdentity>
-    ): Promise<GateSnapshot<TFlags>> {
+    ): Promise<GateBatch<TFlags>> {
       assertCallOptions(callOptions)
-      const entries: SnapshotEntry[] = flags.map((flag) => {
+      const entries: BatchEntry[] = flags.map((flag) => {
         const options = definitions.get(flag)
         if (!options) {
           throw new ForeignGateEvaluatorError()
         }
         return { flag, options }
       })
-      const results = await executeGateSnapshot(config, entries, callOptions)
+      const results = await executeGateBatch(config, entries, callOptions)
       const getDetails = <TFlag extends TFlags[number]>(flag: TFlag): GateDetails<TFlag> => {
         const details = results.get(flag)
         if (!details) {
-          throw new SnapshotFlagNotFoundError()
+          throw new BatchFlagNotFoundError()
         }
         return details as GateDetails<TFlag>
       }

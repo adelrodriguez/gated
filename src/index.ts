@@ -1,17 +1,17 @@
 export { buildGate } from "./core"
-export type { GateFactory, GateSnapshot } from "./core"
+export type { GateFactory, GateBatch } from "./core"
 export { decision } from "./lib/decision"
 export { defineHook } from "./hooks"
 export {
   DecisionTypeMismatchError,
-  DuplicateSnapshotKeyError,
+  DuplicateBatchKeyError,
   ForeignGateEvaluatorError,
   GatedError,
   GateTimeoutError,
   IdentityNotFoundError,
   InvalidVariantError,
   MalformedDecisionError,
-  SnapshotFlagNotFoundError,
+  BatchFlagNotFoundError,
 } from "./lib/errors"
 export type {
   AfterHookMeta,
