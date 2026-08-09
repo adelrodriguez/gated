@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import {
   DecisionTypeMismatchError,
+  DuplicateSnapshotKeyError,
+  ForeignGateEvaluatorError,
   GatedError,
   IdentityNotFoundError,
   InvalidVariantError,
   MalformedDecisionError,
+  SnapshotFlagNotFoundError,
 } from "../errors"
 
 describe("contextual errors", () => {
@@ -43,6 +46,25 @@ describe("contextual errors", () => {
       decision,
       name: "MalformedDecisionError",
       reason: 'type must be "boolean" or "variant"',
+    })
+  })
+
+  test("describes snapshot misuse with discriminable errors", () => {
+    const duplicate = new DuplicateSnapshotKeyError("theme")
+
+    expect(duplicate).toBeInstanceOf(GatedError)
+    expect(duplicate).toMatchObject({
+      key: "theme",
+      message: "Snapshot requires unique flag keys; duplicate: theme",
+      name: "DuplicateSnapshotKeyError",
+    })
+    expect(new ForeignGateEvaluatorError()).toMatchObject({
+      message: "Snapshot flags must be created by this gate factory",
+      name: "ForeignGateEvaluatorError",
+    })
+    expect(new SnapshotFlagNotFoundError()).toMatchObject({
+      message: "Flag is not part of this snapshot",
+      name: "SnapshotFlagNotFoundError",
     })
   })
 })

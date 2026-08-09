@@ -72,3 +72,27 @@ export class GateTimeoutError extends GatedError {
     this.timeoutMs = timeoutMs
   }
 }
+
+export class DuplicateSnapshotKeyError extends GatedError {
+  readonly key: string
+
+  constructor(key: string) {
+    super(`Snapshot requires unique flag keys; duplicate: ${key}`)
+    this.name = "DuplicateSnapshotKeyError"
+    this.key = key
+  }
+}
+
+export class ForeignGateEvaluatorError extends GatedError {
+  constructor() {
+    super("Snapshot flags must be created by this gate factory")
+    this.name = "ForeignGateEvaluatorError"
+  }
+}
+
+export class SnapshotFlagNotFoundError extends GatedError {
+  constructor() {
+    super("Flag is not part of this snapshot")
+    this.name = "SnapshotFlagNotFoundError"
+  }
+}

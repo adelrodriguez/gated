@@ -1,11 +1,28 @@
 import type {
   AnonymousGatedConfig,
+  EvaluationDetails,
   GateCallOptions,
   GateEvaluator,
   GatedConfig,
   Identity,
 } from "./lib/types"
-import { executeGate, executeGateDetails } from "./lib"
+import {
+  executeGate,
+  executeGateDetails,
+  executeGateSnapshot,
+  type GateOptions,
+  type SnapshotEntry,
+} from "./lib"
+import { ForeignGateEvaluatorError, SnapshotFlagNotFoundError } from "./lib/errors"
+
+type AnyGateEvaluator = GateEvaluator<never, boolean | string>
+type GateValue<TEvaluator> = TEvaluator extends GateEvaluator<never, infer TValue> ? TValue : never
+type GateDetails<TEvaluator> = EvaluationDetails<GateValue<TEvaluator>>
+
+export type GateSnapshot<TFlags extends readonly AnyGateEvaluator[]> = {
+  details<TFlag extends TFlags[number]>(flag: TFlag): GateDetails<TFlag>
+  get<TFlag extends TFlags[number]>(flag: TFlag): GateValue<TFlag>
+}
 
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
@@ -45,6 +62,10 @@ export interface GateFactory<TIdentity extends Identity> {
     variants: T
     timeoutMs?: number
   }): GateEvaluator<TIdentity, T[number]>
+  snapshot<const TFlags extends readonly AnyGateEvaluator[]>(
+    flags: TFlags,
+    options?: GateCallOptions<TIdentity>
+  ): Promise<GateSnapshot<TFlags>>
 }
 
 /**
@@ -80,6 +101,7 @@ export function buildGate<TIdentity extends Identity>(
   config: GatedConfig<TIdentity> | AnonymousGatedConfig<TIdentity>
 ): GateFactory<TIdentity> {
   assertTimeoutMs(config.timeoutMs)
+  const definitions = new WeakMap<object, GateOptions<string[]>>()
 
   function gate(options: {
     key: string
@@ -105,13 +127,43 @@ export function buildGate<TIdentity extends Identity>(
       return executeGate(config, options, callOptions)
     }
 
-    return Object.assign(evaluator, {
+    const assigned = Object.assign(evaluator, {
       details: async (callOptions?: GateCallOptions<TIdentity>) => {
         assertCallOptions(callOptions)
         return executeGateDetails(config, options, callOptions)
       },
     })
+    definitions.set(assigned, options)
+    return assigned
   }
 
-  return gate
+  return Object.assign(gate, {
+    async snapshot<const TFlags extends readonly AnyGateEvaluator[]>(
+      flags: TFlags,
+      callOptions?: GateCallOptions<TIdentity>
+    ): Promise<GateSnapshot<TFlags>> {
+      assertCallOptions(callOptions)
+      const entries: SnapshotEntry[] = flags.map((flag) => {
+        const options = definitions.get(flag)
+        if (!options) {
+          throw new ForeignGateEvaluatorError()
+        }
+        return { flag, options }
+      })
+      const results = await executeGateSnapshot(config, entries, callOptions)
+      const getDetails = <TFlag extends TFlags[number]>(flag: TFlag): GateDetails<TFlag> => {
+        const details = results.get(flag)
+        if (!details) {
+          throw new SnapshotFlagNotFoundError()
+        }
+        return details as GateDetails<TFlag>
+      }
+      return {
+        details: getDetails,
+        get<TFlag extends TFlags[number]>(flag: TFlag): GateValue<TFlag> {
+          return getDetails(flag).value
+        },
+      }
+    },
+  })
 }
