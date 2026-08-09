@@ -1,12 +1,29 @@
-# Issue Tracker: GitHub
+# Issue tracker: GitHub
 
-Issues and specs for this repository live in [GitHub Issues](https://github.com/adelrodriguez/gated/issues). Use the `gh` CLI from this checkout; it resolves `adelrodriguez/gated` from the `origin` remote.
+Issues and PRDs for this repository live in GitHub Issues. Use the `gh` CLI for all
+operations.
+
+## Repository
+
+`adelrodriguez/gated`
+
+## Conventions
 
 - Create: `gh issue create --title "..." --body "..."`
 - Read: `gh issue view <number> --comments`
-- List: `gh issue list --state open`
+- List: `gh issue list`
 - Comment: `gh issue comment <number> --body "..."`
 - Label: `gh issue edit <number> --add-label "..."`
 - Close: `gh issue close <number> --comment "..."`
 
-PRs are not a triage request surface. When a workflow says to publish work to the issue tracker, create a GitHub issue.
+Infer the repository from the Git remote when possible.
+
+## Pull requests as a request surface
+
+PRs are not a triage request surface.
+
+## Skill operations
+
+When a skill says to publish to the issue tracker, create a GitHub issue. When a skill says
+to fetch a ticket, read the GitHub issue and its comments. Use GitHub sub-issues and native
+dependencies for wayfinding when available.

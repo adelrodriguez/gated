@@ -1,5 +1,7 @@
 # 04 — Hook error policy
 
+**Status: Completed**
+
 Fixes: H5. Delivers: arch win #3. Depends on: 03. Behavioral change (new observability, same fallback semantics).
 
 ## Goal

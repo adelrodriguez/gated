@@ -1,50 +1,49 @@
-# Gated Agent Guide
+# AGENTS.md
 
-## Scope
+Use ASD-STE100 Simplified Technical English for all communication.
 
-Gated is a single-package, provider-agnostic TypeScript feature-flag library. Read [CONTEXT.md](CONTEXT.md) and [docs/agents/domain.md](docs/agents/domain.md) before changing behavior or terminology.
-
-## Layout and public API
-
-- Core implementation: `src/core.ts` and `src/lib/`
-- Hooks and recipes: `src/hooks/`
-- React integration: `src/integrations/react.tsx`, published as `gated/react`
-- Tests: colocated in `src/**/__tests__/`
-- Public entry points: `gated`, `gated/hooks`, `gated/hooks/recipes`, and `gated/react`
-
-Do not change a public entry point or its types without considering package consumers.
-
-## Quality commands
-
-Use Bun:
-
-```sh
-bun test
-bun run build
-bun run check
-bun run analyze
-bun run format -- --check
-```
-
-`check`, `analyze`, and `format` are Adamantite commands using OXC tooling. Use `bun run fix` or `bun run format` only when writing fixes. There is no separate `typecheck` script.
-
-## Changesets
-
-Run `bunx changeset` and commit the generated `.changeset/*.md` file for user-facing published changes, including public API changes and bug fixes. Skip Changesets for documentation-only, test-only, and internal non-user-facing changes.
+Before you explore or change code, read `CONTEXT.md` and
+`docs/agents/domain.md`. Use the project's domain language.
 
 ## Agent skills
 
+### Source references
+
+When a skill requires a local dependency source checkout, use Packref. See the Packref
+section below.
+
 ### Issue tracker
 
-Work is tracked in GitHub Issues for `adelrodriguez/gated`. See [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
+Issues and PRDs are GitHub issues at `adelrodriguez/gated`. See
+`docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Use the canonical triage labels in [docs/agents/triage-labels.md](docs/agents/triage-labels.md).
+Use the default five-role triage vocabulary. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-This is a single-context repository. See [docs/agents/domain.md](docs/agents/domain.md).
+Use the single-context domain-doc layout. See `docs/agents/domain.md`.
+
+### Changesets
+
+Use Changesets for versioning and changelog management. See
+`docs/agents/changesets.md`.
+
+## Repository rules
+
+- Use Bun for package management and scripts.
+- Run `bun run test`, `bun run build`, `bun run check`, `bun run fix`, and
+  `bun run format` after edits.
+- Run `bun run analyze` after dependency, import, or export changes.
+- Run `bun run build` and then `bun run check:exports` after changes to a public entry
+  point or its types.
+- Keep tests colocated in `src/**/__tests__/`.
+- Keep core implementation in `src/core.ts` and `src/lib/`, hooks and recipes in
+  `src/hooks/`, and the React integration in `src/integrations/react.tsx`.
+- Treat `gated`, `gated/hooks`, `gated/hooks/recipes`, and `gated/react` as public entry
+  points. Consider package consumers before changing their runtime behavior or types.
+- Add or update tests for behavior changes.
 
 <!-- ADAMANTITE:START -->
 

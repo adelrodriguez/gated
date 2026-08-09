@@ -1,4 +1,15 @@
-# Gated Domain Vocabulary
+# Domain docs
+
+This repository uses a single-context domain-doc layout.
+
+## Before you explore
+
+Read these files:
+
+- `CONTEXT.md` at the repository root.
+- This domain vocabulary.
+
+## Vocabulary
 
 Use these terms consistently in code, tests, issues, and documentation.
 
