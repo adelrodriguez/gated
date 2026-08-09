@@ -51,6 +51,16 @@ const hookContext: HookContext<TestIdentity> = {
 const hook: Hook<TestIdentity> = {
   resolve: () => decision,
 }
+const observingHook: Hook<TestIdentity> = {
+  resolve(context) {
+    void context.flagKey
+  },
+}
+const asynchronousObservingHook: Hook<TestIdentity> = {
+  async resolve(context) {
+    await Promise.resolve(context.flagKey)
+  },
+}
 const afterMeta: AfterHookMeta<TestIdentity> = { source: decisionSource }
 const hookAfterMeta: AfterHookMeta<TestIdentity> = { resolver: hook, source: "hook" }
 // @ts-expect-error hook-resolved metadata requires the exact resolver
@@ -128,6 +138,8 @@ test("exports consumer-facing root types", async () => {
   expect(afterMeta.source).toBe("provider")
   expect(hookAfterMeta.resolver).toBe(hook)
   expect(hookErrorReport.context).toBe(hookContext)
+  expect(typeof observingHook.resolve).toBe("function")
+  expect(typeof asynchronousObservingHook.resolve).toBe("function")
   expect(invalidHookAfterMeta.source).toBe("hook")
   expect(typeof invalidAnonymousGate).toBe("function")
   expect(identityValue).toEqual({ plan: "pro" })

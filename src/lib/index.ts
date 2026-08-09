@@ -267,8 +267,11 @@ export async function runResolveHooks<TIdentity extends Identity>(
       const value = await Promise.resolve().then(() => hook.resolve?.(hookContext))
 
       if (value !== undefined && value !== null) {
-        validate(value)
-        return { decision: value, resolver: hook }
+        // TypeScript 5 retains void after the runtime undefined check; a non-null result is a decision.
+        // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- Required by TypeScript 5.x.
+        const decision = value as Decision
+        validate(decision)
+        return { decision, resolver: hook }
       }
     } catch (error) {
       if (error instanceof HookResolutionAbortError) {
