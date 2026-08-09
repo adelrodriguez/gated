@@ -1,5 +1,5 @@
 import { type ReactNode, Suspense, use } from "react"
-import type { GateEvaluator, Identity } from "../lib/types"
+import type { Identity } from "../lib/types"
 
 const DEFAULT_MAX_ENTRIES = 100
 const DEFAULT_TTL_MS = 5 * 60 * 1000
@@ -186,7 +186,8 @@ function isDevelopmentEnvironment(): boolean {
  * expiry take effect on the next render; they do not schedule a render themselves.
  */
 export function createReactGate<TIdentity extends Identity, TValue extends boolean | string>(
-  gateFn: GateEvaluator<TIdentity, TValue>,
+  // Accept any evaluator-shaped function; custom React data sources do not need a `.details()` method.
+  gateFn: (overrideIdentity?: TIdentity) => Promise<TValue>,
   options: CreateReactGateOptions<TValue> = {}
 ): ReactGate<TIdentity, TValue> {
   const runtimeOptions = options as ReactGateCacheOptions & {

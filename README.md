@@ -79,6 +79,23 @@ const themeFlag = gate({
 const theme = await themeFlag() // Type: "light" | "dark" | "system"
 ```
 
+### Evaluation Details
+
+Use `details()` when callers need to distinguish a legitimate value from a fallback caused by a provider or identity failure. Plain evaluation remains unchanged.
+
+```typescript
+const betaAccess = gate({ key: "beta-access", defaultValue: false })
+
+const enabled = await betaAccess() // boolean
+const details = await betaAccess.details()
+
+if (details.source === "default") {
+  alertOperations(details.error)
+}
+```
+
+Details include the evaluated `value`, `flagKey`, and `source` (`"hook"`, `"provider"`, or `"default"`). When evaluation falls back because of a failure, `error` contains the underlying error. Like plain evaluation, `details()` accepts an optional override identity and never rejects.
+
 ### Hook System
 
 Intercept the flag evaluation lifecycle with hooks. Gated supports five lifecycle stages:
@@ -288,18 +305,26 @@ Returns a gate factory function that creates individual feature flags.
 #### Gate Factory
 
 ```typescript
-// Boolean flag
-gate({ key: string, defaultValue: boolean }): () => Promise<boolean>
+// Boolean flag — the evaluator is callable and also exposes details()
+gate({ key: string, defaultValue: boolean }): GateEvaluator<TIdentity, boolean>
 
 // Variant flag
 gate({
   key: string,
   defaultValue: T,
   variants: readonly T[]
-}): () => Promise<T>
+}): GateEvaluator<TIdentity, T>
+
+type GateEvaluator<
+  TIdentity extends Identity,
+  TValue extends boolean | string,
+> = ((overrideIdentity?: TIdentity) => Promise<TValue>) & {
+  details(overrideIdentity?: TIdentity): Promise<EvaluationDetails<TValue>>
+}
 ```
 
-Optionally accepts `overrideIdentity` parameter for testing.
+See [Evaluation Details](#evaluation-details) for the result shape returned by `details()`.
+Evaluators optionally accept an identity override for testing.
 
 #### `createHook<TOptions>(factory)`
 

@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test"
-import type { Decision, Hook, Identity } from "../lib/types"
+import type { Decision, EvaluationDetails, Hook, Identity } from "../lib/types"
 import { buildGate } from "../core"
 
 describe("buildGate", () => {
@@ -36,6 +36,145 @@ describe("buildGate", () => {
     const result = await betaFlag()
 
     expect(result).toBe(true)
+  })
+
+  test("returns provider evaluation details without changing the plain value", async () => {
+    const gate = buildGate({
+      decide: () => ({ value: true }),
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaFlag.details()).toEqual({
+      flagKey: "beta-access",
+      source: "provider",
+      value: true,
+    })
+    expect(await betaFlag()).toBe(true)
+  })
+
+  test("returns hook evaluation details", async () => {
+    const gate = buildGate({
+      decide: () => ({ value: false }),
+      hooks: [{ resolve: () => ({ value: true }) }],
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaFlag.details()).toEqual({
+      flagKey: "beta-access",
+      source: "hook",
+      value: true,
+    })
+  })
+
+  test("returns the provider error with default evaluation details", async () => {
+    const error = new Error("Provider unavailable")
+    const gate = buildGate({
+      decide: () => Promise.reject(error),
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaFlag.details()).toEqual({
+      error,
+      flagKey: "beta-access",
+      source: "default",
+      value: false,
+    })
+  })
+
+  test("normalizes undefined rejections without hiding the failure", async () => {
+    const gate = buildGate({
+      // oxlint-disable-next-line eslint/arrow-body-style -- Keep the intentional invalid rejection localized.
+      decide: () => {
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- Exercise hostile JavaScript callers.
+        return Promise.reject<Decision>()
+      },
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaFlag()).toBe(false)
+
+    const details = await betaFlag.details()
+    expect(details.source).toBe("default")
+    if (details.source === "default") {
+      expect(details.error).toBeInstanceOf(Error)
+      expect(details.error.message).toBe("undefined")
+    }
+  })
+
+  test("never rejects when error inspection throws", async () => {
+    const { proxy, revoke } = Proxy.revocable({}, {})
+    revoke()
+    const gate = buildGate({
+      decide: () => {
+        // oxlint-disable-next-line typescript/only-throw-error -- Exercise hostile JavaScript callers.
+        throw proxy
+      },
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaFlag()).toBe(false)
+
+    const details = await betaFlag.details()
+    expect(details.source).toBe("default")
+    if (details.source === "default") {
+      expect(details.error).toBeInstanceOf(Error)
+      expect(details.error.message).toBe("Uninspectable value thrown")
+    }
+  })
+
+  test("returns the identity error with default evaluation details", async () => {
+    const gate = buildGate({
+      decide: () => ({ value: true }),
+      identify: () => null,
+    })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+    const details = await betaFlag.details()
+
+    expect(details).toEqual({
+      error: expect.any(Error),
+      flagKey: "beta-access",
+      source: "default",
+      value: false,
+    })
+    expect(details.error).toHaveProperty("message", "Identity not found")
+  })
+
+  test("details accepts an override identity", async () => {
+    const identify = mock(() => ({ distinctId: "default" }))
+    const overrideIdentity = { distinctId: "override" }
+    const gate = buildGate({
+      decide: (_key, identity) => ({ value: identity.distinctId === "override" }),
+      identify,
+    })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaFlag.details(overrideIdentity)).toEqual({
+      flagKey: "beta-access",
+      source: "provider",
+      value: true,
+    })
+    expect(identify).not.toHaveBeenCalled()
+  })
+
+  test("preserves variant value inference in evaluation details", async () => {
+    const gate = buildGate({
+      decide: () => ({ variant: "dark" }),
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const themeFlag = gate({
+      defaultValue: "light",
+      key: "theme",
+      variants: ["light", "dark", "system"],
+    })
+
+    const details: EvaluationDetails<"light" | "dark" | "system"> = await themeFlag.details()
+
+    expect(details).toEqual({ flagKey: "theme", source: "provider", value: "dark" })
   })
 
   test("creates boolean flag that evaluates to false", async () => {

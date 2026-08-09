@@ -3,6 +3,7 @@ import type {
   AfterHookMeta,
   Decision,
   DecisionSource,
+  EvaluationDetails,
   GateEvaluator,
   GateFactory,
   GatedConfig,
@@ -76,9 +77,10 @@ function readGateConfiguration(context: HookContext) {
   return { defaultValue, variants }
 }
 
-test("exports consumer-facing root types", () => {
+test("exports consumer-facing root types", async () => {
   // @ts-expect-error -- HookContext no longer accepts an options type argument.
   const legacyContext: HookContext<TestIdentity, { custom: boolean }> = hookContext
+  const details: EvaluationDetails<boolean> = await evaluator.details()
 
   expect(afterMeta.source).toBe("provider")
   expect(hookAfterMeta.resolver).toBe(hook)
@@ -88,6 +90,7 @@ test("exports consumer-facing root types", () => {
   expect(maybeDecision).toBe(decision)
   expect(typeof evaluator).toBe("function")
   expect(typeof variantEvaluator).toBe("function")
+  expect(details.value).toBe(true)
   expect(legacyContext).toBe(hookContext)
   expect(readGateConfiguration(hookContext)).toEqual({ defaultValue: false, variants: undefined })
   expect(new IdentityNotFoundError()).toBeInstanceOf(GatedError)

@@ -11,6 +11,7 @@ export type {
   AfterHookMeta,
   Decision,
   DecisionSource,
+  EvaluationDetails,
   GateEvaluator,
   GatedConfig,
   Hook,

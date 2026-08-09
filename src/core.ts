@@ -1,5 +1,5 @@
 import type { GateEvaluator, GatedConfig, Identity } from "./lib/types"
-import { executeGate } from "./lib"
+import { executeGate, executeGateDetails } from "./lib"
 
 export interface GateFactory<TIdentity extends Identity> {
   (options: { key: string; defaultValue: boolean }): GateEvaluator<TIdentity, boolean>
@@ -46,7 +46,13 @@ export function buildGate<TIdentity extends Identity>(
     defaultValue: boolean | T[number]
     variants?: T
   }): GateEvaluator<TIdentity, boolean | T[number]> {
-    return async (overrideIdentity) => executeGate(config, options, overrideIdentity)
+    const evaluator = async (overrideIdentity?: TIdentity) =>
+      executeGate(config, options, overrideIdentity)
+
+    return Object.assign(evaluator, {
+      details: async (overrideIdentity?: TIdentity) =>
+        executeGateDetails(config, options, overrideIdentity),
+    })
   }
 
   return gate
