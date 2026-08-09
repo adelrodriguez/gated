@@ -77,69 +77,191 @@ function createFailingHook(
 }
 
 describe("uniform hook lifecycle", () => {
+  const recipeScenarios = [
+    "cache-hit",
+    "cache-miss",
+    "provider-error",
+    "concurrent-success",
+    "concurrent-error",
+  ] as const
+
   for (const order of ["dedupe-first", "cache-first"] as const) {
-    test(`cache and dedupe remain correct with ${order}`, async () => {
-      const cache = createMemoryCache()
-      const cacheRecipe = cacheHook(cache)
-      const dedupeRecipe = dedupeHook()
-      const decide = mock(() => Promise.resolve<Decision>({ type: "boolean", value: true }))
-      const hooks =
-        order === "dedupe-first" ? [dedupeRecipe, cacheRecipe] : [cacheRecipe, dedupeRecipe]
+    for (const scenario of recipeScenarios) {
+      const title =
+        order === "dedupe-first" && scenario === "cache-hit"
+          ? "regression: dedupe-before-cache must not hang (H1)"
+          : `${order}: ${scenario}`
+
+      test(title, async () => {
+        const cache = createMemoryCache(
+          scenario === "cache-hit" ? { type: "boolean", value: true } : undefined
+        )
+        const providerResult = createDeferred<Decision>()
+        const decide = mock((): Promise<Decision> => {
+          if (scenario === "provider-error") {
+            return Promise.reject(new Error("Provider failed"))
+          }
+          if (scenario === "concurrent-success" || scenario === "concurrent-error") {
+            return providerResult.promise
+          }
+          return Promise.resolve({ type: "boolean", value: true })
+        })
+        const cacheRecipe = cacheHook(cache)
+        const dedupeRecipe = dedupeHook()
+        const hooks =
+          order === "dedupe-first" ? [dedupeRecipe, cacheRecipe] : [cacheRecipe, dedupeRecipe]
+        const gate = buildGate({
+          decide,
+          hooks,
+          identify: () => ({ distinctId: "user123" }),
+        })
+        const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+        if (scenario === "concurrent-success" || scenario === "concurrent-error") {
+          const evaluations = [betaAccess(), betaAccess(), betaAccess(), betaAccess(), betaAccess()]
+          await Bun.sleep(0)
+          if (scenario === "concurrent-success") {
+            providerResult.resolve({ type: "boolean", value: true })
+          } else {
+            providerResult.reject(new Error("Provider failed"))
+          }
+          expect(await settleWithin(Promise.all(evaluations), 75)).toEqual(
+            scenario === "concurrent-success"
+              ? [true, true, true, true, true]
+              : [false, false, false, false, false]
+          )
+
+          if (scenario === "concurrent-error") {
+            expect(await settleWithin(betaAccess(), 75)).toBe(false)
+          }
+        } else {
+          const expected = scenario !== "provider-error"
+          expect(await settleWithin(betaAccess(), 75)).toBe(expected)
+          if (scenario === "cache-hit" || scenario === "cache-miss") {
+            expect(await settleWithin(betaAccess(), 75)).toBe(true)
+          }
+        }
+
+        expect(decide).toHaveBeenCalledTimes(
+          scenario === "cache-hit" ? 0 : scenario === "concurrent-error" ? 2 : 1
+        )
+        expect(cache.set).toHaveBeenCalledTimes(
+          scenario === "concurrent-success" && order === "cache-first"
+            ? 5
+            : scenario === "cache-miss" || scenario === "concurrent-success"
+              ? 1
+              : 0
+        )
+      })
+    }
+  }
+
+  for (const source of ["hook", "provider", "default"] as const) {
+    test(`runs the exact lifecycle order for a ${source} decision`, async () => {
+      const events: string[] = []
       const gate = buildGate({
-        decide,
-        hooks,
+        decide: () => {
+          events.push("provider")
+          if (source === "default") {
+            throw new Error("Provider failed")
+          }
+          return { type: "boolean", value: true }
+        },
+        hooks: [
+          {
+            after() {
+              events.push("after")
+            },
+            before() {
+              events.push("before")
+            },
+            error() {
+              events.push("error")
+            },
+            finally() {
+              events.push("finally")
+            },
+            resolve() {
+              events.push("resolve")
+              return source === "hook" ? { type: "boolean", value: true } : undefined
+            },
+          },
+        ],
         identify: () => ({ distinctId: "user123" }),
       })
-      const betaAccess = gate({ defaultValue: false, key: "beta-access" })
 
-      expect(await settleWithin(betaAccess())).toBe(true)
-      expect(await settleWithin(betaAccess())).toBe(true)
-      expect(await settleWithin(betaAccess())).toBe(true)
-      expect(decide).toHaveBeenCalledTimes(1)
-      expect(cache.set).toHaveBeenCalledTimes(1)
+      expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(source !== "default")
+      expect(events).toEqual(
+        source === "hook"
+          ? ["before", "resolve", "after", "finally"]
+          : source === "provider"
+            ? ["before", "resolve", "provider", "after", "finally"]
+            : ["before", "resolve", "provider", "error", "finally"]
+      )
     })
   }
 
-  test("deduplicates concurrent provider decisions", async () => {
-    const providerResult = createDeferred<Decision>()
-    const decide = mock(() => providerResult.promise)
-    const gate = buildGate({
-      decide,
-      hooks: [dedupeHook()],
-      identify: () => ({ distinctId: "user123" }),
+  test("always settles across 100 hostile hook combinations", async () => {
+    // Deterministic modulus schedules cover overlapping hostile phases without introducing flaky randomness.
+    const evaluations = Array.from({ length: 100 }, (_, index) => {
+      const fail = (phase: string): void => {
+        throw new Error(`${phase}-${index}`)
+      }
+      const gate = buildGate({
+        decide: () => {
+          if (index % 17 === 0) {
+            throw new Error(`provider-${index}`)
+          }
+          return { type: "boolean", value: true }
+        },
+        hooks: [
+          {
+            after:
+              index % 5 === 0
+                ? () => {
+                    fail("after")
+                  }
+                : undefined,
+            before:
+              index % 7 === 0
+                ? () => {
+                    fail("before")
+                  }
+                : undefined,
+            error:
+              index % 3 === 0
+                ? () => {
+                    fail("error")
+                  }
+                : undefined,
+            finally:
+              index % 4 === 0
+                ? () => {
+                    fail("finally")
+                  }
+                : index % 2 === 0
+                  ? () => Promise.reject(new Error(`finally-${index}`))
+                  : undefined,
+            resolve:
+              index % 11 === 0
+                ? () => Promise.reject(new Error(`resolve-${index}`))
+                : index % 13 === 0
+                  ? () => ({ type: "boolean", value: false })
+                  : undefined,
+          },
+        ],
+        identify: () => ({ distinctId: `user-${index}` }),
+      })
+
+      return settleWithin(gate({ defaultValue: false, key: "beta" })(), 75)
     })
-    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
 
-    const evaluations = [betaAccess(), betaAccess(), betaAccess()]
-    await Bun.sleep(0)
-    providerResult.resolve({ type: "boolean", value: true })
-
-    expect(await settleWithin(Promise.all(evaluations))).toEqual([true, true, true])
-    expect(decide).toHaveBeenCalledTimes(1)
-  })
-
-  test("releases every follower after a provider error and starts fresh", async () => {
-    const firstAttempt = createDeferred<Decision>()
-    const decide = mock(() =>
-      decide.mock.calls.length === 1
-        ? firstAttempt.promise
-        : Promise.resolve({ type: "boolean", value: true } as const)
+    const results = await Promise.all(evaluations)
+    const expected = Array.from(
+      { length: 100 },
+      (_, index) => !((index % 13 === 0 && index % 11 !== 0) || index % 17 === 0)
     )
-    const gate = buildGate({
-      decide,
-      hooks: [dedupeHook()],
-      identify: () => ({ distinctId: "user123" }),
-    })
-    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
-
-    const evaluations = [betaAccess(), betaAccess(), betaAccess()]
-    await Bun.sleep(0)
-    firstAttempt.reject(new Error("Provider failed"))
-
-    expect(await settleWithin(Promise.all(evaluations))).toEqual([false, false, false])
-    expect(decide).toHaveBeenCalledTimes(1)
-    expect(await settleWithin(betaAccess())).toBe(true)
-    expect(decide).toHaveBeenCalledTimes(2)
+    expect(results).toEqual(expected)
   })
 
   test("handles a leader rejection when there are no followers", async () => {
