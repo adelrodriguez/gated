@@ -1,9 +1,8 @@
 import { type ReactNode, Suspense, use } from "react"
-import type { Identity } from "../lib/types"
+import type { GateCallOptions, Identity } from "../lib/types"
 
 const DEFAULT_MAX_ENTRIES = 100
 const DEFAULT_TTL_MS = 5 * 60 * 1000
-const DEFAULT_IDENTITY_KEY = ""
 let nextReactGateNamespace = 0
 
 export type ReactGateCacheOptions = {
@@ -28,6 +27,25 @@ export type CreateReactGateOptions<TValue extends boolean | string> =
       ttlMs?: never
     }
 
+export type ReactGateCacheKey =
+  | boolean
+  | number
+  | string
+  | null
+  | undefined
+  | readonly ReactGateCacheKey[]
+  | { readonly [key: string]: ReactGateCacheKey }
+
+export type CustomCreateReactGateOptions<
+  TArgs extends unknown[],
+  TValue extends boolean | string,
+> = CreateReactGateOptions<TValue> & {
+  /**
+   * Projects the function arguments to the semantic value used for cache lookup and invalidation.
+   */
+  cacheKey: (...args: TArgs) => ReactGateCacheKey
+}
+
 export interface ReactGateCache<TValue extends boolean | string = boolean | string> {
   clear(): void
   delete(key: string): boolean
@@ -36,13 +54,25 @@ export interface ReactGateCache<TValue extends boolean | string = boolean | stri
 }
 
 export type ReactGate<TIdentity extends Identity, TValue extends boolean | string> = {
-  (overrideIdentity?: TIdentity): TValue
+  (identity?: TIdentity): TValue
   /**
    * Evicts one identity. The next render evaluates it again; this does not trigger a render.
    */
-  invalidate(overrideIdentity?: TIdentity): void
+  invalidate(identity?: TIdentity): void
   /**
    * Evicts every identity. The next render evaluates them again; this does not trigger a render.
+   */
+  clear(): void
+}
+
+export type CustomReactGate<TArgs extends unknown[], TValue extends boolean | string> = {
+  (...args: TArgs): TValue
+  /**
+   * Evicts one invocation. The next render evaluates it again; this does not trigger a render.
+   */
+  invalidate(...args: TArgs): void
+  /**
+   * Evicts every invocation. The next render evaluates them again; this does not trigger a render.
    */
   clear(): void
 }
@@ -163,16 +193,65 @@ export function createReactGateCache<TValue extends boolean | string = boolean |
   }
 }
 
-function identityKey(identity?: Identity): string {
-  if (identity === undefined) {
-    return DEFAULT_IDENTITY_KEY
+function stableSerialize(value: unknown): string {
+  const references = new WeakMap<object, number>()
+  let nextReference = 0
+
+  function encode(current: unknown): string {
+    if (current === null) {
+      return "null"
+    }
+
+    switch (typeof current) {
+      case "undefined":
+        return "undefined"
+      case "boolean":
+        return `boolean:${current}`
+      case "number":
+        return `number:${Object.is(current, -0) ? "-0" : String(current)}`
+      case "string":
+        return `string:${JSON.stringify(current)}`
+      case "bigint":
+        return `bigint:${current}`
+      case "symbol":
+        return `symbol:${JSON.stringify(current.description)}`
+      case "function":
+        return `function:${JSON.stringify(current.name)}`
+      case "object": {
+        const reference = references.get(current)
+        if (reference !== undefined) {
+          return `reference:${reference}`
+        }
+
+        references.set(current, nextReference)
+        nextReference += 1
+
+        if (Array.isArray(current)) {
+          return `array:[${current.map((item) => encode(item)).join(",")}]`
+        }
+
+        const keys = Object.keys(current)
+        // oxlint-disable-next-line unicorn/no-array-sort -- Object.keys returns a fresh array; sort has broader runtime support than toSorted.
+        keys.sort()
+        const entries = keys.map(
+          (key) => `${JSON.stringify(key)}:${encode((current as Record<string, unknown>)[key])}`
+        )
+        return `object:{${entries.join(",")}}`
+      }
+    }
+
+    throw new TypeError("Unsupported React gate cache key")
   }
 
-  const keys = Object.keys(identity)
-  // oxlint-disable-next-line unicorn/no-array-sort -- Object.keys returns a fresh array; sort has broader runtime support than toSorted.
-  keys.sort()
-  const sortedIdentity = Object.fromEntries(keys.map((key) => [key, identity[key]]))
-  return JSON.stringify(sortedIdentity)
+  return encode(value)
+}
+
+function trimTrailingUndefined(args: unknown[]): unknown[] {
+  const normalized = [...args]
+  while (normalized.length > 0 && normalized.at(-1) === undefined) {
+    normalized.pop()
+  }
+  return normalized
 }
 
 function isDevelopmentEnvironment(): boolean {
@@ -186,12 +265,22 @@ function isDevelopmentEnvironment(): boolean {
  * expiry take effect on the next render; they do not schedule a render themselves.
  */
 export function createReactGate<TIdentity extends Identity, TValue extends boolean | string>(
-  // Accept any evaluator-shaped function; custom React data sources do not need a `.details()` method.
-  gateFn: (overrideIdentity?: TIdentity) => Promise<TValue>,
-  options: CreateReactGateOptions<TValue> = {}
-): ReactGate<TIdentity, TValue> {
+  gateFn: (options?: GateCallOptions<TIdentity>) => Promise<TValue>,
+  options?: CreateReactGateOptions<TValue>
+): ReactGate<TIdentity, TValue>
+export function createReactGate<TArgs extends unknown[], TValue extends boolean | string>(
+  gateFn: (...args: TArgs) => Promise<TValue>,
+  options: CustomCreateReactGateOptions<TArgs, TValue>
+): CustomReactGate<TArgs, TValue>
+export function createReactGate<TValue extends boolean | string>(
+  gateFn: (...args: never[]) => Promise<TValue>,
+  options: CreateReactGateOptions<TValue> & {
+    cacheKey?: (...args: never[]) => ReactGateCacheKey
+  } = {}
+): CustomReactGate<never[], TValue> {
   const runtimeOptions = options as ReactGateCacheOptions & {
     cache?: ReactGateCache<TValue>
+    cacheKey?: (...args: unknown[]) => ReactGateCacheKey
   }
   if (
     runtimeOptions.cache !== undefined &&
@@ -203,15 +292,24 @@ export function createReactGate<TIdentity extends Identity, TValue extends boole
   const cache = runtimeOptions.cache ?? createReactGateCache<TValue>(runtimeOptions)
   const cacheNamespace = `gate:${nextReactGateNamespace}:`
   nextReactGateNamespace += 1
-  const keyOf = (overrideIdentity?: TIdentity): string =>
-    cacheNamespace + identityKey(overrideIdentity)
+  const keyOf = (args: unknown[]): string => {
+    const normalizedArgs = trimTrailingUndefined(args)
+    const semanticKey = runtimeOptions.cacheKey
+      ? runtimeOptions.cacheKey(...normalizedArgs)
+      : (normalizedArgs[0] ?? null)
+    return cacheNamespace + stableSerialize(semanticKey)
+  }
 
-  function useGateValue(overrideIdentity?: TIdentity): TValue {
-    const key = keyOf(overrideIdentity)
+  function useGateValue(...args: unknown[]): TValue {
+    const key = keyOf(args)
     let promise = cache.get(key)
 
     if (!promise) {
-      const evaluation = gateFn(overrideIdentity)
+      const evaluation = runtimeOptions.cacheKey
+        ? gateFn(...(args as never[]))
+        : args[0] === undefined
+          ? gateFn()
+          : gateFn({ identity: args[0] } as never)
       // React must observe the rejected promise on its retry render. Defer eviction until the
       // next task, and do not delete a newer evaluation that reused this key in the meantime.
       const cachedEvaluation = evictOnRejection(evaluation, () => {
@@ -228,8 +326,8 @@ export function createReactGate<TIdentity extends Identity, TValue extends boole
     return use(promise)
   }
 
-  useGateValue.invalidate = (overrideIdentity?: TIdentity): void => {
-    cache.delete(keyOf(overrideIdentity))
+  useGateValue.invalidate = (...args: unknown[]): void => {
+    cache.delete(keyOf(args))
   }
   useGateValue.clear = (): void => {
     cache.clear()
@@ -240,26 +338,20 @@ export function createReactGate<TIdentity extends Identity, TValue extends boole
 
 type GateSlotProps<
   TIdentity extends Identity,
-  TGate extends (overrideIdentity?: TIdentity) => boolean | string,
+  TGate extends (identity?: TIdentity) => boolean | string,
 > = {
   children: ReactNode
   fallback?: ReactNode
   gate: TGate
   match?: ReturnType<TGate>
-  overrideIdentity?: TIdentity
+  identity?: TIdentity
 }
 
 function GateSlot<
   TIdentity extends Identity,
-  TGate extends (overrideIdentity?: TIdentity) => boolean | string,
->({
-  children,
-  fallback,
-  gate,
-  match,
-  overrideIdentity,
-}: GateSlotProps<TIdentity, TGate>): ReactNode {
-  const value = gate(overrideIdentity)
+  TGate extends (identity?: TIdentity) => boolean | string,
+>({ children, fallback, gate, match, identity }: GateSlotProps<TIdentity, TGate>): ReactNode {
+  const value = gate(identity)
 
   if (typeof value === "string" && match === undefined) {
     if (isDevelopmentEnvironment()) {
@@ -276,25 +368,25 @@ function GateSlot<
 export function FeatureGate<TIdentity extends Identity>(props: {
   children: ReactNode
   fallback?: ReactNode
-  gate: (overrideIdentity?: TIdentity) => boolean
+  gate: (identity?: TIdentity) => boolean
   loading?: ReactNode
   match?: boolean
-  overrideIdentity?: TIdentity
+  identity?: TIdentity
 }): ReactNode
 export function FeatureGate<
   TIdentity extends Identity,
-  TGate extends (overrideIdentity?: TIdentity) => string,
+  TGate extends (identity?: TIdentity) => string,
 >(props: {
   children: ReactNode
   fallback?: ReactNode
   gate: TGate
   loading?: ReactNode
   match: ReturnType<TGate>
-  overrideIdentity?: TIdentity
+  identity?: TIdentity
 }): ReactNode
 export function FeatureGate<
   TIdentity extends Identity,
-  TGate extends (overrideIdentity?: TIdentity) => boolean | string,
+  TGate extends (identity?: TIdentity) => boolean | string,
 >({ loading, ...slotProps }: GateSlotProps<TIdentity, TGate> & { loading?: ReactNode }): ReactNode {
   const slot = <GateSlot {...slotProps} />
   if (loading === undefined) {

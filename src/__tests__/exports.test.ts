@@ -4,6 +4,7 @@ import type {
   Decision,
   DecisionSource,
   EvaluationDetails,
+  GateCallOptions,
   GateEvaluator,
   GateFactory,
   GatedConfig,
@@ -81,6 +82,14 @@ test("exports consumer-facing root types", async () => {
   // @ts-expect-error -- HookContext no longer accepts an options type argument.
   const legacyContext: HookContext<TestIdentity, { custom: boolean }> = hookContext
   const details: EvaluationDetails<boolean> = await evaluator.details()
+  const callOptions = {
+    identity: hookContext.identity ?? undefined,
+  } satisfies GateCallOptions<TestIdentity>
+  const overriddenValue = await evaluator(callOptions)
+  const assertLegacyEvaluationIsRejected = () => {
+    // @ts-expect-error -- Weak-type excess-property checking rejects a bare identity.
+    void evaluator({ distinctId: "legacy-user", plan: "pro" })
+  }
 
   expect(afterMeta.source).toBe("provider")
   expect(hookAfterMeta.resolver).toBe(hook)
@@ -91,8 +100,10 @@ test("exports consumer-facing root types", async () => {
   expect(typeof evaluator).toBe("function")
   expect(typeof variantEvaluator).toBe("function")
   expect(details.value).toBe(true)
+  expect(typeof assertLegacyEvaluationIsRejected).toBe("function")
   expect(legacyContext).toBe(hookContext)
   expect(readGateConfiguration(hookContext)).toEqual({ defaultValue: false, variants: undefined })
+  expect(overriddenValue).toBe(true)
   expect(new IdentityNotFoundError()).toBeInstanceOf(GatedError)
   expect(new DecisionTypeMismatchError("boolean", { variant: "dark" })).toBeInstanceOf(GatedError)
   expect(new InvalidVariantError("purple", ["light", "dark"])).toBeInstanceOf(GatedError)

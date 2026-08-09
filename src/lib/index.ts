@@ -3,6 +3,7 @@ import type {
   Decision,
   DecisionSource,
   EvaluationDetails,
+  GateCallOptions,
   GatedConfig,
   Hook,
   HookContext,
@@ -79,9 +80,9 @@ function reportRejectedHooks<TIdentity extends Identity>(
 
 export async function identify<TIdentity extends Identity>(
   fn: () => MaybePromise<TIdentity | null>,
-  overrideIdentity?: TIdentity
+  overrideIdentity?: TIdentity | null
 ): Promise<TIdentity> {
-  if (overrideIdentity) {
+  if (overrideIdentity !== undefined && overrideIdentity !== null) {
     return overrideIdentity
   }
 
@@ -215,7 +216,7 @@ export function validateDecision<T extends string[]>(decision: Decision, options
 export async function executeGateDetails<TIdentity extends Identity, T extends string[] = string[]>(
   config: GatedConfig<TIdentity>,
   options: GateOptions<T>,
-  overrideIdentity?: TIdentity
+  callOptions?: GateCallOptions<TIdentity>
 ): Promise<EvaluationDetails<boolean | T[number]>> {
   const hooks = config.hooks ?? []
   const gateConfiguration = getGateConfiguration(options.variants)
@@ -264,7 +265,7 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
   let failure: Error | undefined
 
   try {
-    evaluation.identity = await identify(config.identify, overrideIdentity)
+    evaluation.identity = await identify(config.identify, callOptions?.identity)
 
     await runBeforeHooks(hooks, hookContext, config.onHookError)
 
@@ -322,8 +323,8 @@ export async function executeGateDetails<TIdentity extends Identity, T extends s
 export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
   config: GatedConfig<TIdentity>,
   options: GateOptions<T>,
-  overrideIdentity?: TIdentity
+  callOptions?: GateCallOptions<TIdentity>
 ): Promise<boolean | T[number]> {
-  const details = await executeGateDetails(config, options, overrideIdentity)
+  const details = await executeGateDetails(config, options, callOptions)
   return details.value
 }

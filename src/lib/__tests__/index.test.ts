@@ -58,6 +58,16 @@ describe("identify", () => {
     expect(identifyFn).toHaveBeenCalledTimes(1)
   })
 
+  test("treats a null override as not provided", async () => {
+    const identity: Identity = { distinctId: "user123" }
+    const identifyFn = mock(() => Promise.resolve(identity))
+
+    const result = await identify(identifyFn, null)
+
+    expect(result).toEqual(identity)
+    expect(identifyFn).toHaveBeenCalledTimes(1)
+  })
+
   test("throws error when identify function returns null", async () => {
     const identifyFn = mock(() => Promise.resolve(null))
 
@@ -650,7 +660,7 @@ describe("executeGate", () => {
       key: "test-flag",
     }
 
-    const result = await executeGate(config, options, overrideIdentity)
+    const result = await executeGate(config, options, { identity: overrideIdentity })
 
     expect(result).toBe(true)
     expect(config.identify).not.toHaveBeenCalled()
