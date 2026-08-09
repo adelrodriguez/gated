@@ -581,7 +581,10 @@ export async function executeGateSnapshot<TIdentity extends Identity>(
       : effectiveTimeouts.includes(undefined)
         ? undefined
         : Math.max(...(effectiveTimeouts as number[]))
-  const { cleanup, signal } = createEvaluationSignal(callOptions?.signal, snapshotTimeoutMs)
+  const snapshotTimeout = createEvaluationSignal(callOptions?.signal, snapshotTimeoutMs)
+  // Aborting this controller on the way out cancels a batch left in flight by an early return.
+  const batchController = new AbortController()
+  const signal = AbortSignal.any([snapshotTimeout.signal, batchController.signal])
   const entrySignals = new Map(
     entries.map((entry) => [
       entry.flag,
@@ -637,11 +640,12 @@ export async function executeGateSnapshot<TIdentity extends Identity>(
             request.resolve(batched)
             return
           }
+          const entrySignal = entrySignals.get(entry.flag)?.signal ?? signal
           try {
             request.resolve(
               await raceWithSignal(
-                () => evaluateConfiguredDecision(config, entry.options.key, identity, signal),
-                signal
+                () => evaluateConfiguredDecision(config, entry.options.key, identity, entrySignal),
+                entrySignal
               )
             )
           } catch (error) {
@@ -667,12 +671,12 @@ export async function executeGateSnapshot<TIdentity extends Identity>(
 
   const evaluations = entries.map((entry) => {
     const request = createDecisionRequest()
-    const entrySignal = entrySignals.get(entry.flag)?.signal
+    const entrySignal = entrySignals.get(entry.flag)
     return {
       evaluation: executeGateDetails(
         config,
         entry.options,
-        { ...callOptions, signal: entrySignal },
+        { ...callOptions, signal: entrySignal?.signal },
         {
           identityResult,
           onPrepared(providerRequired) {
@@ -684,7 +688,9 @@ export async function executeGateSnapshot<TIdentity extends Identity>(
           },
           provider: () => request.promise,
         }
-      ),
+      ).finally(() => {
+        entrySignal?.cleanup()
+      }),
       flag: entry.flag,
     }
   })
@@ -701,10 +707,8 @@ export async function executeGateSnapshot<TIdentity extends Identity>(
     if (batchTimer !== undefined) {
       clearTimeout(batchTimer)
     }
-    for (const entrySignal of entrySignals.values()) {
-      entrySignal.cleanup()
-    }
-    cleanup()
+    batchController.abort()
+    snapshotTimeout.cleanup()
   }
 }
 

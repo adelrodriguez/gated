@@ -176,7 +176,7 @@ export async function DashboardPage() {
 }
 ```
 
-Snapshots resolve identity once and preserve each flag's hooks, validation, timeout, default, source, error, and variant-payload behavior. `snapshot.details(flag)` returns the same typed evaluation details as `flag.details()`. Hook-resolved keys are omitted from provider work. Ready unresolved keys are grouped into a batch without waiting on dedupe followers, so asynchronous hooks can produce more than one provider batch instead of deadlocking concurrent snapshots. A missing batch result falls back to that flag's single `decide` call; without `decideMany`, unresolved flags are evaluated in parallel. Snapshot keys must be unique.
+Snapshots resolve identity once and preserve each flag's hooks, validation, timeout, default, source, error, and variant-payload behavior. `snapshot.details(flag)` returns the same typed evaluation details as `flag.details()`. Hook-resolved keys are omitted from provider work. Ready unresolved keys are grouped into a batch without waiting on dedupe followers, so asynchronous hooks can produce more than one provider batch instead of deadlocking concurrent snapshots. A missing batch result falls back to that flag's single `decide` call under that flag's own deadline; without `decideMany`, unresolved flags are evaluated in parallel. The signal passed to `decideMany` spans the batch and is aborted once the snapshot returns, so a provider call still in flight is cancelled. Snapshot keys must be unique.
 
 In anonymous mode, snapshots pass `null` to `decideMany`. The built-in cache and dedupe recipes continue to bypass anonymous evaluations, including concurrent snapshots.
 

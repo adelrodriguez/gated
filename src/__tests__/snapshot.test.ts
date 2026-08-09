@@ -329,9 +329,10 @@ describe("gate snapshots", () => {
     expect(decideMany).toHaveBeenCalledTimes(2)
   })
 
-  test("shares one caller abort signal across hooks and the batch", async () => {
+  test("shares one caller abort signal across hooks and cancels the batch on exit", async () => {
     const hookSignals: AbortSignal[] = []
     let batchSignal: AbortSignal | undefined
+    let batchAbortedDuringCall: boolean | undefined
     const controller = new AbortController()
     const gate = buildGate({
       decide: () => ({ type: "boolean", value: false }),
@@ -339,6 +340,7 @@ describe("gate snapshots", () => {
         void keys
         void identity
         batchSignal = options?.signal
+        batchAbortedDuringCall = options?.signal?.aborted
         return {
           first: { type: "boolean", value: true },
           second: { type: "boolean", value: true },
@@ -359,9 +361,10 @@ describe("gate snapshots", () => {
     await gate.snapshot([first, second], { signal: controller.signal })
 
     expect(hookSignals).toHaveLength(2)
-    expect(batchSignal).toBe(controller.signal)
     expect(hookSignals[0]).toBe(controller.signal)
     expect(hookSignals[1]).toBe(controller.signal)
+    expect(batchAbortedDuringCall).toBe(false)
+    expect(batchSignal?.aborted).toBe(true)
   })
 
   test("preserves a per-gate timeout that is longer than the factory default", async () => {
@@ -382,6 +385,50 @@ describe("gate snapshots", () => {
     expect(snapshot.details(factoryTimed).source).toBe("default")
     expect(snapshot.get(slow)).toBe(true)
     expect(snapshot.details(slow).source).toBe("provider")
+  })
+
+  test("gives the single-decision fallback the flag's own deadline", async () => {
+    const signals: Record<string, AbortSignal | undefined> = {}
+    const gate = buildGate({
+      decide: async (key, _identity, options) => {
+        signals[key] = options?.signal
+        await delay(200)
+        return { type: "boolean", value: true }
+      },
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const capped = gate({ defaultValue: false, key: "capped", timeoutMs: 20 })
+    const unbounded = gate({ defaultValue: false, key: "unbounded" })
+
+    await gate.snapshot([capped, unbounded])
+
+    expect(signals.capped?.aborted).toBe(true)
+    expect(signals.unbounded?.aborted).toBe(false)
+  })
+
+  test("stops a flag's signal from aborting once that flag has settled", async () => {
+    const signals: Record<string, AbortSignal> = {}
+    const gate = buildGate({
+      decide: async (key) => {
+        await delay(key === "fast" ? 5 : 150)
+        return { type: "boolean", value: true }
+      },
+      hooks: [
+        {
+          before: (context) => {
+            signals[context.flagKey] = context.signal
+          },
+        },
+      ],
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const fast = gate({ defaultValue: false, key: "fast", timeoutMs: 50 })
+    const slow = gate({ defaultValue: false, key: "slow", timeoutMs: 5000 })
+
+    const snapshot = await gate.snapshot([fast, slow])
+
+    expect(snapshot.get(fast)).toBe(true)
+    expect(signals.fast?.aborted).toBe(false)
   })
 
   test("passes null identity to anonymous batches without deduplicating snapshots", async () => {
