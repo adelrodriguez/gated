@@ -109,12 +109,13 @@ export function cacheHook(
   options?: RecipeKeyOptions & { changes?: GateChanges }
 ): Hook {
   const stateKey = Symbol("cache recipe state")
-  const cacheKeysByFlag = new Map<string, Set<string>>()
-  if (options?.changes) {
+  const changes = options?.changes
+  const cacheKeysByFlag = changes ? new Map<string, Set<string>>() : undefined
+  if (changes && cacheKeysByFlag) {
     if (!cache.delete) {
       throw new TypeError("cacheHook requires cache.delete when changes is provided")
     }
-    options.changes.subscribe((changedFlagKeys) => {
+    changes.subscribe((changedFlagKeys) => {
       const flagKeys = changedFlagKeys ?? [...cacheKeysByFlag.keys()]
       for (const flagKey of flagKeys) {
         const cacheKeys = cacheKeysByFlag.get(flagKey)
@@ -137,9 +138,11 @@ export function cacheHook(
       }
 
       const cacheKey = getRecipeKey(context, options?.key)
-      const indexedKeys = cacheKeysByFlag.get(context.flagKey) ?? new Set<string>()
-      indexedKeys.add(cacheKey)
-      cacheKeysByFlag.set(context.flagKey, indexedKeys)
+      if (cacheKeysByFlag) {
+        const indexedKeys = cacheKeysByFlag.get(context.flagKey) ?? new Set<string>()
+        indexedKeys.add(cacheKey)
+        cacheKeysByFlag.set(context.flagKey, indexedKeys)
+      }
       context.state.set(stateKey, { consulted: true, key: cacheKey })
       const cachedDecision = await cache.get(cacheKey)
       if (!cachedDecision) {

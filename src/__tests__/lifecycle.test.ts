@@ -1029,6 +1029,62 @@ describe("uniform hook lifecycle", () => {
 })
 
 describe("core request coalescing", () => {
+  test("does not coalesce boolean and variant gates with the same flag key", async () => {
+    let providerCall = 0
+    const decide = mock(async () => {
+      const currentCall = providerCall
+      providerCall += 1
+      await Bun.sleep(5)
+      return currentCall === 0
+        ? ({ type: "boolean", value: true } as const)
+        : ({ type: "variant", variant: "dark" } as const)
+    })
+    const gate = buildGate({
+      coalesce: true,
+      decide,
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "shared-key" })
+    const theme = gate({
+      defaultValue: "light",
+      key: "shared-key",
+      variants: ["light", "dark"],
+    })
+
+    expect(await Promise.all([betaAccess(), theme()])).toEqual([true, "dark"])
+    expect(decide).toHaveBeenCalledTimes(2)
+  })
+
+  test("does not coalesce variant gates with different allowed variants", async () => {
+    let providerCall = 0
+    const decide = mock(async () => {
+      const currentCall = providerCall
+      providerCall += 1
+      await Bun.sleep(5)
+      return currentCall === 0
+        ? ({ type: "variant", variant: "dark" } as const)
+        : ({ type: "variant", variant: "system" } as const)
+    })
+    const gate = buildGate({
+      coalesce: true,
+      decide,
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const theme = gate({
+      defaultValue: "light",
+      key: "shared-key",
+      variants: ["light", "dark"],
+    })
+    const operatingSystemTheme = gate({
+      defaultValue: "light",
+      key: "shared-key",
+      variants: ["light", "system"],
+    })
+
+    expect(await Promise.all([theme(), operatingSystemTheme()])).toEqual(["dark", "system"])
+    expect(decide).toHaveBeenCalledTimes(2)
+  })
+
   test("runs resolve hooks before coalescing and skips provider work on hook decisions", async () => {
     const decide = mock(() => ({ type: "boolean", value: false }) as const)
     const resolve = mock(() => ({ type: "boolean", value: true }) as const)

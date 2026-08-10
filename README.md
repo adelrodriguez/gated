@@ -281,7 +281,7 @@ work across phases.
 
 The hook list is fixed when an evaluation begins. A hook added to the factory configuration during an evaluation starts to run with the next evaluation.
 
-The gate promise resolves when its decision commits. It does not wait for `after` or `finally`. These phases keep their order: all `after` hooks settle before `finally` hooks start. Do not depend on an `after` hook finishing before the caller receives the value.
+The gate promise resolves when its decision commits. It does not wait for `after` or `finally`. These phases keep their order: all `after` hooks settle before `finally` hooks start. Do not depend on an `after` hook finishing before the caller receives the value. Gated does not expose a post-commit drain operation. In a short-lived or serverless runtime, use the provider path or another awaited operation for durable writes and telemetry; detached hook work can be interrupted when the runtime freezes or exits.
 
 ```typescript
 import { defineHook } from "gated"
@@ -337,9 +337,11 @@ const gate = buildGate({
 ```
 
 Coalescing runs after resolve hooks, so cache hits and other hook decisions do not create pending
-provider work. By default, its collision-safe key contains the flag key and the type and value of
-`distinctId`; it does not include other identity attributes. Provide a projection when targeting
-uses such attributes:
+provider work. By default, its collision-safe key contains the flag key, gate kind, configured
+variant list for variant gates, and the type and value of `distinctId`. Evaluators with one
+provider flag key but incompatible decision shapes therefore do not share provider work. The key
+does not include other identity attributes. Provide a projection when targeting uses such
+attributes:
 
 ```typescript
 const gate = buildGate({
@@ -351,6 +353,10 @@ const gate = buildGate({
   decide: async (key, identity) => provider.evaluate(key, identity),
 })
 ```
+
+A custom projection fully replaces the default key, including its gate-shape fields. It can
+therefore deliberately coalesce evaluations across shapes; the projection must only return the
+same key when the provider decision is compatible with every matching evaluator.
 
 A follower's cancellation does not cancel the leader. If the leader is cancelled or fails, all
 followers receive that same failure and run their own error hooks and fallback reporter. Anonymous
@@ -383,6 +389,8 @@ const gate = buildGate({
 ```
 
 The cache recipe treats decisions with the wrong boolean/variant shape or an unsupported variant as stale. The mismatch is reported to `onHookError`, evaluation continues to the provider, and the valid decision overwrites the stale entry. Cache implementations own serialization; variant payloads can contain provider metadata such as `Date` values or class instances, so a persisted cache must preserve that metadata faithfully or deliberately normalize it before storage.
+
+Cache writes run in the detached `after` phase. A short-lived runtime can stop before the write finishes. Do not rely on the recipe to durably warm a remote cache after a serverless response returns.
 
 By default, cache recipe keys contain the flag key and the type and value of `distinctId`.
 The tuple encoding does not have delimiter collisions, and numeric and string identifiers are

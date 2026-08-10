@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import * as React from "react"
 import { act, Component, createRef, Profiler, type ReactNode, Suspense } from "react"
 import { renderToString } from "react-dom/server"
 import type { GateCallOptions, GateChanges, GateEvaluator, Identity } from "../lib/types"
@@ -628,6 +629,55 @@ describe("createReactGate", () => {
 
     rendered.unmount()
     expect(detachProvider).toHaveBeenCalledTimes(1)
+  })
+
+  test("prunes a reactive version store after its last subscriber detaches", async () => {
+    const subscriptions = new Set<(listener: () => void) => () => void>()
+    const originalUseSyncExternalStore = React.useSyncExternalStore
+    const useSyncExternalStore = spyOn(React, "useSyncExternalStore").mockImplementation(
+      (subscribe, getSnapshot, getServerSnapshot) => {
+        subscriptions.add(subscribe)
+        return originalUseSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+      }
+    )
+    const changes: GateChanges = {
+      subscribe: () => () => null,
+    }
+    const useBetaAccess = createReactGate(() => Promise.resolve(true), { changes })
+
+    try {
+      let first!: ReturnType<typeof render>
+      await act(async () => {
+        first = render(
+          <Suspense fallback="Loading">
+            <GateValue gate={useBetaAccess} />
+          </Suspense>
+        )
+        await Promise.resolve()
+      })
+      await waitFor(() => {
+        expect(screen.getByTestId("value").textContent).toBe("true")
+      })
+      first.unmount()
+
+      let second!: ReturnType<typeof render>
+      await act(async () => {
+        second = render(
+          <Suspense fallback="Loading">
+            <GateValue gate={useBetaAccess} />
+          </Suspense>
+        )
+        await Promise.resolve()
+      })
+      await waitFor(() => {
+        expect(screen.getByTestId("value").textContent).toBe("true")
+      })
+      second.unmount()
+
+      expect(subscriptions).toHaveLength(2)
+    } finally {
+      useSyncExternalStore.mockRestore()
+    }
   })
 
   test("rejects a non-plain identity value with its path", async () => {

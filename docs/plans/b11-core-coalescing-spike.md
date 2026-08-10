@@ -36,9 +36,12 @@ Dedupe-as-hook works but only via three backstops spread across `recipes.ts` and
 The working prototype supports core request coalescing and is retained as the production
 implementation. The option shape is `coalesce?: boolean | { key?: (context) => string }`.
 Coalescing runs after resolve hooks and before provider ownership is reported to the batch
-orchestrator. A hook decision therefore creates no pending entry. The default key uses the b01
-collision-safe tuple of flag key, `distinctId` type, and `distinctId` value. Anonymous evaluations
-are not coalesced. A custom projection receives the complete `HookContext`.
+orchestrator. A hook decision therefore creates no pending entry. The default key uses a
+collision-safe tuple of flag key, gate kind, configured variant list for variant gates,
+`distinctId` type, and `distinctId` value. The gate-shape fields prevent incompatible evaluators
+for one provider flag key from sharing a decision. Anonymous evaluations are not coalesced. A
+custom projection receives the complete `HookContext` and fully replaces the default tuple,
+preserving the original custom-key semantics.
 
 ### Spike answers
 

@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test"
+import { describe, expect, mock, spyOn, test } from "bun:test"
 import type { Decision, GateChanges, HookContext } from "../../lib/types"
 import { decision } from "../../lib/decision"
 import { cacheHook, dedupeHook } from "../recipes"
@@ -39,6 +39,31 @@ function nextEvaluation<TContext extends HookContext>(context: TContext): TConte
 }
 
 describe("cacheHook", () => {
+  test("does not retain a reactive key index when changes are not configured", async () => {
+    const cache = {
+      get: mock((_key: string) => Promise.resolve<Decision | undefined>(void 0)),
+      set: mock(() => Promise.resolve()),
+    }
+    const hook = cacheHook(cache)
+    const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
+      flagKey: "unindexed-flag",
+      identity: { distinctId: "user123" },
+    }
+    const mapSet = spyOn(Map.prototype, "set")
+
+    try {
+      await Promise.resolve(hook.resolve?.(context))
+
+      expect(
+        mapSet.mock.calls.some(([key, value]) => key === "unindexed-flag" && value instanceof Set)
+      ).toBe(false)
+      expect(cache.get).toHaveBeenCalledWith('["unindexed-flag","string","user123"]')
+    } finally {
+      mapSet.mockRestore()
+    }
+  })
+
   test("resolves from cache if available", async () => {
     const cachedDecision: Decision = { type: "boolean", value: true }
     const cache = {

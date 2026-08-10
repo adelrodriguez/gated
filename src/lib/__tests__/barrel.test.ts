@@ -1,8 +1,24 @@
 import { expect, test } from "bun:test"
+import type { BatchEntry as ConcreteBatchEntry } from "../batch"
+import type { GateOptions as ConcreteGateOptions } from "../evaluate"
+import type { BatchEntry as BarrelBatchEntry, GateOptions as BarrelGateOptions } from "../index"
 import * as batch from "../batch"
 import * as evaluate from "../evaluate"
 import * as hookRunner from "../hook-runner"
 import * as barrel from "../index"
+
+function acceptsBarrelBatchEntry(value: BarrelBatchEntry): ConcreteBatchEntry {
+  return value
+}
+
+function acceptsBarrelGateOptions(
+  value: BarrelGateOptions<string[]>
+): ConcreteGateOptions<string[]> {
+  return value
+}
+
+void acceptsBarrelBatchEntry
+void acceptsBarrelGateOptions
 
 test("the internal barrel re-exports each concrete engine function", () => {
   expect(barrel.runBeforeHooks).toBe(hookRunner.runBeforeHooks)

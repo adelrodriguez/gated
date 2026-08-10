@@ -8,14 +8,9 @@ import type {
   GatedConfig,
   Identity,
 } from "./lib/types"
-import {
-  executeGate,
-  executeGateDetails,
-  executeGateBatch,
-  type GateOptions,
-  type BatchEntry,
-} from "./lib"
+import { type BatchEntry, executeGateBatch } from "./lib/batch"
 import { ForeignGateEvaluatorError, BatchFlagNotFoundError } from "./lib/errors"
+import { executeGate, executeGateDetails, type GateOptions } from "./lib/evaluate"
 import { setEvaluatorFlagKey } from "./lib/evaluator"
 import { reportInBackground } from "./lib/hook-runner"
 

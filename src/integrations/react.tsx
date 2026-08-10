@@ -422,6 +422,9 @@ export function createReactGate<TValue extends boolean | string>(
       },
       getSnapshot: () => version,
       subscribe: (listener) => {
+        if (!stores.has(key)) {
+          stores.set(key, store)
+        }
         listeners.add(listener)
         if (listeners.size === 1) {
           attachStore(store)
@@ -435,6 +438,9 @@ export function createReactGate<TValue extends boolean | string>(
           listeners.delete(listener)
           if (listeners.size === 0) {
             detachStore(store)
+            if (stores.get(key) === store) {
+              stores.delete(key)
+            }
           }
         }
       },

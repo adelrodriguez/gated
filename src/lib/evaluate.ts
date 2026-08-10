@@ -19,7 +19,7 @@ import {
   InvalidVariantError,
   MalformedDecisionError,
 } from "./errors"
-import { getDefaultEvaluationKey } from "./evaluation-key"
+import { getDefaultCoalescingKey } from "./evaluation-key"
 import {
   reportInBackground,
   runAfterHooks,
@@ -143,7 +143,7 @@ function getCoalescingKey(context: HookContext, options: CoalescingOptions): str
     return options.key(context)
   }
   const { distinctId } = context.identity
-  return getDefaultEvaluationKey(context.flagKey, distinctId)
+  return getDefaultCoalescingKey(context.flagKey, context.kind, context.variants, distinctId)
 }
 
 async function coalesceProviderDecision(
