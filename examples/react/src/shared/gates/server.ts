@@ -1,7 +1,6 @@
 import "server-only"
 
 import { buildGate, decision, defineHook, type Hook } from "gated"
-import { cacheHook, dedupeHook } from "gated/hooks/recipes"
 import type { DemoIdentity } from "#shared/flags"
 import { demoProvider } from "#shared/demo-provider/adapter"
 import { recordLifecycleEvent, visibleCache } from "#shared/demo-provider/store"
@@ -15,14 +14,6 @@ const loggingHook = defineHook<DemoIdentity>({
       flagKey: context.flagKey,
       distinctId: context.identity?.distinctId ?? null,
       detail: `kind=${context.kind}`,
-    })
-  },
-  resolve(context) {
-    recordLifecycleEvent({
-      phase: "resolve",
-      flagKey: context.flagKey,
-      distinctId: context.identity?.distinctId ?? null,
-      detail: "continuing to provider",
     })
   },
   after(context, _result, meta) {
@@ -66,26 +57,30 @@ function onHookError(report: {
 }
 
 export const gate = buildGate({
+  coalesce: true,
   identify: getIdentity,
   ...demoProvider,
-  hooks: [loggingHook, dedupeHook()],
+  hooks: [loggingHook],
   onHookError,
   timeoutMs: 1000,
 })
 
 const cachedGate = buildGate({
+  cache: visibleCache,
+  coalesce: true,
   identify: getIdentity,
   ...demoProvider,
-  hooks: [loggingHook, cacheHook(visibleCache), dedupeHook()],
+  hooks: [loggingHook],
   onHookError,
   timeoutMs: 1000,
 })
 
 const anonymousGate = buildGate({
   anonymous: "allow",
+  coalesce: true,
   identify: getIdentity,
   ...demoProvider,
-  hooks: [loggingHook, dedupeHook()],
+  hooks: [loggingHook],
   onHookError,
   timeoutMs: 1000,
 })

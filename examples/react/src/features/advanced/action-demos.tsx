@@ -127,14 +127,15 @@ export function ActionDemos() {
   Array.from({ length: 5 }, () => newDashboard({ identity }))
 )
 
-// dedupeHook() collapses these into one provider call`}
+// Factory coalescing collapses these into one provider call`}
       />
       <ActionCard
         title="Server cache"
         copy="The first evaluation misses; the second resolves from cache without a provider call."
         action={runCache}
         snippet={`const cachedGate = buildGate({
-  hooks: [cacheHook(cache), dedupeHook()],
+  cache,
+  coalesce: true,
   // ...provider config
 })
 

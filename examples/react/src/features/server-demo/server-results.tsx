@@ -92,7 +92,7 @@ export async function ServerResults() {
         <CodeBlock label="Server component evaluation">{`const details = await checkoutTheme.details({ identity })
 
 details.value   // typed gate value
-details.source  // "hook" | "provider" | "default"
+details.source  // "cache" | "provider" | "default"
 details.payload // optional variant payload
 details.error   // fallback error, when present`}</CodeBlock>
       </section>

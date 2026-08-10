@@ -32,6 +32,28 @@
       },
       "tracking": "manual",
       "version": "5.0.14"
+    },
+    {
+      "name": "flags",
+      "registry": "npm",
+      "source": {
+        "host": "github.com",
+        "type": "repository",
+        "url": "https://github.com/vercel/flags"
+      },
+      "tracking": "manual",
+      "version": "4.3.0"
+    },
+    {
+      "name": "tryharder",
+      "registry": "npm",
+      "source": {
+        "host": "github.com",
+        "type": "repository",
+        "url": "https://github.com/adelrodriguez/tryharder"
+      },
+      "tracking": "manual",
+      "version": "0.2.1"
     }
   ]
 }

@@ -1,6 +1,6 @@
 export { buildGate } from "./factory"
 export type { GateFactory, GateBatch } from "./factory"
-export { decision } from "./lib/decision"
+export { decision } from "./decision"
 export { defineHook } from "./hooks"
 export {
   DecisionTypeMismatchError,
@@ -14,14 +14,15 @@ export {
   BatchFlagNotFoundError,
 } from "./lib/errors"
 export type {
-  AfterHookMeta,
   AnonymousGatedConfig,
   CallerIdentityGatedConfig,
   CoalescingOptions,
   Decision,
+  DecisionCache,
+  DecisionCacheErrorReport,
+  DecisionCacheOptions,
   DecisionSource,
   EvaluationDetails,
-  FallbackReport,
   GateChange,
   GateCallOptions,
   GateChanges,

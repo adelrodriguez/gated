@@ -8,7 +8,7 @@ const demos = [
   ["/server", "Server evaluation", "details() · batch() · decideMany"],
   ["/client", "React integration", "createReactGate · FeatureGate"],
   ["/matrix", "Identity matrix", "identity override · batch()"],
-  ["/advanced", "Evaluation lifecycle", "hooks · recipes · cancellation"],
+  ["/advanced", "Evaluation lifecycle", "hooks · fallback · cancellation"],
 ] as const
 
 export default function OverviewPage() {
@@ -32,9 +32,10 @@ export default function OverviewPage() {
           ))}
         </div>
         <CodeBlock label="The factory behind every demo">{`const gate = buildGate({
+  coalesce: true,
   identify: getIdentity,
   ...demoProvider,
-  hooks: [loggingHook, dedupeHook()],
+  hooks: [loggingHook],
   onHookError,
   timeoutMs: 1000,
 })

@@ -1,48 +1,26 @@
 import { createContext, type ReactNode, Suspense, use, useSyncExternalStore } from "react"
 import type { GateCallOptions, GateChanges, Identity } from "../lib/types"
-import { getEvaluatorFlagKey } from "../lib/evaluator"
+import {
+  createCacheNamespace,
+  createGateCache,
+  type CreateGateOptions,
+  deriveKey,
+  evictOnRejection,
+  type GateCache,
+  type GateCacheKey,
+  type GateCacheOptions,
+  serializeKey,
+} from "../lib/cache"
+import { getEvaluatorFlagKey } from "../lib/evaluation/registry"
+import { isDevelopmentEnvironment } from "../lib/utils"
 
-const DEFAULT_MAX_ENTRIES = 100
-const DEFAULT_TTL_MS = 5 * 60 * 1000
-let nextReactGateNamespace = 0
 let didWarnAboutServerDefaultCache = false
 
-export type ReactGateCacheOptions = {
-  /**
-   * Maximum number of identities retained by the cache. Defaults to 100.
-   */
-  maxEntries?: number
-  /**
-   * Time in milliseconds before a pending evaluation can be evicted. Disabled by default.
-   */
-  pendingTtlMs?: number
-  /**
-   * Time in milliseconds that an evaluation remains cached. Defaults to five minutes.
-   */
-  ttlMs?: number
-}
+export type ReactGateCacheOptions = GateCacheOptions
 
-export type CreateReactGateOptions<TValue extends boolean | string> =
-  | (ReactGateCacheOptions & { cache?: undefined; changes?: GateChanges })
-  | {
-      /**
-       * Injected caches own their bounds; maxEntries and ttlMs cannot also be supplied.
-       */
-      cache: ReactGateCache<TValue>
-      changes?: GateChanges
-      maxEntries?: never
-      pendingTtlMs?: never
-      ttlMs?: never
-    }
+export type CreateReactGateOptions<TValue extends boolean | string> = CreateGateOptions<TValue>
 
-export type ReactGateCacheKey =
-  | boolean
-  | number
-  | string
-  | null
-  | undefined
-  | readonly ReactGateCacheKey[]
-  | { readonly [key: string]: ReactGateCacheKey }
+export type ReactGateCacheKey = GateCacheKey
 
 export type CustomCreateReactGateOptions<
   TArgs extends unknown[],
@@ -54,12 +32,9 @@ export type CustomCreateReactGateOptions<
   cacheKey: (...args: TArgs) => ReactGateCacheKey
 }
 
-export interface ReactGateCache<TValue extends boolean | string = boolean | string> {
-  clear(): void
-  delete(key: string): boolean
-  get(key: string): Promise<TValue> | undefined
-  set(key: string, promise: Promise<TValue>): void
-}
+export type ReactGateCache<TValue extends boolean | string = boolean | string> = GateCache<TValue>
+
+export { createGateCache as createReactGateCache } from "../lib/cache"
 
 const GateCacheContext = createContext<ReactGateCache | undefined>(undefined)
 
@@ -101,232 +76,15 @@ export type CustomReactGate<TArgs extends unknown[], TValue extends boolean | st
   clear(): void
 }
 
-type CacheEntry<TValue extends boolean | string> = {
-  expiresAt: number | undefined
-  pendingExpiresAt: number | undefined
-  promise: Promise<TValue>
-  settled: boolean
-}
-
+/**
+ * Portable in concept — nothing here imports React — but the integer-snapshot/subscribe shape is
+ * molded to the useSyncExternalStore contract. Keep this and its registry in the integration until
+ * a second integration (Solid, Svelte) proves the shape, then hoist the shared parts into lib.
+ */
 type ReactGateVersionStore = {
   bump: () => void
   getSnapshot: () => number
   subscribe: (listener: () => void) => () => void
-}
-
-function assertPositiveNumber(value: number, name: string): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new RangeError(`${name} must be a positive finite number`)
-  }
-}
-
-async function evictOnRejection<T>(evaluation: Promise<T>, onRejected: () => void): Promise<T> {
-  try {
-    return await evaluation
-  } catch (error) {
-    onRejected()
-    throw error
-  }
-}
-
-/**
- * Creates a bounded promise cache for React gates.
- *
- * Pending evaluations are pinned by default so TTL/LRU pressure cannot create repeated Suspense
- * retries. When pendingTtlMs is set, older pending entries can be pruned without cancelling their
- * work. Create one cache per server request; sharing one across requests can retain identities and
- * stale decisions across users.
- */
-export function createReactGateCache<TValue extends boolean | string = boolean | string>({
-  maxEntries = DEFAULT_MAX_ENTRIES,
-  pendingTtlMs,
-  ttlMs = DEFAULT_TTL_MS,
-}: ReactGateCacheOptions = {}): ReactGateCache<TValue> {
-  assertPositiveNumber(maxEntries, "maxEntries")
-  if (pendingTtlMs !== undefined) {
-    assertPositiveNumber(pendingTtlMs, "pendingTtlMs")
-  }
-  assertPositiveNumber(ttlMs, "ttlMs")
-
-  if (!Number.isInteger(maxEntries)) {
-    throw new RangeError("maxEntries must be an integer")
-  }
-
-  const entries = new Map<string, CacheEntry<TValue>>()
-
-  function pruneEntries(): void {
-    const now = Date.now()
-    for (const [key, entry] of entries) {
-      const pendingExpired =
-        !entry.settled && entry.pendingExpiresAt !== undefined && now >= entry.pendingExpiresAt
-      const settledExpired =
-        entry.settled && entry.expiresAt !== undefined && now >= entry.expiresAt
-      if (pendingExpired || settledExpired) {
-        entries.delete(key)
-      }
-    }
-
-    while (entries.size > maxEntries) {
-      let evicted = false
-      for (const [key, entry] of entries) {
-        if (entry.settled) {
-          entries.delete(key)
-          evicted = true
-          break
-        }
-      }
-      if (!evicted) {
-        break
-      }
-    }
-  }
-
-  return {
-    clear(): void {
-      entries.clear()
-    },
-    delete(key): boolean {
-      return entries.delete(key)
-    },
-    get(key): Promise<TValue> | undefined {
-      const entry = entries.get(key)
-      if (!entry) {
-        return undefined
-      }
-
-      const now = Date.now()
-      const pendingExpired =
-        !entry.settled && entry.pendingExpiresAt !== undefined && now >= entry.pendingExpiresAt
-      const settledExpired =
-        entry.settled && entry.expiresAt !== undefined && now >= entry.expiresAt
-      if (pendingExpired || settledExpired) {
-        entries.delete(key)
-        return undefined
-      }
-
-      entries.delete(key)
-      entries.set(key, entry)
-      return entry.promise
-    },
-    set(key, promise): void {
-      entries.delete(key)
-      const entry: CacheEntry<TValue> = {
-        expiresAt: undefined,
-        pendingExpiresAt: pendingTtlMs === undefined ? undefined : Date.now() + pendingTtlMs,
-        promise,
-        settled: false,
-      }
-      entries.set(key, entry)
-      pruneEntries()
-
-      void promise.then(
-        () => {
-          entry.expiresAt = Date.now() + ttlMs
-          entry.pendingExpiresAt = undefined
-          entry.settled = true
-          // Let React retry suspended renders before settled overflow entries become evictable.
-          setTimeout(pruneEntries, 0)
-          return null
-        },
-        () => {
-          entry.expiresAt = Date.now() + ttlMs
-          entry.pendingExpiresAt = undefined
-          entry.settled = true
-          setTimeout(pruneEntries, 0)
-          return null
-        }
-      )
-    },
-  }
-}
-
-function stableSerialize(value: unknown, rootPath: "cacheKey" | "identity"): string {
-  const ancestors = new Set<object>()
-
-  function unsupported(path: string, kind: string): never {
-    const identityRemedy =
-      rootPath === "identity" ? " Change identify() to return supported cache-key values." : ""
-    throw new TypeError(
-      `Unsupported React gate cache key at ${path}: ${kind} is not supported.${identityRemedy}`
-    )
-  }
-
-  function encode(current: unknown, path: string): string {
-    if (current === null) {
-      return "null"
-    }
-
-    switch (typeof current) {
-      case "undefined":
-        return "undefined"
-      case "boolean":
-        return `boolean:${current}`
-      case "number":
-        return `number:${Object.is(current, -0) ? "-0" : String(current)}`
-      case "string":
-        return `string:${JSON.stringify(current)}`
-      case "bigint":
-        return unsupported(path, "bigint")
-      case "symbol":
-        return unsupported(path, "symbol")
-      case "function":
-        return unsupported(path, "function")
-      case "object": {
-        const prototype = Object.getPrototypeOf(current)
-        if (!Array.isArray(current) && prototype !== Object.prototype && prototype !== null) {
-          const constructor = (prototype as { constructor?: unknown }).constructor
-          const kind =
-            typeof constructor === "function" && constructor.name
-              ? constructor.name
-              : "non-plain object"
-          return unsupported(path, kind)
-        }
-
-        if (ancestors.has(current)) {
-          return unsupported(path, "circular reference")
-        }
-
-        ancestors.add(current)
-        try {
-          if (Array.isArray(current)) {
-            return `array:[${current
-              .map((item, index) => encode(item, `${path}[${index}]`))
-              .join(",")}]`
-          }
-
-          const keys = Object.keys(current)
-          // oxlint-disable-next-line unicorn/no-array-sort -- Object.keys returns a fresh array; sort has broader runtime support than toSorted.
-          keys.sort()
-          const entries = keys.map(
-            (key) =>
-              `${JSON.stringify(key)}:${encode(
-                (current as Record<string, unknown>)[key],
-                `${path}.${key}`
-              )}`
-          )
-          return `object:{${entries.join(",")}}`
-        } finally {
-          ancestors.delete(current)
-        }
-      }
-    }
-
-    throw new TypeError("Unsupported React gate cache key")
-  }
-
-  return encode(value, rootPath)
-}
-
-function trimTrailingUndefined(args: unknown[]): unknown[] {
-  const normalized = [...args]
-  while (normalized.length > 0 && normalized.at(-1) === undefined) {
-    normalized.pop()
-  }
-  return normalized
-}
-
-function isDevelopmentEnvironment(): boolean {
-  return process.env.NODE_ENV !== "production"
 }
 
 /**
@@ -354,21 +112,11 @@ export function createReactGate<TValue extends boolean | string>(
     cacheKey?: (...args: unknown[]) => ReactGateCacheKey
     changes?: GateChanges
   }
-  if (
-    runtimeOptions.cache !== undefined &&
-    (runtimeOptions.maxEntries !== undefined ||
-      runtimeOptions.pendingTtlMs !== undefined ||
-      runtimeOptions.ttlMs !== undefined)
-  ) {
-    throw new TypeError(
-      "An injected cache cannot be combined with maxEntries, pendingTtlMs, or ttlMs"
-    )
-  }
+  const invokeGate = gateFn as (...args: unknown[]) => Promise<TValue>
 
-  const defaultCache = runtimeOptions.cache ?? createReactGateCache<TValue>(runtimeOptions)
+  const defaultCache = runtimeOptions.cache ?? createGateCache<TValue>(runtimeOptions)
   const evaluatorFlagKey = getEvaluatorFlagKey(gateFn)
-  const cacheNamespace = `gate:${nextReactGateNamespace}:`
-  nextReactGateNamespace += 1
+  const cacheNamespace = createCacheNamespace()
   const storesByCache = new WeakMap<ReactGateCache<TValue>, Map<string, ReactGateVersionStore>>()
   const activeStores = new Set<ReactGateVersionStore>()
   let detachChanges: (() => void) | undefined
@@ -448,16 +196,8 @@ export function createReactGate<TValue extends boolean | string>(
     stores.set(key, store)
     return store
   }
-  const keyOf = (args: unknown[]): string => {
-    const normalizedArgs = trimTrailingUndefined(args)
-    const semanticKey = runtimeOptions.cacheKey
-      ? runtimeOptions.cacheKey(...normalizedArgs)
-      : (normalizedArgs[0] ?? null)
-    return (
-      cacheNamespace +
-      stableSerialize(semanticKey, runtimeOptions.cacheKey ? "cacheKey" : "identity")
-    )
-  }
+  const keyOf = (args: unknown[]): string =>
+    deriveKey(args, { cacheKey: runtimeOptions.cacheKey, namespace: cacheNamespace })
 
   function useGateValue(...args: unknown[]): TValue {
     const providerCache = use(GateCacheContext) as ReactGateCache<TValue> | undefined
@@ -484,10 +224,10 @@ export function createReactGate<TValue extends boolean | string>(
 
     if (!promise) {
       const evaluation = runtimeOptions.cacheKey
-        ? gateFn(...(args as never[]))
+        ? invokeGate(...args)
         : args[0] === undefined
-          ? gateFn()
-          : gateFn({ identity: args[0] } as never)
+          ? invokeGate()
+          : invokeGate({ identity: args[0] })
       // React must observe the rejected promise on its retry render. Defer eviction until the
       // next task, and do not delete a newer evaluation that reused this key in the meantime.
       const cachedEvaluation = evictOnRejection(evaluation, () => {
@@ -511,7 +251,7 @@ export function createReactGate<TValue extends boolean | string>(
   if (runtimeOptions.cacheKey) {
     customGate = useGateValue as unknown as CustomReactGate<never[], TValue>
     customGate.invalidateKey = (key): void => {
-      defaultCache.delete(cacheNamespace + stableSerialize(key, "cacheKey"))
+      defaultCache.delete(cacheNamespace + serializeKey(key, "cacheKey"))
     }
   }
   useGateValue.clear = (): void => {

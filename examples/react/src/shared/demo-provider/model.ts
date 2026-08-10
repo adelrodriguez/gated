@@ -19,7 +19,7 @@ type VariantConfig = {
 }
 
 export type FlagConfig = BooleanConfig | VariantConfig
-export type LogPhase = "before" | "resolve" | "after" | "error" | "finally" | "hook-error"
+export type LogPhase = "before" | "after" | "error" | "finally" | "hook-error"
 export type LogEntry = {
   id: number
   timestamp: string
