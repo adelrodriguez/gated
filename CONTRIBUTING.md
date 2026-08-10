@@ -28,13 +28,13 @@ src/
   index.ts                Root public API
   core.ts                 Gate construction
   lib/                    Evaluation and shared types
-  hooks/                  Hook factory and recipes
+  hooks/                  Hook factory
   integrations/react.tsx  React integration, published as gated/react
   **/__tests__/           Colocated tests
 test/setup.ts             Test setup
 ```
 
-The public package entry points are `gated`, `gated/hooks`, `gated/hooks/recipes`, and `gated/react`. `dist/` is build output.
+The public package entry points are `gated`, `gated/hooks`, and `gated/react`. `dist/` is build output.
 
 ## Development commands
 
@@ -48,7 +48,6 @@ bun run check          # Check lint rules and TypeScript types.
 bun run fix            # Apply safe lint fixes.
 bun run format         # Format repository files.
 bun run analyze        # Find unused files, exports, and dependencies.
-bun run check:exports  # Check the built package entry-point types.
 ```
 
 `check`, `fix`, `format`, and `analyze` use Adamantite. There is no separate `typecheck`
@@ -57,12 +56,12 @@ script.
 ## Make a change
 
 - Keep core implementation in `src/core.ts` and `src/lib/`.
-- Keep hooks and recipes in `src/hooks/`.
+- Keep hooks in `src/hooks/`.
 - Keep the React integration in `src/integrations/react.tsx`.
 - Add or update colocated tests for behavior changes.
 - Update user documentation when public behavior, types, or entry points change.
 - Consider package consumers before you change `gated`, `gated/hooks`,
-  `gated/hooks/recipes`, or `gated/react`.
+  `gated/react`.
 
 ## Validate a change
 
@@ -77,8 +76,7 @@ bun run format
 ```
 
 Run `bun run analyze` after you add or remove dependencies or change imports and exports.
-Run `bun run check:exports` after a build when you change a public entry point or its
-types. Review all automatic fixes before you commit them.
+Review all automatic fixes before you commit them.
 
 ## Changesets
 

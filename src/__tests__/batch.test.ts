@@ -1,7 +1,6 @@
 import { describe, expect, mock, test } from "bun:test"
 import type { Decision, Hook, Identity, IdentityValue } from "../lib/types"
 import { buildGate } from "../factory"
-import { cacheHook, dedupeHook } from "../hooks/recipes"
 import { BatchFlagNotFoundError } from "../lib/errors"
 
 async function expectRejection(promise: Promise<IdentityValue>, message: string): Promise<void> {
@@ -21,25 +20,28 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 describe("gate batches", () => {
-  test("reports each batch entry that falls back", async () => {
-    const reports: Array<{ flagKey: string }> = []
+  test("runs error hooks for each batch entry that falls back", async () => {
+    const reportedFlagKeys: string[] = []
     const gate = buildGate({
       decide: () => Promise.reject(new Error("Provider failed")),
       decideMany: () => Promise.reject(new Error("Batch provider failed")),
+      hooks: [
+        {
+          error: (context) => {
+            reportedFlagKeys.push(context.flagKey)
+          },
+        },
+      ],
       identify: () => ({ distinctId: "user123" }),
-      onFallback: (report) => {
-        reports.push(report)
-      },
     })
     const first = gate({ defaultValue: false, key: "first" })
     const second = gate({ defaultValue: true, key: "second" })
 
     const batch = await gate.batch([first, second])
-    await Bun.sleep(0)
 
     expect(batch.get(first)).toBe(false)
     expect(batch.get(second)).toBe(true)
-    expect(reports.map((report) => report.flagKey).toSorted()).toEqual(["first", "second"])
+    expect(reportedFlagKeys.toSorted()).toEqual(["first", "second"])
   })
 
   test("returns an empty batch without resolving identity", async () => {
@@ -55,6 +57,28 @@ describe("gate batches", () => {
     expect(identify).not.toHaveBeenCalled()
     // @ts-expect-error -- An empty batch cannot contain this evaluator.
     expect(() => batch.get(betaAccess)).toThrow(BatchFlagNotFoundError)
+  })
+
+  test("returns partial fallback results when identity resolution fails", async () => {
+    const identityError = new Error("identity unavailable")
+    const decide = mock(() => ({ type: "boolean", value: true }) as const)
+    const decideMany = mock(() => ({ first: { type: "boolean", value: true } as const }))
+    const gate = buildGate({
+      decide,
+      decideMany,
+      identify: () => Promise.reject(identityError),
+    })
+    const first = gate({ defaultValue: false, key: "first" })
+    const second = gate({ defaultValue: true, key: "second" })
+
+    const batch = await gate.batch([first, second])
+
+    expect(batch.get(first)).toBe(false)
+    expect(batch.get(second)).toBe(true)
+    expect(batch.details(first).error).toBe(identityError)
+    expect(batch.details(second).error).toBe(identityError)
+    expect(decideMany).not.toHaveBeenCalled()
+    expect(decide).not.toHaveBeenCalled()
   })
 
   test("commits a batch before detached after hooks settle", async () => {
@@ -145,7 +169,7 @@ describe("gate batches", () => {
     expect(brokenDetails.error).toBeInstanceOf(Error)
   })
 
-  test("omits hook-resolved flags and runs every lifecycle", async () => {
+  test("sends only cache misses to decideMany and runs every observer lifecycle", async () => {
     const phases: string[] = []
     const hook: Hook = {
       after: (context) => {
@@ -157,15 +181,21 @@ describe("gate batches", () => {
       finally: (context) => {
         phases.push(`${context.flagKey}:finally`)
       },
-      resolve: (context) => {
-        phases.push(`${context.flagKey}:resolve`)
-        return context.flagKey === "beta-access" ? { type: "boolean", value: true } : undefined
-      },
     }
+    const stored = new Map<string, Decision>([
+      ['["beta-access","boolean",null,"string","user123"]', { type: "boolean", value: true }],
+    ])
     const decideMany = mock(() => ({
       theme: { type: "variant", variant: "dark" } as const,
     }))
     const gate = buildGate({
+      cache: {
+        get: (key) => Promise.resolve(stored.get(key)),
+        set: (key, value) => {
+          stored.set(key, value)
+          return Promise.resolve()
+        },
+      },
       decide: () => ({ type: "boolean", value: false }),
       decideMany,
       hooks: [hook],
@@ -185,13 +215,11 @@ describe("gate batches", () => {
     expect(decideMany).toHaveBeenCalledWith(["theme"], expect.any(Object), expect.any(Object))
     expect(phases.filter((phase) => phase.startsWith("beta-access:"))).toEqual([
       "beta-access:before",
-      "beta-access:resolve",
       "beta-access:after",
       "beta-access:finally",
     ])
     expect(phases.filter((phase) => phase.startsWith("theme:"))).toEqual([
       "theme:before",
-      "theme:resolve",
       "theme:after",
       "theme:finally",
     ])
@@ -219,16 +247,17 @@ describe("gate batches", () => {
     expect(batch.get(theme)).toBe("light")
   })
 
-  test("isolates a rejected batch while preserving hook-resolved flags", async () => {
+  test("isolates a rejected batch while preserving cached flags", async () => {
     const gate = buildGate({
+      cache: {
+        get: (key) =>
+          Promise.resolve(
+            key.includes("hooked") ? { type: "boolean" as const, value: true } : undefined
+          ),
+        set: () => Promise.resolve(),
+      },
       decide: () => ({ type: "boolean", value: true }),
       decideMany: () => Promise.reject(new Error("provider unavailable")),
-      hooks: [
-        {
-          resolve: (context) =>
-            context.flagKey === "hooked" ? { type: "boolean", value: true } : undefined,
-        },
-      ],
       identify: () => ({ distinctId: "user123" }),
     })
     const hooked = gate({ defaultValue: false, key: "hooked" })
@@ -305,7 +334,13 @@ describe("gate batches", () => {
 
   test("integrates with cache and core coalescing without hanging", async () => {
     const stored = new Map<string, Decision>([
-      ['["beta-access","string","user123"]', { type: "boolean", value: true }],
+      [
+        '["beta-access","boolean",null,"string","user123"]',
+        {
+          type: "boolean",
+          value: true,
+        },
+      ],
     ])
     const cache = {
       get: mock((key: string) => Promise.resolve(stored.get(key))),
@@ -319,10 +354,10 @@ describe("gate batches", () => {
       theme: { type: "variant", variant: "dark" } as const,
     }))
     const gate = buildGate({
+      cache,
       coalesce: true,
       decide,
       decideMany,
-      hooks: [cacheHook(cache)],
       identify: () => ({ distinctId: "user123" }),
     })
     const betaAccess = gate({ defaultValue: false, key: "beta-access" })
@@ -337,10 +372,13 @@ describe("gate batches", () => {
     expect(batch.get(betaAccess)).toBe(true)
     expect(batch.get(theme)).toBe("dark")
     expect(decideMany).toHaveBeenCalledWith(["theme"], expect.any(Object), expect.any(Object))
-    expect(cache.set).toHaveBeenCalledWith('["theme","string","user123"]', {
-      type: "variant",
-      variant: "dark",
-    })
+    expect(cache.set).toHaveBeenCalledWith(
+      '["theme","variant",["light","dark"],"string","user123"]',
+      {
+        type: "variant",
+        variant: "dark",
+      }
+    )
   })
 
   test("does not deadlock concurrent batches with cross-key coalescing leaders", async () => {
@@ -351,7 +389,7 @@ describe("gate batches", () => {
       releaseBatches = resolve
     })
     const skewedHook: Hook = {
-      async resolve(context) {
+      async before(context) {
         const count = (invocationCount.get(context.flagKey) ?? 0) + 1
         invocationCount.set(context.flagKey, count)
         if (
@@ -505,9 +543,9 @@ describe("gate batches", () => {
     })
     const gate = buildGate({
       anonymous: "allow",
+      coalesce: true,
       decide: () => ({ type: "boolean", value: false }),
       decideMany,
-      hooks: [dedupeHook()],
       identify: () => null,
     })
     const anonymous = gate({ defaultValue: false, key: "anonymous" })
@@ -553,20 +591,6 @@ describe("gate batches", () => {
     )
     expect(identify).not.toHaveBeenCalled()
     expect(decide).not.toHaveBeenCalled()
-  })
-
-  test("rejects legacy bare-identity batch options", async () => {
-    const gate = buildGate({
-      decide: () => ({ type: "boolean", value: true }),
-      identify: () => ({ distinctId: "identified" }),
-    })
-    const flag = gate({ defaultValue: false, key: "flag" })
-
-    await expectRejection(
-      // @ts-expect-error -- Batch options use the same { identity } shape as evaluators.
-      gate.batch([flag], { distinctId: "legacy-user" }),
-      "Gate evaluators now accept an options object; pass the identity as { identity }."
-    )
   })
 
   test("rejects evaluators from another factory", async () => {

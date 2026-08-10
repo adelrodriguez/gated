@@ -105,7 +105,7 @@ if (details.source === "default") {
 }
 ```
 
-Details include the evaluated `value`, `flagKey`, and `source` (`"hook"`, `"provider"`, or `"default"`). When evaluation falls back because of a failure, `error` contains the underlying error. Like plain evaluation, `details()` accepts an optional call-options object and never rejects.
+Details include the evaluated `value`, `flagKey`, and `source` (`"cache"`, `"provider"`, or `"default"`). When evaluation falls back because of a failure, `error` contains the underlying error. Like plain evaluation, `details()` accepts an optional call-options object and never rejects.
 
 Variant details also expose the decision's optional `payload`; plain evaluation continues to return only the variant string. Declare the payload type when you create a variant gate so callers can read provider metadata without a cast:
 
@@ -126,19 +126,23 @@ An undeclared variant payload is `unknown`. Boolean-gate details do not have a `
 
 #### Observing fallbacks
 
-Use `onFallback` for factory-level telemetry when an evaluation returns its configured default because of a failure. The reporter receives a plain snapshot with `flagKey`, resolved `identity`, `defaultValue`, and the same `error` that appears in evaluation details. It runs once for each failed evaluator, including each failed entry in a batch.
+Use an error hook for telemetry when an evaluation returns its configured default because of a failure. The hook receives the evaluation context and the same error that appears in evaluation details. It runs once for each failed evaluator, including each failed entry in a batch.
 
 ```typescript
-const gate = buildGate({
-  identify,
-  decide,
-  onFallback: ({ flagKey, identity, defaultValue, error }) => {
+const telemetryHook = defineHook({
+  error: ({ flagKey, identity, defaultValue }, error) => {
     telemetry.record("gate-fallback", { defaultValue, error, flagKey, identity })
   },
 })
+
+const gate = buildGate({
+  identify,
+  decide,
+  hooks: [telemetryHook],
+})
 ```
 
-Reporting is fire-and-forget. A reporter that throws, rejects, or never settles does not change the returned value or add latency. Successful hook or provider decisions do not report, even when the decision equals the configured default. Error hooks and `onFallback` both run for a gate failure: error hooks are registered lifecycle extensions with the full live context, while `onFallback` is factory-level telemetry with a plain snapshot.
+A successful hook or provider decision does not run the error hook, even when the decision equals the configured default. Use `onHookError` to report a hook that throws or rejects.
 
 ### Timeouts and Cancellation
 
@@ -161,7 +165,7 @@ const controller = new AbortController()
 const details = await checkout.details({ signal: controller.signal })
 ```
 
-A timeout or caller abort before a decision commits returns the configured default. The deadline covers identity resolution, `before` and `resolve` hooks, the provider call, and decision validation. After a successful decision commits, `after` and `finally` hooks run as detached observers and do not add latency or consume the deadline. Error hooks finish before a fallback returns; `finally` then runs detached. Error hooks and `details().error` receive the original evaluation failure, a `GateTimeoutError`, or the caller signal's abort reason. The combined signal is available as `context.signal` in hooks and is passed to `decide`; work that ignores cancellation may finish in the background but cannot advance the operational gate lifecycle. Timeout values must be positive, finite, and no greater than 2,147,483,647 milliseconds.
+A timeout or caller abort before a decision commits returns the configured default. The deadline covers identity resolution, `before` hooks, cache reads, the provider call, and decision validation. After a successful decision commits, `after` and `finally` hooks run as detached observers and do not add latency or consume the deadline. Error hooks finish before a fallback returns; `finally` then runs detached. Error hooks and `details().error` receive the original evaluation failure, a `GateTimeoutError`, or the caller signal's abort reason. The combined signal is available as `context.signal` in hooks and is passed to `decide`; work that ignores cancellation can finish in the background but cannot advance the operational gate lifecycle. Timeout values must be positive, finite, and no greater than 2,147,483,647 milliseconds.
 
 ### Anonymous Evaluation
 
@@ -186,7 +190,7 @@ await betaAccess({ identity: null })
 await gate.batch([betaAccess], { identity: null })
 ```
 
-Hooks receive `context.identity === null`, and successful `details()` results retain `source: "provider"` without an error. The cache and dedupe recipes deliberately bypass anonymous evaluations so decisions are neither retained nor shared between anonymous visitors.
+Hooks receive `context.identity === null`, and successful `details()` results retain `source: "provider"` without an error. Cache and request coalescing bypass anonymous evaluations, so decisions are neither retained nor shared between anonymous visitors.
 
 The `{ identity: null }` override is available only for a factory with `anonymous: "allow"`. A strict factory does not accept it in TypeScript. If an untyped caller supplies it, the evaluation skips `identify()`, returns the configured default, and reports `IdentityNotFoundError` through `details().error`.
 
@@ -205,7 +209,7 @@ await betaAccess({ identity: request.user })
 await gate.batch([betaAccess], { identity: request.user })
 ```
 
-In this mode, TypeScript requires an options object with `identity` for evaluator, `details()`, and `batch()` calls. If an untyped caller omits it, the evaluation returns its configured default and reports `IdentityNotFoundError` through details and `onFallback`.
+In this mode, TypeScript requires an options object with `identity` for evaluator, `details()`, and `batch()` calls. If an untyped caller omits it, the evaluation returns its configured default and exposes `IdentityNotFoundError` through details and error hooks.
 
 ### Batch Evaluation
 
@@ -236,48 +240,45 @@ export async function DashboardPage() {
 }
 ```
 
-Batches resolve identity once and preserve each flag's hooks, validation, timeout, default, source, error, and variant-payload behavior. `batch.details(flag)` returns the same typed evaluation details as `flag.details()`. Hook-resolved keys are omitted from provider work. Ready unresolved keys are grouped into a batch without waiting on dedupe followers, so asynchronous hooks can produce more than one provider batch instead of deadlocking concurrent batches. A missing batch result falls back to that flag's single `decide` call under that flag's own deadline; without `decideMany`, unresolved flags are evaluated in parallel. Calling `gate.batch()` therefore does not guarantee exactly one provider request. The signal passed to `decideMany` spans the batch and is aborted once the batch returns, so a provider call still in flight is cancelled. Batch keys must be unique.
+Batches resolve identity once and preserve each flag's hooks, validation, timeout, default, source, error, and variant-payload behavior. `batch.details(flag)` returns the same typed evaluation details as `flag.details()`. Cached keys are omitted from provider work. Ready cache misses are grouped into a batch. A missing batch result falls back to that flag's single `decide` call under that flag's own deadline; without `decideMany`, misses are evaluated in parallel. Calling `gate.batch()` therefore does not guarantee exactly one provider request. The signal passed to `decideMany` spans the batch and is aborted once the batch returns, so a provider call still in flight is cancelled. Batch keys must be unique.
 
 An empty `gate.batch([])` returns an empty batch without resolving identity or calling a provider.
 
-In anonymous mode, batches pass `null` to `decideMany`. The built-in cache and dedupe recipes continue to bypass anonymous evaluations, including concurrent batches.
+In anonymous mode, batches pass `null` to `decideMany`. Cache and request coalescing bypass anonymous evaluations, including concurrent batches.
 
 Evaluation failures remain fail-soft and appear through `batch.details(flag)`. API misuse rejects batch creation: keys must be unique, every evaluator must come from the same gate factory, and call options use `{ identity }`. These cases throw `DuplicateBatchKeyError`, `ForeignGateEvaluatorError`, and the existing migration `TypeError`, respectively. Reading an evaluator that was not included throws `BatchFlagNotFoundError`.
 
 ### Hook System
 
-Intercept the flag evaluation lifecycle with hooks. Gated supports five lifecycle stages:
+Observe the flag evaluation lifecycle with hooks. Gated supports four lifecycle stages:
 
 - **`before`** - Runs before flag evaluation
-- **`resolve`** - Can short-circuit evaluation by returning a decision
-- **`after`** - Runs as a detached observer after every successful, validated decision and receives its provider source or the exact resolving hook
+- **`after`** - Runs as a detached observer after every successful, validated decision and receives its `"cache"` or `"provider"` source
 - **`error`** - Runs when evaluation throws an error
 - **`finally`** - Runs as a detached observer after `after`, or after the error path completes
 
 Every lifecycle method receives a readonly context describing the evaluation: `flagKey`, resolved `identity` (or `null` for anonymous and failed identity resolution), `kind` (`"boolean"` or `"variant"`), `defaultValue`, `variants` for variant gates, and the combined cancellation `signal`. The context is discriminated by `kind`, so checking it narrows `defaultValue` and makes `variants` available for variant gates.
 
-The context also exposes `state`, a map shared by all hooks and phases of one evaluation. The map
-is created only when a hook first reads it, and concurrent evaluations receive different maps. Use
-a private symbol as the key so your hook cannot collide with another hook:
+The context object keeps the same reference through all phases of one evaluation. Use a closure
+`WeakMap` when one hook must correlate work across phases:
 
 ```typescript
-const timingState = Symbol("timing state")
+const starts = new WeakMap()
 
 const timingHook = defineHook({
   before(context) {
-    context.state.set(timingState, performance.now())
+    starts.set(context, performance.now())
   },
   after(context) {
-    const startedAt = context.state.get(timingState) as number
+    const startedAt = starts.get(context)
+    starts.delete(context)
     recordLatency(performance.now() - startedAt)
   },
 })
 ```
 
-The context object keeps the same reference through all phases of one evaluation. Do not clone or
-destructure the full context as a substitute for passing it through the lifecycle; object spread
-materializes its live getters. Read the fields that your hook needs, and use `state` to correlate
-work across phases.
+Do not clone the full context as a substitute for its lifecycle identity. Object spread creates a
+different object and materializes live getters. Read the fields that your hook needs.
 
 The hook list is fixed when an evaluation begins. A hook added to the factory configuration during an evaluation starts to run with the next evaluation.
 
@@ -310,8 +311,6 @@ const gate = buildGate({
 })
 ```
 
-Resolve-hook errors are skipped by default so later hooks or the provider can run.
-
 #### Hook error handling
 
 1. An ordinary hook failure never aborts evaluation and never changes the returned value.
@@ -322,7 +321,7 @@ Consumer-facing library failures extend `GatedError` and use contextual classes 
 identify the failure without parsing messages: `IdentityNotFoundError`,
 `DecisionTypeMismatchError`, `InvalidVariantError`, and `MalformedDecisionError`. These classes
 retain relevant details such as the received decision, validation reason, expected decision kind,
-and allowed variants. Internal hook-control errors are intentionally not exported.
+and allowed variants.
 
 ### Request Coalescing
 
@@ -336,8 +335,8 @@ const gate = buildGate({
 })
 ```
 
-Coalescing runs after resolve hooks, so cache hits and other hook decisions do not create pending
-provider work. By default, its collision-safe key contains the flag key, gate kind, configured
+Coalescing runs after cache reads, so cache hits do not create pending provider work. By default,
+its collision-safe key contains the flag key, gate kind, configured
 variant list for variant gates, and the type and value of `distinctId`. Evaluators with one
 provider flag key but incompatible decision shapes therefore do not share provider work. The key
 does not include other identity attributes. Provide a projection when targeting uses such
@@ -362,17 +361,12 @@ A follower's cancellation does not cancel the leader. If the leader is cancelled
 followers receive that same failure and run their own error hooks and fallback reporter. Anonymous
 evaluations are not coalesced.
 
-### Built-in Recipes
+### First-class Cache
 
-Two hook implementations are included:
-
-#### Cache Hook
-
-Caches flag decisions by identity:
+Set `cache` on a gate factory to cache decisions by identity:
 
 ```typescript
-import type { Decision, Hook } from "gated"
-import { cacheHook } from "gated/hooks/recipes"
+import type { Decision } from "gated"
 
 const cache = {
   delete: async (key: string) => await redis.del(key),
@@ -380,83 +374,44 @@ const cache = {
   set: async (key: string, value: Decision) => await redis.set(key, value),
 }
 
-// Add to your gate's hooks array
 const gate = buildGate({
+  cache,
   identify: async () => ({ distinctId: userId }),
   decide: async (key, identity) => provider.evaluate(key, identity),
-  hooks: [cacheHook(cache)],
 })
 ```
 
-The cache recipe treats decisions with the wrong boolean/variant shape or an unsupported variant as stale. The mismatch is reported to `onHookError`, evaluation continues to the provider, and the valid decision overwrites the stale entry. Cache implementations own serialization; variant payloads can contain provider metadata such as `Date` values or class instances, so a persisted cache must preserve that metadata faithfully or deliberately normalize it before storage.
+The engine treats a decision with the wrong shape or an unsupported variant as stale. It reports the failure to `onCacheError`, deletes the entry when `cache.delete` exists, and continues to the provider. Cache failures never fail an evaluation.
 
-Cache writes run in the detached `after` phase. A short-lived runtime can stop before the write finishes. Do not rely on the recipe to durably warm a remote cache after a serverless response returns.
+Cache stores own serialization and expiry. Variant payloads can contain values that are not JSON-safe. A persistent store must preserve or normalize them. Return `null` or `undefined` from `get` when an entry expires. Cache writes run after commit in the background. A short-lived runtime can stop before a write finishes.
 
-By default, cache recipe keys contain the flag key and the type and value of `distinctId`.
-The tuple encoding does not have delimiter collisions, and numeric and string identifiers are
-different. Other identity attributes are not part of the default key. If targeting rules use such
-attributes, provide a key projection:
-
-```typescript
-cacheHook(cache, {
-  key: (context) =>
-    JSON.stringify([context.flagKey, context.identity?.distinctId, context.identity?.plan]),
-})
-```
-
-Use a short cache lifetime or explicit invalidation if an identity attribute can change during a
-session. Persisted cache entries from Gated versions that used the earlier key encoding become
-cache misses and expire according to the cache policy.
-
-#### Dedupe Hook
-
-> **Deprecated:** Use the `coalesce` factory option. `dedupeHook` remains available through the
-> current major release and will be removed in the next major release.
-
-The legacy recipe deduplicates concurrent requests for the same flag:
+The default cache key is also the default coalescing key. It contains the flag key, gate kind,
+configured variants, and the type and value of `distinctId`. Other identity attributes are not
+part of the key. Provide a projection when targeting uses other attributes:
 
 ```typescript
-import { dedupeHook } from "gated/hooks/recipes"
-
-// Add to your gate's hooks array
 const gate = buildGate({
-  identify: async () => ({ distinctId: userId }),
-  decide: async (key, identity) => provider.evaluate(key, identity),
-  hooks: [dedupeHook()],
-})
-
-// Only one API call will be made even with concurrent evaluations
-const [result1, result2] = await Promise.all([betaFlag(), betaFlag()])
-```
-
-Recipe ordering can affect efficiency, but not correctness. For example, placing the cache hook before the dedupe hook may avoid creating a pending request for cache hits; either ordering is safe.
-When several cache hooks are layered, each hook writes only if it was consulted and missed during
-that evaluation. A hit in a later cache warms earlier caches, while a hit in an earlier cache does
-not touch later caches that were never consulted.
-
-By default, the dedupe recipe uses the same collision-safe, type-preserving flag key and
-`distinctId` tuple as the cache recipe. It does not include other identity attributes. Supply a
-key projection when provider targeting uses those attributes:
-
-```typescript
-dedupeHook({
-  key: (context) =>
-    JSON.stringify([context.flagKey, context.identity?.distinctId, context.identity?.plan]),
+  cache: {
+    key: (context) =>
+      JSON.stringify([context.flagKey, context.identity?.distinctId, context.identity?.plan]),
+    store: cache,
+  },
+  identify,
+  decide,
 })
 ```
 
-The recipe computes the projection one time for each evaluation. Anonymous evaluations bypass
-recipe keys and are not cached or deduplicated.
+`onCacheError` receives `operation`, `key`, `flagKey`, `identity`, and the normalized `error`.
+Reporting is fire-and-forget.
 
 ### Reactive Updates
 
 Provider adapters can send flag changes through a factory-level change hub. The provider subscription starts when the first `gate.changes` listener attaches and stops when the last listener detaches. Send `keys` to identify changed flags, or omit it when all flags can have changed:
 
 ```typescript
-const hooks: Hook[] = []
 const gate = buildGate({
+  cache,
   decide,
-  hooks,
   identify,
   subscribe(notify) {
     const handleChange = (changes: Record<string, unknown>) => {
@@ -467,11 +422,9 @@ const gate = buildGate({
     return () => ldClient.off("change", handleChange)
   },
 })
-
-hooks.push(cacheHook(cache, { changes: gate.changes }))
 ```
 
-The cache recipe records evaluated cache keys by flag and calls `cache.delete` for identities affected by a notification. Other flag entries stay cached. Listener and cache-deletion failures are isolated from the provider notification.
+When both `cache.delete` and `subscribe` exist, the engine indexes evaluated cache keys by flag and deletes entries affected by a notification. Other flag entries stay cached. If either function is absent, entries remain until the store expires them.
 
 Core evaluation remains pull-based. Subscribe directly to `gate.changes` when another integration or application store needs notifications:
 
@@ -611,7 +564,6 @@ const gate = buildGate({
   decideMany?: (keys: readonly string[], identity: TIdentity, options?: { signal?: AbortSignal }) =>
     Record<string, Decision> | Promise<Record<string, Decision>>,
   hooks?: Hook[],
-  onFallback?: (report: FallbackReport<TIdentity>) => void | Promise<void>,
   onHookError?: (report: HookErrorReport<TIdentity>) => void | Promise<void>,
   timeoutMs?: number,
   anonymous?: "reject"
@@ -646,7 +598,6 @@ const requestGate = buildGate<TIdentity>({
   decideMany?: (keys: readonly string[], identity: TIdentity, options?: { signal?: AbortSignal }) =>
     Record<string, Decision> | Promise<Record<string, Decision>>,
   hooks?: Hook[],
-  onFallback?: (report: FallbackReport<TIdentity>) => void | Promise<void>,
   onHookError?: (report: HookErrorReport<TIdentity>) => void | Promise<void>,
   timeoutMs?: number,
 })
@@ -688,7 +639,7 @@ gate.batch(flags, options?): Promise<GateBatch<typeof flags>>
 Caller-identity factories set `TCallRequired` and require call options with a non-optional `identity`. Other factory modes keep call options optional.
 
 See [Evaluation Details](#evaluation-details) for the result shape returned by `details()`.
-Resolver-based evaluators and `details()` accept `{ identity?, signal? }`; caller-identity evaluators require `{ identity, signal? }`. `details()` reports source, fallback errors, and variant payloads without rejecting. `batch()` resolves identity once and returns typed synchronous `get()` reads after evaluation completes.
+Standard evaluators and `details()` accept `{ identity?, signal? }`; caller-identity evaluators require `{ identity, signal? }`. `details()` reports source, fallback errors, and variant payloads without rejecting. `batch()` resolves identity once and returns typed synchronous `get()` reads after evaluation completes.
 
 #### `defineHook(hook)` / `defineHook<TOptions>(factory)`
 
@@ -704,7 +655,7 @@ type PrefixOptions = { prefix: string }
 const prefixedHook = defineHook((options: PrefixOptions) => ({
   before: (context) => console.log(`${options.prefix}:${context.flagKey}`),
   after: (context, decision, metadata) => {
-    console.log(context.flagKey, decision, metadata.source) // "hook" | "provider"
+    console.log(context.flagKey, decision, metadata.source) // "cache" | "provider"
   },
 }))
 

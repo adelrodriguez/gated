@@ -43,11 +43,6 @@
       "import": "./dist/hooks/index.js",
       "default": "./dist/hooks/index.js"
     },
-    "./hooks/recipes": {
-      "types": "./dist/hooks/recipes.d.ts",
-      "import": "./dist/hooks/recipes.js",
-      "default": "./dist/hooks/recipes.js"
-    },
     "./react": {
       "types": "./dist/integrations/react.d.ts",
       "import": "./dist/integrations/react.js",
@@ -59,7 +54,6 @@
     "build": "bunup",
     "bump:deps": "bun update --interactive",
     "check": "adamantite check",
-    "check:exports": "tsc --project test/package-exports/tsconfig.json",
     "dev": "bunup --watch",
     "fix": "adamantite fix",
     "format": "adamantite format",

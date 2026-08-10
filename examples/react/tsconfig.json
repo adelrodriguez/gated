@@ -22,7 +22,6 @@
       "#*": ["./src/*"],
       "gated": ["../../src/index.ts"],
       "gated/hooks": ["../../src/hooks/index.ts"],
-      "gated/hooks/recipes": ["../../src/hooks/recipes.ts"],
       "gated/react": ["../../src/integrations/react.tsx"]
     }
   },

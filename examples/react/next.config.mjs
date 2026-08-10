@@ -5,7 +5,6 @@ const directory = path.dirname(fileURLToPath(import.meta.url))
 const webpackAliases = {
   gated: path.resolve(directory, "../../src/index.ts"),
   "gated/hooks": path.resolve(directory, "../../src/hooks/index.ts"),
-  "gated/hooks/recipes": path.resolve(directory, "../../src/hooks/recipes.ts"),
   "gated/react": path.resolve(directory, "../../src/integrations/react.tsx"),
 }
 
@@ -20,7 +19,6 @@ const config = {
     resolveAlias: {
       gated: "../../src/index.ts",
       "gated/hooks": "../../src/hooks/index.ts",
-      "gated/hooks/recipes": "../../src/hooks/recipes.ts",
       "gated/react": "../../src/integrations/react.tsx",
     },
   },

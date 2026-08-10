@@ -1,8 +1,8 @@
 # Gated React showcase
 
-An interactive Next.js App Router application that demonstrates every public capability of `gated` with a local in-memory flag provider. It includes boolean and typed variant decisions, evaluation details and payloads, server batching, identity overrides, anonymous evaluation, React Suspense gates, cache invalidation, `FeatureGate`, lifecycle hooks, cache/dedupe recipes, timeout and abort behavior, and typed fallback errors.
+An interactive Next.js App Router application that demonstrates every public capability of `gated` with a local in-memory flag provider. It includes boolean and typed variant decisions, evaluation details and payloads, server batching, identity overrides, anonymous evaluation, React Suspense gates, cache invalidation, `FeatureGate`, observer hooks, built-in cache and request coalescing, timeout and abort behavior, and typed fallback errors.
 
-The complete acceptance checklist and design decisions live in [`../../docs/plans/2026-08-09-examples-react-showcase.md`](../../docs/plans/2026-08-09-examples-react-showcase.md).
+The example is the executable reference for its acceptance criteria and design decisions.
 
 ## Run locally
 
@@ -36,7 +36,7 @@ Start in `shared/gates/` for copyable `gated` usage. Everything under `shared/de
 
 ## Source aliases
 
-Example code imports the real public paths (`gated`, `gated/hooks`, `gated/hooks/recipes`, and `gated/react`), while TypeScript and Next map those paths directly to `../../src`. This keeps consumer snippets realistic and gives live HMR without adding the root package as a workspace or copied `file:` dependency. Both Turbopack and webpack aliases are configured in `next.config.mjs`.
+Example code imports the real public paths (`gated`, `gated/hooks`, and `gated/react`), while TypeScript and Next map those paths directly to `../../src`. This keeps consumer snippets realistic and gives live HMR without adding the root package as a workspace or copied `file:` dependency. Both Turbopack and webpack aliases are configured in `next.config.mjs`.
 
 ## Guided tour
 
@@ -44,7 +44,7 @@ Example code imports the real public paths (`gated`, `gated/hooks`, `gated/hooks
 2. Open **Admin**, change Bob’s `new-dashboard` override, and submit it.
 3. Open **Server** to see the new decision and full details immediately.
 4. Open **Client**, return to Admin to flip the value again, then come back. The client gate remains cached until **Invalidate this identity** is pressed.
-5. Open **Advanced** to run dedupe, server cache, timeout, and abort experiments and inspect every hook phase in the event log.
+5. Open **Advanced** to run request coalescing, server cache, timeout, and abort experiments and inspect every hook phase in the event log.
 
 ## Deploy
 

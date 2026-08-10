@@ -85,13 +85,6 @@ type HookContextBase<TIdentity extends Identity> = {
   readonly flagKey: string
   readonly identity: TIdentity | null
   readonly signal: AbortSignal
-  /**
-   * State shared by all hooks and lifecycle phases for this evaluation.
-   *
-   * Use a private symbol as a key so the hook's values do not collide with other hooks. Each
-   * concurrent evaluation receives a different map.
-   */
-  readonly state: Map<unknown, unknown>
 }
 
 export type HookContext<TIdentity extends Identity = Identity> = HookContextBase<TIdentity> &
@@ -116,24 +109,41 @@ export type CoalescingOptions<TIdentity extends Identity = Identity> = {
   key?: (context: HookContext<TIdentity>) => string
 }
 
-export type DecisionSource = "hook" | "provider"
+/**
+ * A cache store for decisions. The store owns serialization and expiry policy.
+ *
+ * Variant payloads can contain values that are not JSON-safe. A persistent store must preserve them
+ * or normalize them for the provider.
+ */
+export type DecisionCache = {
+  delete?(key: string): Promise<boolean | undefined>
+  get(key: string): Promise<Decision | null | undefined>
+  set(key: string, value: Decision): Promise<void>
+}
 
-export type AfterHookMeta<TIdentity extends Identity = Identity> =
-  | { source: "hook"; resolver: Hook<TIdentity> }
-  | { source: "provider" }
+export type DecisionCacheOptions<TIdentity extends Identity = Identity> = {
+  /**
+   * Projects an evaluation context to its cache key. The default is the coalescing key.
+   */
+  key?: (context: HookContext<TIdentity>) => string
+  store: DecisionCache
+}
+
+export type DecisionSource = "cache" | "provider"
 
 export type HookErrorReport<TIdentity extends Identity = Identity> = {
-  phase: "before" | "resolve" | "after" | "error" | "finally"
+  phase: "before" | "after" | "error" | "finally"
   hookIndex: number
   error: Error
   context: HookContext<TIdentity>
 }
 
-export type FallbackReport<TIdentity extends Identity = Identity> = {
-  defaultValue: boolean | string
-  error: Error
+export type DecisionCacheErrorReport<TIdentity extends Identity = Identity> = {
+  operation: "key" | "get" | "set" | "delete" | "validate"
+  key: string
   flagKey: string
   identity: TIdentity | null
+  error: Error
 }
 
 export type GateChange = {
@@ -146,15 +156,10 @@ export type GateChanges = {
 
 export interface Hook<T extends Identity = Identity> {
   before?(hookContext: HookContext<T>): MaybePromise<void>
-  /**
-   * Return a decision to bypass the provider, or return nothing to continue evaluation.
-   */
-  // oxlint-disable-next-line typescript/no-invalid-void-type -- void is intentional for observation-only resolving hooks.
-  resolve?(hookContext: HookContext<T>): MaybePromise<Decision | null | void>
   after?(
     hookContext: HookContext<T>,
     decision: Decision,
-    meta: AfterHookMeta<T>
+    meta: { source: DecisionSource }
   ): MaybePromise<void>
   error?(hookContext: HookContext<T>, error: Error): MaybePromise<void>
   finally?(hookContext: HookContext<T>): MaybePromise<void>
@@ -162,6 +167,7 @@ export interface Hook<T extends Identity = Identity> {
 
 export type GatedConfig<TIdentity extends Identity = Identity> = {
   anonymous?: "reject"
+  cache?: DecisionCache | DecisionCacheOptions<TIdentity>
   coalesce?: boolean | CoalescingOptions<TIdentity>
   identify: () => MaybePromise<TIdentity | null>
   decide: (
@@ -175,7 +181,7 @@ export type GatedConfig<TIdentity extends Identity = Identity> = {
     options?: { signal?: AbortSignal }
   ) => MaybePromise<Record<string, Decision>>
   hooks?: Array<Hook<TIdentity>>
-  onFallback?: (report: FallbackReport<TIdentity>) => MaybePromise<void>
+  onCacheError?: (report: DecisionCacheErrorReport<TIdentity>) => MaybePromise<void>
   onHookError?: (report: HookErrorReport<TIdentity>) => MaybePromise<void>
   subscribe?: (notify: (change: GateChange) => void) => () => void
   timeoutMs?: number

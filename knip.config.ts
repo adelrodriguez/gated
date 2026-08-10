@@ -7,13 +7,12 @@ const config = {
     "bunup.config.ts",
     "src/index.ts",
     "src/hooks/index.ts",
-    "src/hooks/recipes.ts",
     "src/integrations/react.tsx",
-    "test/package-exports/consumer.ts",
+    "src/__tests__/entrypoints.types.ts",
   ],
   ignore: [],
   ignoreFiles: [],
-  project: ["src/**/*.{ts,tsx}", "test/**/*.ts", "*.config.ts"],
+  project: ["src/**/*.{ts,tsx}", "*.config.ts"],
 } satisfies KnipConfig
 
 export default config

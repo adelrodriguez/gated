@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic"
 export default function AdvancedPage() {
   return (
     <main className="shell page">
-      <ShowcaseIntro eyebrow="hooks · recipes · cancellation" title="Evaluation lifecycle" />
+      <ShowcaseIntro eyebrow="hooks · fallback · cancellation" title="Evaluation lifecycle" />
       <AdvancedResults />
     </main>
   )

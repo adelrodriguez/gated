@@ -1,3 +1,4 @@
+import type { GateOptions } from "./lib/evaluation/shared"
 import type {
   AnonymousGatedConfig,
   CallerIdentityGatedConfig,
@@ -8,11 +9,11 @@ import type {
   GatedConfig,
   Identity,
 } from "./lib/types"
-import { type BatchEntry, executeGateBatch } from "./lib/batch"
 import { ForeignGateEvaluatorError, BatchFlagNotFoundError } from "./lib/errors"
-import { executeGate, executeGateDetails, type GateOptions } from "./lib/evaluate"
-import { setEvaluatorFlagKey } from "./lib/evaluator"
-import { reportInBackground } from "./lib/hook-runner"
+import { type BatchEntry, executeGateBatch } from "./lib/evaluation/batch"
+import { executeGate, executeGateDetails } from "./lib/evaluation/engine"
+import { setEvaluatorFlagKey } from "./lib/evaluation/registry"
+import { reportInBackground } from "./lib/hook"
 
 type AnyGateEvaluator =
   | GateEvaluator<never, boolean | string, never>
@@ -92,19 +93,6 @@ function assertGateOptions(options: {
   }
 }
 
-function assertCallOptions(callOptions: unknown): void {
-  if (
-    callOptions !== null &&
-    typeof callOptions === "object" &&
-    Object.hasOwn(callOptions, "distinctId") &&
-    !Object.hasOwn(callOptions, "identity")
-  ) {
-    throw new TypeError(
-      "Gate evaluators now accept an options object; pass the identity as { identity }."
-    )
-  }
-}
-
 export interface GateFactory<
   TIdentity extends Identity,
   TCallIdentity extends TIdentity | null = TIdentity,
@@ -156,7 +144,6 @@ export function buildGate<TIdentity extends Identity>(
   config: GatedConfig<TIdentity>
 ): GateFactory<TIdentity>
 export function buildGate<TIdentity extends Identity>(
-  // oxlint-disable-next-line typescript/unified-signatures -- Overloads preserve anonymous-mode contextual typing.
   config: AnonymousGatedConfig<TIdentity>
 ): GateFactory<TIdentity, TIdentity | null>
 export function buildGate<TIdentity extends Identity>(
@@ -218,16 +205,12 @@ export function buildGate<TIdentity extends Identity>(
     assertGateOptions(options)
     assertTimeoutMs(options.timeoutMs)
 
-    const evaluator = async (callOptions?: GateCallOptions<TIdentity | null>) => {
-      assertCallOptions(callOptions)
-      return executeGate(config, options, callOptions)
-    }
+    const evaluator = async (callOptions?: GateCallOptions<TIdentity | null>) =>
+      executeGate(config, options, callOptions)
 
     const assigned = Object.assign(evaluator, {
-      details: async (callOptions?: GateCallOptions<TIdentity | null>) => {
-        assertCallOptions(callOptions)
-        return executeGateDetails<TIdentity, T, TPayload>(config, options, callOptions)
-      },
+      details: (callOptions?: GateCallOptions<TIdentity | null>) =>
+        executeGateDetails<TIdentity, T, TPayload>(config, options, callOptions),
     })
     definitions.set(assigned, options)
     setEvaluatorFlagKey(assigned, options.key)
@@ -239,7 +222,6 @@ export function buildGate<TIdentity extends Identity>(
       flags: TFlags,
       callOptions?: GateCallOptions<TIdentity | null>
     ): Promise<GateBatch<TFlags>> {
-      assertCallOptions(callOptions)
       const entries: BatchEntry[] = flags.map((flag) => {
         const options = definitions.get(flag)
         if (!options) {

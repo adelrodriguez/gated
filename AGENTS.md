@@ -36,12 +36,11 @@ Use Changesets for versioning and changelog management. See
 - Run `bun run test`, `bun run build`, `bun run check`, `bun run fix`, and
   `bun run format` after edits.
 - Run `bun run analyze` after dependency, import, or export changes.
-- Run `bun run build` and then `bun run check:exports` after changes to a public entry
-  point or its types.
+
 - Keep tests colocated in `src/**/__tests__/`.
-- Keep core implementation in `src/core.ts` and `src/lib/`, hooks and recipes in
+- Keep the gate factory in `src/factory.ts`, core implementation in `src/lib/`, hooks in
   `src/hooks/`, and the React integration in `src/integrations/react.tsx`.
-- Treat `gated`, `gated/hooks`, `gated/hooks/recipes`, and `gated/react` as public entry
+- Treat `gated`, `gated/hooks`, and `gated/react` as public entry
   points. Consider package consumers before changing their runtime behavior or types.
 - Add or update tests for behavior changes.
 

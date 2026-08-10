@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test"
 import type { Decision, EvaluationDetails, Hook, Identity } from "../lib/types"
+import { decision } from "../decision"
 import { buildGate } from "../factory"
-import { decision } from "../lib/decision"
 import { IdentityNotFoundError, MalformedDecisionError } from "../lib/errors"
 
 describe("buildGate", () => {
@@ -31,17 +31,26 @@ describe("buildGate", () => {
   )
 
   test.each([
-    {
-      field: "defaultValue",
-      options: { defaultValue: "purple", key: "theme", variants: ["light", "dark"] },
-    },
+    { field: "key", options: { defaultValue: false, key: 1 } },
     { field: "key", options: { defaultValue: false, key: "" } },
+    { field: "defaultValue", options: { defaultValue: "light", key: "theme" } },
+    {
+      field: "variants",
+      options: { defaultValue: "light", key: "theme", variants: "light" },
+    },
     { field: "variants", options: { defaultValue: "light", key: "theme", variants: [] } },
+    {
+      field: "variants",
+      options: { defaultValue: "light", key: "theme", variants: ["light", 1] },
+    },
     {
       field: "variants",
       options: { defaultValue: "light", key: "theme", variants: ["light", "light"] },
     },
-    { field: "defaultValue", options: { defaultValue: "enabled", key: "beta-access" } },
+    {
+      field: "defaultValue",
+      options: { defaultValue: "system", key: "theme", variants: ["light", "dark"] },
+    },
   ])("rejects invalid $field gate options at creation", ({ field, options }) => {
     const gate = buildGate({
       decide: () => ({ type: "boolean", value: true }),
@@ -171,17 +180,20 @@ describe("buildGate", () => {
     expect(await betaFlag()).toBe(true)
   })
 
-  test("returns hook evaluation details", async () => {
+  test("returns cache evaluation details", async () => {
     const gate = buildGate({
+      cache: {
+        get: () => Promise.resolve({ type: "boolean", value: true }),
+        set: () => Promise.resolve(),
+      },
       decide: () => ({ type: "boolean", value: false }),
-      hooks: [{ resolve: () => ({ type: "boolean", value: true }) }],
       identify: () => ({ distinctId: "user123" }),
     })
     const betaFlag = gate({ defaultValue: false, key: "beta-access" })
 
     expect(await betaFlag.details()).toEqual({
       flagKey: "beta-access",
-      source: "hook",
+      source: "cache",
       value: true,
     })
   })
@@ -475,28 +487,6 @@ describe("buildGate", () => {
     )
   })
 
-  test("rejects the legacy bare-identity call shape", async () => {
-    const gate = buildGate({
-      decide: () => Promise.reject(new Error("unreachable")),
-      identify: () => ({ distinctId: "default" }),
-    })
-    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
-
-    const evaluationError = await betaFlag({ distinctId: "legacy" } as never).catch(
-      (error: unknown) => error
-    )
-    const detailsError = await betaFlag
-      .details({ distinctId: "legacy" } as never)
-      .catch((error: unknown) => error)
-
-    expect(evaluationError).toBeInstanceOf(TypeError)
-    expect(evaluationError).toHaveProperty(
-      "message",
-      "Gate evaluators now accept an options object; pass the identity as { identity }."
-    )
-    expect(detailsError).toBeInstanceOf(TypeError)
-  })
-
   test("passes hooks to gate execution", async () => {
     const beforeFn = mock(() => Promise.resolve())
     const afterFn = mock(() => Promise.resolve())
@@ -516,17 +506,16 @@ describe("buildGate", () => {
     expect(afterFn).toHaveBeenCalled()
   })
 
-  test("hook can short-circuit evaluation", async () => {
+  test("cache can short-circuit evaluation", async () => {
     const cachedDecision: Decision = { type: "boolean", value: true }
-    const resolveFn = mock(() => Promise.resolve(cachedDecision))
-
-    const hooks: Hook[] = [{ resolve: resolveFn }]
-
     const decideFn = mock(() => Promise.resolve({ type: "boolean", value: false } as const))
 
     const gate = buildGate({
+      cache: {
+        get: () => Promise.resolve(cachedDecision),
+        set: () => Promise.resolve(),
+      },
       decide: decideFn,
-      hooks,
       identify: () => Promise.resolve({ distinctId: "user123" }),
     })
 
