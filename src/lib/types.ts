@@ -1,5 +1,5 @@
 /**
- * The identity of the user for evaluation of the flags
+ * A supported identity attribute value.
  */
 export type IdentityValue = bigint | boolean | number | object | string | symbol | null | undefined
 
@@ -10,7 +10,7 @@ export type Identity = {
   distinctId: string | number
 } & Record<string, IdentityValue>
 
-export type Decision =
+export type Decision<TPayload = unknown> =
   | {
       type: "boolean"
       value: boolean
@@ -18,19 +18,25 @@ export type Decision =
   | {
       type: "variant"
       variant: string
-      payload?: IdentityValue
+      payload?: TPayload
     }
 
 type EvaluationDetailsBase<TValue> = {
   value: TValue
   flagKey: string
-  /**
-   * Present only when a successful variant decision includes provider metadata.
-   */
-  payload?: IdentityValue
 }
 
-export type EvaluationDetails<TValue> = EvaluationDetailsBase<TValue> &
+type EvaluationDetailsPayload<TValue, TPayload> = [Extract<TValue, string>] extends [never]
+  ? Record<never, never>
+  : {
+      /**
+       * Present only when a successful variant decision includes provider metadata.
+       */
+      payload?: TPayload
+    }
+
+export type EvaluationDetails<TValue, TPayload = unknown> = EvaluationDetailsBase<TValue> &
+  EvaluationDetailsPayload<TValue, TPayload> &
   (
     | { source: DecisionSource; error?: never }
     | {
@@ -42,15 +48,35 @@ export type EvaluationDetails<TValue> = EvaluationDetailsBase<TValue> &
       }
   )
 
-export type GateCallOptions<TIdentity extends Identity> = {
+export type GateCallOptions<TIdentity extends Identity | null> = {
   identity?: TIdentity
   signal?: AbortSignal
 }
 
-export type GateEvaluator<TIdentity extends Identity, TValue extends boolean | string> = ((
-  options?: GateCallOptions<TIdentity>
-) => Promise<TValue>) & {
-  details: (options?: GateCallOptions<TIdentity>) => Promise<EvaluationDetails<TValue>>
+type RequiredGateCallOptions<TIdentity extends Identity> = Omit<
+  GateCallOptions<TIdentity>,
+  "identity"
+> & {
+  identity: TIdentity
+}
+
+type GateCallArguments<
+  TCallIdentity extends Identity | null,
+  TCallRequired extends boolean,
+> = TCallRequired extends true
+  ? [options: RequiredGateCallOptions<Extract<TCallIdentity, Identity>>]
+  : [options?: GateCallOptions<TCallIdentity>]
+
+export type GateEvaluator<
+  TIdentity extends Identity,
+  TValue extends boolean | string,
+  TCallIdentity extends TIdentity | null = TIdentity,
+  TPayload = unknown,
+  TCallRequired extends boolean = false,
+> = ((...args: GateCallArguments<TCallIdentity, TCallRequired>) => Promise<TValue>) & {
+  details: (
+    ...args: GateCallArguments<TCallIdentity, TCallRequired>
+  ) => Promise<EvaluationDetails<TValue, TPayload>>
 }
 
 export type MaybePromise<T> = T | Promise<T>
@@ -59,6 +85,13 @@ type HookContextBase<TIdentity extends Identity> = {
   readonly flagKey: string
   readonly identity: TIdentity | null
   readonly signal: AbortSignal
+  /**
+   * State shared by all hooks and lifecycle phases for this evaluation.
+   *
+   * Use a private symbol as a key so the hook's values do not collide with other hooks. Each
+   * concurrent evaluation receives a different map.
+   */
+  readonly state: Map<unknown, unknown>
 }
 
 export type HookContext<TIdentity extends Identity = Identity> = HookContextBase<TIdentity> &
@@ -75,6 +108,14 @@ export type HookContext<TIdentity extends Identity = Identity> = HookContextBase
       }
   )
 
+export type CoalescingOptions<TIdentity extends Identity = Identity> = {
+  /**
+   * Projects an evaluation context to its coalescing key. The default key uses the flag key and the
+   * type and value of `identity.distinctId`.
+   */
+  key?: (context: HookContext<TIdentity>) => string
+}
+
 export type DecisionSource = "hook" | "provider"
 
 export type AfterHookMeta<TIdentity extends Identity = Identity> =
@@ -86,6 +127,21 @@ export type HookErrorReport<TIdentity extends Identity = Identity> = {
   hookIndex: number
   error: Error
   context: HookContext<TIdentity>
+}
+
+export type FallbackReport<TIdentity extends Identity = Identity> = {
+  defaultValue: boolean | string
+  error: Error
+  flagKey: string
+  identity: TIdentity | null
+}
+
+export type GateChange = {
+  keys?: readonly string[]
+}
+
+export type GateChanges = {
+  subscribe(listener: (keys?: readonly string[]) => void): () => void
 }
 
 export interface Hook<T extends Identity = Identity> {
@@ -106,6 +162,7 @@ export interface Hook<T extends Identity = Identity> {
 
 export type GatedConfig<TIdentity extends Identity = Identity> = {
   anonymous?: "reject"
+  coalesce?: boolean | CoalescingOptions<TIdentity>
   identify: () => MaybePromise<TIdentity | null>
   decide: (
     key: string,
@@ -118,7 +175,9 @@ export type GatedConfig<TIdentity extends Identity = Identity> = {
     options?: { signal?: AbortSignal }
   ) => MaybePromise<Record<string, Decision>>
   hooks?: Array<Hook<TIdentity>>
+  onFallback?: (report: FallbackReport<TIdentity>) => MaybePromise<void>
   onHookError?: (report: HookErrorReport<TIdentity>) => MaybePromise<void>
+  subscribe?: (notify: (change: GateChange) => void) => () => void
   timeoutMs?: number
 }
 
@@ -137,4 +196,12 @@ export type AnonymousGatedConfig<TIdentity extends Identity = Identity> = Omit<
     identity: TIdentity | null,
     options?: { signal?: AbortSignal }
   ) => MaybePromise<Record<string, Decision>>
+}
+
+export type CallerIdentityGatedConfig<TIdentity extends Identity = Identity> = Omit<
+  GatedConfig<TIdentity>,
+  "anonymous" | "identify"
+> & {
+  anonymous?: never
+  identify?: never
 }

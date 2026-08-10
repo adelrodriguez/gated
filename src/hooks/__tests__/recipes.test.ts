@@ -1,5 +1,6 @@
-import { describe, expect, mock, test } from "bun:test"
-import type { Decision, HookContext } from "../../lib/types"
+import { describe, expect, mock, spyOn, test } from "bun:test"
+import type { Decision, GateChanges, HookContext } from "../../lib/types"
+import { decision } from "../../lib/decision"
 import { cacheHook, dedupeHook } from "../recipes"
 
 const providerMeta = { source: "provider" } as const
@@ -7,6 +8,9 @@ const BOOLEAN_HOOK_CONTEXT = {
   defaultValue: false,
   kind: "boolean",
   signal: new AbortController().signal,
+  get state() {
+    return new Map<unknown, unknown>()
+  },
 } as const
 
 async function expectRejection<T>(promise: Promise<T>, message: string) {
@@ -26,7 +30,40 @@ async function expectRejection<T>(promise: Promise<T>, message: string) {
   return caughtError
 }
 
+function nextEvaluation<TContext extends HookContext>(context: TContext): TContext {
+  return {
+    ...context,
+    signal: new AbortController().signal,
+    state: new Map(),
+  }
+}
+
 describe("cacheHook", () => {
+  test("does not retain a reactive key index when changes are not configured", async () => {
+    const cache = {
+      get: mock((_key: string) => Promise.resolve<Decision | undefined>(void 0)),
+      set: mock(() => Promise.resolve()),
+    }
+    const hook = cacheHook(cache)
+    const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
+      flagKey: "unindexed-flag",
+      identity: { distinctId: "user123" },
+    }
+    const mapSet = spyOn(Map.prototype, "set")
+
+    try {
+      await Promise.resolve(hook.resolve?.(context))
+
+      expect(
+        mapSet.mock.calls.some(([key, value]) => key === "unindexed-flag" && value instanceof Set)
+      ).toBe(false)
+      expect(cache.get).toHaveBeenCalledWith('["unindexed-flag","string","user123"]')
+    } finally {
+      mapSet.mockRestore()
+    }
+  })
+
   test("resolves from cache if available", async () => {
     const cachedDecision: Decision = { type: "boolean", value: true }
     const cache = {
@@ -44,12 +81,12 @@ describe("cacheHook", () => {
     const result = await Promise.resolve(hook.resolve?.(context))
 
     expect(result).toEqual(cachedDecision)
-    expect(cache.get).toHaveBeenCalledWith("test-flag:user123")
+    expect(cache.get).toHaveBeenCalledWith('["test-flag","string","user123"]')
   })
 
   test("returns undefined if cache is empty", async () => {
     const cache = {
-      get: mock(() => Promise.resolve<Decision | undefined>(void 0)),
+      get: mock((_key: string) => Promise.resolve<Decision | undefined>(void 0)),
       set: mock(() => Promise.resolve()),
     }
 
@@ -80,7 +117,7 @@ describe("cacheHook", () => {
     const result = await Promise.resolve(hook.resolve?.(context))
 
     expect(result).toBeUndefined()
-    expect(cache.get).toHaveBeenCalledWith("test-flag:user123")
+    expect(cache.get).toHaveBeenCalledWith('["test-flag","string","user123"]')
   })
 
   test("rejects a cached decision whose shape does not match the gate", async () => {
@@ -95,6 +132,7 @@ describe("cacheHook", () => {
       identity: { distinctId: "user123" },
       kind: "variant",
       signal: new AbortController().signal,
+      state: new Map(),
       variants: ["light", "dark"],
     }
 
@@ -102,7 +140,7 @@ describe("cacheHook", () => {
       Promise.resolve(hook.resolve?.(context)),
       "Cached decision type mismatch: expected variant decision but received boolean"
     )
-    expect(cache.get).toHaveBeenCalledWith("theme:user123")
+    expect(cache.get).toHaveBeenCalledWith('["theme","string","user123"]')
   })
 
   test("rejects a cached variant that the gate no longer supports", async () => {
@@ -117,6 +155,7 @@ describe("cacheHook", () => {
       identity: { distinctId: "user123" },
       kind: "variant",
       signal: new AbortController().signal,
+      state: new Map(),
       variants: ["light", "system"],
     }
 
@@ -124,7 +163,7 @@ describe("cacheHook", () => {
       Promise.resolve(hook.resolve?.(context)),
       "Cached decision contains invalid variant: dark"
     )
-    expect(cache.get).toHaveBeenCalledWith("theme:user123")
+    expect(cache.get).toHaveBeenCalledWith('["theme","string","user123"]')
   })
 
   test("stores decision to cache after evaluation", async () => {
@@ -144,7 +183,7 @@ describe("cacheHook", () => {
     await Promise.resolve(hook.resolve?.(context))
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
-    expect(cache.set).toHaveBeenCalledWith("test-flag:user123", decision)
+    expect(cache.set).toHaveBeenCalledWith('["test-flag","string","user123"]', decision)
   })
 
   test("handles missing identity in resolve", async () => {
@@ -202,7 +241,7 @@ describe("cacheHook", () => {
     await Promise.resolve(hook.resolve?.(context))
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
-    expect(cache.set).toHaveBeenCalledWith("theme-flag:456", decision)
+    expect(cache.set).toHaveBeenCalledWith('["theme-flag","number","456"]', decision)
   })
 
   test("creates different cache keys for different identities", async () => {
@@ -226,8 +265,8 @@ describe("cacheHook", () => {
     await Promise.resolve(hook.resolve?.(context1))
     await Promise.resolve(hook.resolve?.(context2))
 
-    expect(cache.get).toHaveBeenCalledWith("test-flag:user123")
-    expect(cache.get).toHaveBeenCalledWith("test-flag:user456")
+    expect(cache.get).toHaveBeenCalledWith('["test-flag","string","user123"]')
+    expect(cache.get).toHaveBeenCalledWith('["test-flag","string","user456"]')
   })
 
   test("creates different cache keys for different flags", async () => {
@@ -251,8 +290,8 @@ describe("cacheHook", () => {
     await Promise.resolve(hook.resolve?.(context1))
     await Promise.resolve(hook.resolve?.(context2))
 
-    expect(cache.get).toHaveBeenCalledWith("flag-a:user123")
-    expect(cache.get).toHaveBeenCalledWith("flag-b:user123")
+    expect(cache.get).toHaveBeenCalledWith('["flag-a","string","user123"]')
+    expect(cache.get).toHaveBeenCalledWith('["flag-b","string","user123"]')
   })
 
   test("handles cache.get errors", async () => {
@@ -324,7 +363,7 @@ describe("cacheHook", () => {
     // Store to cache
     const decision: Decision = { type: "boolean", value: true }
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
-    expect(cache.set).toHaveBeenCalledWith("test-flag:user123", decision)
+    expect(cache.set).toHaveBeenCalledWith('["test-flag","string","user123"]', decision)
 
     // Second resolve: cache hit
     const secondResult = await Promise.resolve(hook.resolve?.(context))
@@ -352,7 +391,145 @@ describe("cacheHook", () => {
     await Promise.resolve(hook.resolve?.(context))
 
     // Cache key should only use distinctId, not other properties
-    expect(cache.get).toHaveBeenCalledWith("test-flag:user123")
+    expect(cache.get).toHaveBeenCalledWith('["test-flag","string","user123"]')
+  })
+
+  test("keeps delimiter and distinctId type boundaries in cache keys", async () => {
+    const cache = {
+      get: mock((_key: string) => Promise.resolve<Decision | undefined>(void 0)),
+      set: mock(() => Promise.resolve()),
+    }
+    const hook = cacheHook(cache)
+    const contexts: HookContext[] = [
+      { ...BOOLEAN_HOOK_CONTEXT, flagKey: "a:1", identity: { distinctId: "2" } },
+      { ...BOOLEAN_HOOK_CONTEXT, flagKey: "a", identity: { distinctId: "1:2" } },
+      { ...BOOLEAN_HOOK_CONTEXT, flagKey: "a", identity: { distinctId: 1 } },
+      { ...BOOLEAN_HOOK_CONTEXT, flagKey: "a", identity: { distinctId: "1" } },
+    ]
+
+    const resolutions = contexts.map((context) => Promise.resolve(hook.resolve?.(context)))
+    await Promise.all(resolutions)
+
+    expect(cache.get.mock.calls.map(([key]) => key)).toEqual([
+      '["a:1","string","2"]',
+      '["a","string","1:2"]',
+      '["a","number","1"]',
+      '["a","string","1"]',
+    ])
+  })
+
+  test("uses one attribute-sensitive key for cache lookup and write", async () => {
+    const cache = {
+      get: mock(() => Promise.resolve<Decision | undefined>(void 0)),
+      set: mock(() => Promise.resolve()),
+    }
+    let projectionCalls = 0
+    const hook = cacheHook(cache, {
+      key(context) {
+        projectionCalls += 1
+        return JSON.stringify([
+          context.flagKey,
+          context.identity?.distinctId,
+          context.identity?.plan,
+          projectionCalls,
+        ])
+      },
+    })
+    const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
+      flagKey: "beta-access",
+      identity: { distinctId: "user123", plan: "pro" },
+    }
+    const decision: Decision = { type: "boolean", value: true }
+
+    await Promise.resolve(hook.resolve?.(context))
+    await Promise.resolve(hook.after?.(context, decision, providerMeta))
+
+    const expectedKey = '["beta-access","user123","pro",1]'
+    expect(cache.get).toHaveBeenCalledWith(expectedKey)
+    expect(cache.set).toHaveBeenCalledWith(expectedKey, decision)
+    expect(projectionCalls).toBe(1)
+  })
+
+  test("reads recipe state passed through an unsupported context clone", async () => {
+    const cache = {
+      get: mock((_key: string) => Promise.resolve<Decision | undefined>(void 0)),
+      set: mock(() => Promise.resolve()),
+    }
+    const hook = cacheHook(cache)
+    const context: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
+      flagKey: "beta-access",
+      identity: { distinctId: "user123" },
+    }
+    const decision: Decision = { type: "boolean", value: true }
+
+    await Promise.resolve(hook.resolve?.(context))
+    const clonedContext = { ...context }
+    await Promise.resolve(hook.after?.(clonedContext, decision, providerMeta))
+
+    const stateDescriptor = Object.getOwnPropertyDescriptor(clonedContext, "state")
+    expect(stateDescriptor && "value" in stateDescriptor).toBe(true)
+    expect(cache.set).toHaveBeenCalledWith('["beta-access","string","user123"]', decision)
+  })
+
+  test("evicts notified flag keys and retains other cache entries", async () => {
+    const entries = new Map<string, Decision>([
+      ['["beta-access","string","user-1"]', decision.boolean(true)],
+      ['["beta-access","string","user-2"]', decision.boolean(false)],
+      ['["theme","string","user-1"]', decision.variant("dark")],
+    ])
+    let notify!: (keys?: readonly string[]) => void
+    const changes: GateChanges = {
+      subscribe(listener) {
+        notify = listener
+        return mock(() => null)
+      },
+    }
+    const cache = {
+      delete: mock(async (key: string) => {
+        const deleted = entries.delete(key)
+        await Promise.resolve()
+        return deleted
+      }),
+      get: mock((key: string) => Promise.resolve(entries.get(key))),
+      set: mock((key: string, value: Decision) => {
+        entries.set(key, value)
+        return Promise.resolve()
+      }),
+    }
+    const hook = cacheHook(cache, { changes })
+    const contexts: HookContext[] = [
+      {
+        ...BOOLEAN_HOOK_CONTEXT,
+        flagKey: "beta-access",
+        identity: { distinctId: "user-1" },
+      },
+      {
+        ...BOOLEAN_HOOK_CONTEXT,
+        flagKey: "beta-access",
+        identity: { distinctId: "user-2" },
+      },
+      {
+        defaultValue: "light",
+        flagKey: "theme",
+        identity: { distinctId: "user-1" },
+        kind: "variant",
+        signal: new AbortController().signal,
+        state: new Map(),
+        variants: ["light", "dark"],
+      },
+    ]
+    await Promise.all(
+      contexts.map((context) => Promise.resolve().then(() => hook.resolve?.(context)))
+    )
+
+    notify(["beta-access"])
+    await Promise.resolve()
+
+    expect(entries.has('["beta-access","string","user-1"]')).toBe(false)
+    expect(entries.has('["beta-access","string","user-2"]')).toBe(false)
+    expect(entries.has('["theme","string","user-1"]')).toBe(true)
   })
 })
 
@@ -384,7 +561,7 @@ describe("dedupeHook", () => {
     expect(await firstResolve).toBeUndefined()
 
     // Start second concurrent request (should dedupe)
-    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(nextEvaluation(context)))
 
     // Complete first request
     const decision: Decision = { type: "boolean", value: true }
@@ -437,6 +614,67 @@ describe("dedupeHook", () => {
     expect(result2).toBeUndefined()
   })
 
+  test("does not deduplicate delimiter-colliding flag and identity pairs", async () => {
+    const hook = dedupeHook()
+    const firstContext: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
+      flagKey: "a:1",
+      identity: { distinctId: "2" },
+    }
+    const secondContext: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
+      flagKey: "a",
+      identity: { distinctId: "1:2" },
+    }
+
+    expect(await Promise.resolve(hook.resolve?.(firstContext))).toBeUndefined()
+    expect(await Promise.resolve(hook.resolve?.(secondContext))).toBeUndefined()
+  })
+
+  test("uses an attribute-sensitive dedupe key projection", async () => {
+    const hook = dedupeHook({
+      key: (context) =>
+        JSON.stringify([context.flagKey, context.identity?.distinctId, context.identity?.plan]),
+    })
+    const freeContext: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
+      flagKey: "beta-access",
+      identity: { distinctId: "user123", plan: "free" },
+    }
+    const proContext: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
+      flagKey: "beta-access",
+      identity: { distinctId: "user123", plan: "pro" },
+    }
+
+    expect(await Promise.resolve(hook.resolve?.(freeContext))).toBeUndefined()
+    expect(await Promise.resolve(hook.resolve?.(proContext))).toBeUndefined()
+  })
+
+  test("computes a dedupe key once per evaluation", async () => {
+    const projectedKeys = ["shared", "shared", "wrong-owner-key"]
+    const key = mock(() => projectedKeys.shift() ?? "unexpected")
+    const hook = dedupeHook({ key })
+    const ownerContext: HookContext = {
+      ...BOOLEAN_HOOK_CONTEXT,
+      flagKey: "beta-access",
+      identity: { distinctId: "user123" },
+    }
+    const followerContext: HookContext = {
+      ...ownerContext,
+      signal: new AbortController().signal,
+      state: new Map(),
+    }
+
+    expect(await Promise.resolve(hook.resolve?.(ownerContext))).toBeUndefined()
+    const follower = Promise.resolve(hook.resolve?.(followerContext))
+    const decision: Decision = { type: "boolean", value: true }
+    await Promise.resolve(hook.after?.(ownerContext, decision, providerMeta))
+
+    expect(await follower).toEqual(decision)
+    expect(key).toHaveBeenCalledTimes(2)
+  })
+
   test("handles errors in deduplicated requests", async () => {
     const hook = dedupeHook()
     const context: HookContext = {
@@ -449,7 +687,7 @@ describe("dedupeHook", () => {
     await Promise.resolve(hook.resolve?.(context))
 
     // Start second concurrent request
-    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(nextEvaluation(context)))
 
     // Trigger error on first request
     const error = new Error("API failed")
@@ -475,7 +713,7 @@ describe("dedupeHook", () => {
     await Promise.resolve(hook.after?.(context, decision, providerMeta))
 
     // New request should not be deduplicated (previous cleaned up)
-    const newResult = await Promise.resolve(hook.resolve?.(context))
+    const newResult = await Promise.resolve(hook.resolve?.(nextEvaluation(context)))
     expect(newResult).toBeUndefined()
   })
 
@@ -492,7 +730,7 @@ describe("dedupeHook", () => {
     expect(await firstResolve).toBeUndefined()
 
     // Start second concurrent request to have a pending promise
-    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(nextEvaluation(context)))
 
     // Trigger error which rejects the pending promise
     void hook.error?.(context, new Error("Failed"))
@@ -505,7 +743,7 @@ describe("dedupeHook", () => {
     }
 
     // New request should not be deduplicated (previous cleaned up)
-    const newResult = await Promise.resolve(hook.resolve?.(context))
+    const newResult = await Promise.resolve(hook.resolve?.(nextEvaluation(context)))
     expect(newResult).toBeUndefined()
   })
 
@@ -543,7 +781,7 @@ describe("dedupeHook", () => {
     await Promise.resolve(hook.resolve?.(context))
 
     // Start second concurrent request
-    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(nextEvaluation(context)))
 
     // Complete first request with variant
     const decision: Decision = { type: "variant", variant: "dark" }
@@ -566,9 +804,9 @@ describe("dedupeHook", () => {
     await Promise.resolve(hook.resolve?.(context))
 
     // Start multiple concurrent requests
-    const request2 = Promise.resolve(hook.resolve?.(context))
-    const request3 = Promise.resolve(hook.resolve?.(context))
-    const request4 = Promise.resolve(hook.resolve?.(context))
+    const request2 = Promise.resolve(hook.resolve?.(nextEvaluation(context)))
+    const request3 = Promise.resolve(hook.resolve?.(nextEvaluation(context)))
+    const request4 = Promise.resolve(hook.resolve?.(nextEvaluation(context)))
 
     // Complete first request
     const decision: Decision = { type: "boolean", value: true }
@@ -608,7 +846,7 @@ describe("dedupeHook", () => {
     }).not.toThrow()
   })
 
-  test("treats string and number distinctId as same key", async () => {
+  test("does not deduplicate string and number distinctId values", async () => {
     const hook = dedupeHook()
     const context1: HookContext = {
       ...BOOLEAN_HOOK_CONTEXT,
@@ -624,16 +862,9 @@ describe("dedupeHook", () => {
     // Start first request with string distinctId
     await Promise.resolve(hook.resolve?.(context1))
 
-    // Start second request with number distinctId - should dedupe
-    const secondResolvePromise = Promise.resolve(hook.resolve?.(context2))
+    const secondResult = await Promise.resolve(hook.resolve?.(context2))
 
-    // Complete first request
-    const decision: Decision = { type: "boolean", value: true }
-    await Promise.resolve(hook.after?.(context1, decision, providerMeta))
-
-    // Second request should get the same decision (treated as same key)
-    const secondResult = await secondResolvePromise
-    expect(secondResult).toEqual(decision)
+    expect(secondResult).toBeUndefined()
   })
 
   test("deduplicates requests with same numeric distinctId", async () => {
@@ -648,7 +879,7 @@ describe("dedupeHook", () => {
     await Promise.resolve(hook.resolve?.(context))
 
     // Start second concurrent request
-    const secondResolvePromise = Promise.resolve(hook.resolve?.(context))
+    const secondResolvePromise = Promise.resolve(hook.resolve?.(nextEvaluation(context)))
 
     // Complete first request
     const decision: Decision = { type: "boolean", value: true }
@@ -671,8 +902,8 @@ describe("dedupeHook", () => {
     await Promise.resolve(hook.resolve?.(context))
 
     // Start multiple concurrent requests
-    const request2 = Promise.resolve(hook.resolve?.(context))
-    const request3 = Promise.resolve(hook.resolve?.(context))
+    const request2 = Promise.resolve(hook.resolve?.(nextEvaluation(context)))
+    const request3 = Promise.resolve(hook.resolve?.(nextEvaluation(context)))
 
     // Trigger error (don't await - let it reject the pending promises)
     const error = new Error("Failed")
@@ -711,9 +942,10 @@ describe("dedupeHook", () => {
     await Promise.resolve(hook.resolve?.(contextA))
 
     // Start concurrent requests for both flags
-    const requestA2 = Promise.resolve(hook.resolve?.(contextA))
+    const requestA2 = Promise.resolve(hook.resolve?.(nextEvaluation(contextA)))
+    const contextB2 = nextEvaluation(contextB)
     const requestB1 = Promise.resolve(hook.resolve?.(contextB))
-    const requestB2 = Promise.resolve(hook.resolve?.(contextB))
+    const requestB2 = Promise.resolve(hook.resolve?.(contextB2))
 
     // Complete both flags
     const decisionA: Decision = { type: "boolean", value: true }

@@ -3,6 +3,7 @@ import type * as hooksEntry from "../hooks"
 import type {
   AfterHookMeta,
   AnonymousGatedConfig,
+  CoalescingOptions,
   Decision,
   DecisionSource,
   EvaluationDetails,
@@ -41,12 +42,16 @@ const decision: Decision = { type: "boolean", value: true }
 const decisionSource: DecisionSource = "provider"
 const maybeDecision: MaybePromise<Decision> = decision
 const identityValue: IdentityValue = { plan: "pro" }
+const coalescingOptions: CoalescingOptions<TestIdentity> = {
+  key: (context) => String(context.identity?.plan),
+}
 const hookContext: HookContext<TestIdentity> = {
   defaultValue: false,
   flagKey: "beta-access",
   identity: { distinctId: "test-user", plan: "pro" },
   kind: "boolean",
   signal: new AbortController().signal,
+  state: new Map(),
 }
 const hook: Hook<TestIdentity> = {
   resolve: () => decision,
@@ -98,9 +103,10 @@ const invalidAnonymousConfig: AnonymousGatedConfig<TestIdentity> = {
   identify: () => null,
 }
 const invalidAnonymousGate = buildGate<TestIdentity>({
+  // @ts-expect-error -- No overload accepts anonymous mode with this strict provider.
   anonymous: "allow",
-  // @ts-expect-error -- buildGate anonymous overloads require providers to accept null identity.
   decide: (_key, identity: TestIdentity) => decisions.boolean(identity.plan === "pro"),
+  // @ts-expect-error -- The caller-identity overload does not accept an identify resolver.
   identify: () => null,
 })
 
@@ -117,6 +123,7 @@ function readGateConfiguration(context: HookContext) {
 }
 
 test("exports consumer-facing root types", async () => {
+  expect(typeof coalescingOptions.key).toBe("function")
   const rootHasCreateHook: "createHook" extends keyof typeof gated ? true : false = false
   const hooksEntryHasCreateHook: "createHook" extends keyof typeof hooksEntry ? true : false = false
   // @ts-expect-error -- HookContext no longer accepts an options type argument.

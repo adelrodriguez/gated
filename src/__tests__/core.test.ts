@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from "bun:test"
 import type { Decision, EvaluationDetails, Hook, Identity } from "../lib/types"
-import { buildGate } from "../core"
-import { MalformedDecisionError } from "../lib/errors"
+import { buildGate } from "../factory"
+import { decision } from "../lib/decision"
+import { IdentityNotFoundError, MalformedDecisionError } from "../lib/errors"
 
 describe("buildGate", () => {
   test.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 0, 2_147_483_648])(
@@ -29,6 +30,38 @@ describe("buildGate", () => {
     }
   )
 
+  test.each([
+    {
+      field: "defaultValue",
+      options: { defaultValue: "purple", key: "theme", variants: ["light", "dark"] },
+    },
+    { field: "key", options: { defaultValue: false, key: "" } },
+    { field: "variants", options: { defaultValue: "light", key: "theme", variants: [] } },
+    {
+      field: "variants",
+      options: { defaultValue: "light", key: "theme", variants: ["light", "light"] },
+    },
+    { field: "defaultValue", options: { defaultValue: "enabled", key: "beta-access" } },
+  ])("rejects invalid $field gate options at creation", ({ field, options }) => {
+    const gate = buildGate({
+      decide: () => ({ type: "boolean", value: true }),
+      identify: () => ({ distinctId: "user123" }),
+    })
+
+    // @ts-expect-error -- Exercise runtime validation for JavaScript and untyped callers.
+    expect(() => gate(options)).toThrow(field)
+  })
+
+  test("constructs valid boolean and single-variant evaluators", () => {
+    const gate = buildGate({
+      decide: () => ({ type: "boolean", value: true }),
+      identify: () => ({ distinctId: "user123" }),
+    })
+
+    expect(gate({ defaultValue: false, key: "beta-access" })).toBeFunction()
+    expect(gate({ defaultValue: "light", key: "theme", variants: ["light"] })).toBeFunction()
+  })
+
   test("creates a gate factory function", () => {
     const gate = buildGate({
       decide: () => Promise.resolve({ type: "boolean", value: true } as const),
@@ -47,6 +80,65 @@ describe("buildGate", () => {
     const betaFlag = gate({ defaultValue: false, key: "beta-access" })
 
     expect(await betaFlag()).toBe(true)
+  })
+
+  test("supports a factory that requires an identity from every caller", async () => {
+    type RequestIdentity = Identity & { plan: "free" | "pro" }
+    const decide = mock((_key: string, identity: RequestIdentity) =>
+      decision.boolean(identity.plan === "pro")
+    )
+    const gate = buildGate<RequestIdentity>({ decide })
+    const betaFlag = gate({ defaultValue: false, key: "beta-access" })
+    const identity: RequestIdentity = { distinctId: "user123", plan: "pro" }
+
+    expect(await betaFlag({ identity })).toBe(true)
+    const batch = await gate.batch([betaFlag], { identity })
+    expect(batch.get(betaFlag)).toBe(true)
+
+    const runtimeFlag = betaFlag as unknown as {
+      (): Promise<boolean>
+      details(): Promise<EvaluationDetails<boolean>>
+    }
+    expect(await runtimeFlag()).toBe(false)
+    const details = await runtimeFlag.details()
+    expect(details.value).toBe(false)
+    expect(details.error).toBeInstanceOf(IdentityNotFoundError)
+  })
+
+  test("fans out provider changes through a lazy factory subscription", async () => {
+    let notify!: (change: { keys?: readonly string[] }) => void
+    const detachProvider = mock(() => null)
+    const subscribe = mock((listener: typeof notify) => {
+      notify = listener
+      return detachProvider
+    })
+    const gate = buildGate({
+      decide: () => decision.boolean(true),
+      identify: () => ({ distinctId: "user123" }),
+      subscribe,
+    })
+    const observed: Array<readonly string[] | undefined> = []
+    const throwingListener = mock(() => {
+      throw new Error("listener failed")
+    })
+
+    expect(subscribe).not.toHaveBeenCalled()
+    const detachThrowingListener = gate.changes.subscribe(throwingListener)
+    const detachObservingListener = gate.changes.subscribe((keys) => {
+      observed.push(keys)
+    })
+    expect(subscribe).toHaveBeenCalledTimes(1)
+
+    notify({ keys: ["beta-access"] })
+    notify({})
+    await Promise.resolve()
+    expect(throwingListener).toHaveBeenCalledTimes(2)
+    expect(observed).toEqual([["beta-access"], undefined])
+
+    detachThrowingListener()
+    expect(detachProvider).not.toHaveBeenCalled()
+    detachObservingListener()
+    expect(detachProvider).toHaveBeenCalledTimes(1)
   })
 
   test("creates boolean flag that evaluates to true", async () => {
@@ -222,6 +314,23 @@ describe("buildGate", () => {
       source: "provider",
       value: "dark",
     })
+  })
+
+  test("passes a declared variant payload through without validation", async () => {
+    const payload = { experiment: "checkout-theme", metadata: new Map([["cohort", 4]]) }
+    const gate = buildGate({
+      decide: () => decision.variant("dark", payload),
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const themeFlag = gate<typeof payload>({
+      defaultValue: "light",
+      key: "theme",
+      variants: ["light", "dark"],
+    })
+
+    const details = await themeFlag.details()
+
+    expect(details.payload).toBe(payload)
   })
 
   test("leaves payload undefined for a variant decision without one", async () => {
@@ -519,14 +628,14 @@ describe("buildGate", () => {
     await betaFlag()
 
     expect(errorFn).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         defaultValue: false,
         flagKey: "beta-access",
         identity: { distinctId: "user123" },
         kind: "boolean",
         signal: expect.any(AbortSignal),
         variants: undefined,
-      },
+      }),
       error
     )
   })
@@ -544,6 +653,7 @@ describe("buildGate", () => {
 
     const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     await betaFlag()
+    await Bun.sleep(0)
 
     expect(finallyFn).toHaveBeenCalled()
   })

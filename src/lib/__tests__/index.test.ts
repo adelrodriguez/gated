@@ -1,23 +1,23 @@
 import { describe, expect, mock, test } from "bun:test"
 import type { Decision, Hook, HookContext, Identity } from "../types"
 import { IdentityNotFoundError, MalformedDecisionError } from "../errors"
+import { executeGate, extractDecisionValue, identify, validateDecision } from "../evaluate"
 import {
-  executeGate,
-  extractDecisionValue,
-  identify,
   runAfterHooks,
   runBeforeHooks,
   runErrorHooks,
   runFinallyHooks,
   runResolveHooks,
-  validateDecision,
-} from "../index"
+} from "../hook-runner"
 import { HookResolutionAbortError } from "../internal"
 
 const BOOLEAN_HOOK_CONTEXT = {
   defaultValue: false,
   kind: "boolean",
   signal: new AbortController().signal,
+  get state() {
+    return new Map<unknown, unknown>()
+  },
 } as const
 
 async function expectRejection<T>(promise: Promise<T>, message: string) {
@@ -61,14 +61,13 @@ describe("identify", () => {
     expect(identifyFn).toHaveBeenCalledTimes(1)
   })
 
-  test("treats a null override as not provided", async () => {
-    const identity: Identity = { distinctId: "user123" }
-    const identifyFn = mock(() => Promise.resolve(identity))
+  test("rejects a null override in strict mode without identifying", async () => {
+    const identifyFn = mock(() => Promise.resolve<Identity>({ distinctId: "user123" }))
 
-    const result = await identify(identifyFn, null)
+    const error = await expectRejection(identify(identifyFn, null), "Identity not found")
 
-    expect(result).toEqual(identity)
-    expect(identifyFn).toHaveBeenCalledTimes(1)
+    expect(error).toBeInstanceOf(IdentityNotFoundError)
+    expect(identifyFn).not.toHaveBeenCalled()
   })
 
   test("throws error when identify function returns null", async () => {
@@ -379,6 +378,7 @@ describe("runResolveHooks", () => {
       identity: { distinctId: "user123" },
       kind: "variant",
       signal: new AbortController().signal,
+      state: new Map(),
       variants: ["current"],
     }
 
@@ -729,6 +729,7 @@ describe("executeGate", () => {
     }
 
     await executeGate(config, options)
+    await Bun.sleep(0)
 
     expect(beforeFn).toHaveBeenCalled()
     expect(resolveFn).toHaveBeenCalled()
@@ -790,6 +791,7 @@ describe("executeGate", () => {
         identity: { distinctId: "user123" },
         kind: "boolean",
         signal: expect.any(AbortSignal),
+        state: expect.any(Map),
         variants: undefined,
       },
       error
@@ -861,6 +863,7 @@ describe("executeGate", () => {
         identity: null,
         kind: "boolean",
         signal: expect.any(AbortSignal),
+        state: expect.any(Map),
         variants: undefined,
       },
       expect.any(Error)

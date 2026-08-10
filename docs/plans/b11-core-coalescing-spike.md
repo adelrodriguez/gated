@@ -30,3 +30,54 @@ Dedupe-as-hook works but only via three backstops spread across `recipes.ts` and
 ## Release
 
 - None from the spike itself. Implementation (if go) ships under its own changeset: minor, with the recipe deprecation note.
+
+## Decision — GO (2026-08-09)
+
+The working prototype supports core request coalescing and is retained as the production
+implementation. The option shape is `coalesce?: boolean | { key?: (context) => string }`.
+Coalescing runs after resolve hooks and before provider ownership is reported to the batch
+orchestrator. A hook decision therefore creates no pending entry. The default key uses a
+collision-safe tuple of flag key, gate kind, configured variant list for variant gates,
+`distinctId` type, and `distinctId` value. The gate-shape fields prevent incompatible evaluators
+for one provider flag key from sharing a decision. Anonymous evaluations are not coalesced. A
+custom projection receives the complete `HookContext` and fully replaces the default tuple,
+preserving the original custom-key semantics.
+
+### Spike answers
+
+1. **Shape and lifecycle:** Both `coalesce: true` and `coalesce: { key }` are supported. Provider
+   work is the coalescing boundary. Resolve hooks always run for each evaluation before lookup.
+2. **Failure:** The leader's normalized error rejects the shared pending decision. Each follower
+   then takes its own error path, so error hooks and `onFallback` run once per evaluation with the
+   same error object.
+3. **Abort:** A follower races the shared decision with only its own signal and cannot cancel the
+   leader. A leader abort deterministically rejects all followers with the leader's abort reason.
+   Followers settle when the decision commits, before detached `after` hooks.
+4. **Batch:** Coalescing ownership is selected before `onPrepared`. Leaders report `true` and enter
+   `decideMany` grouping; followers report `false` and await the leader. The cross-key concurrent
+   batch regression completes without deadlock and retains two `decideMany` calls. An earlier
+   prototype that selected ownership after `onPrepared` made four calls; that design was rejected.
+5. **Legacy machinery:** `dedupeHook` is deprecated now but remains for one major-version overlap
+   window. `HookResolutionAbortError`, `DedupeOwnerFinalizationError`, the recipe, and its special
+   hook-error behavior can be removed together in the next major release.
+
+### Benchmark
+
+The benchmark ran 5,000 sequential pairs of concurrent evaluations, five times per mode, with an
+immediate async provider. Both modes made 5,000 provider calls. Median elapsed time was 112.15 ms
+for core coalescing and 126.82 ms for `dedupeHook` (core was approximately 11.6% faster).
+
+A separate five-process allocation sample ran 20,000 pairs. Median observed heap growth was about
+2.10 MB for core coalescing and 2.33 MB for the recipe path (approximately 10% lower for core).
+Both paths allocate one pending promise and map entry per leader; core avoids the recipe's
+per-evaluation hook state and hook-runner work. These are local Bun 1.3.14 microbenchmarks and are
+directional, not release performance guarantees.
+
+### Migration schedule
+
+- This minor release adds `coalesce`, documents it as the preferred API, and deprecates
+  `dedupeHook`. Existing recipe consumers do not change behavior.
+- The recipe and core option overlap for the remainder of this major release. Consumers with a
+  custom recipe key move that projection to `coalesce.key`.
+- The next major release removes `dedupeHook` and its internal control-error channel, then removes
+  the legacy hook-error-policy exception.
