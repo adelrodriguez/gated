@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Hook, Identity } from "../../lib/types"
-import { buildGate } from "../../core"
+import { buildGate } from "../../factory"
 import { decision } from "../../lib/decision"
 import { defineHook } from "../index"
 
@@ -47,6 +47,7 @@ describe("defineHook", () => {
       identity: { distinctId: "user-1", plan: "pro" },
       kind: "boolean",
       signal: new AbortController().signal,
+      state: new Map(),
     })
   })
 
@@ -66,6 +67,7 @@ describe("defineHook", () => {
         identity: { distinctId: "user-1" },
         kind: "boolean",
         signal: new AbortController().signal,
+        state: new Map(),
       },
       decision.boolean(true),
       { source: "provider" }
@@ -88,6 +90,7 @@ describe("defineHook", () => {
       identity: { distinctId: "user-1" },
       kind: "boolean",
       signal: new AbortController().signal,
+      state: new Map(),
     })
   })
 
@@ -113,6 +116,7 @@ describe("defineHook", () => {
       identity: { distinctId: "user-1" },
       kind: "boolean",
       signal: new AbortController().signal,
+      state: new Map(),
     } as const
 
     const annotated = annotatedFactory({ prefix: "audit" })
@@ -143,6 +147,7 @@ describe("defineHook", () => {
       identity: { distinctId: "user-1" },
       kind: "boolean",
       signal: new AbortController().signal,
+      state: new Map(),
     } as const
 
     expect(await first.resolve?.(context)).toEqual(decision.boolean(false))

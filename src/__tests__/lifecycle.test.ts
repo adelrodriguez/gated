@@ -1,8 +1,20 @@
 import { describe, expect, mock, test } from "bun:test"
-import type { Decision, Hook, HookContext, HookErrorReport, Identity } from "../lib/types"
-import { buildGate } from "../core"
+import type {
+  Decision,
+  FallbackReport,
+  Hook,
+  HookContext,
+  HookErrorReport,
+  Identity,
+} from "../lib/types"
+import { buildGate } from "../factory"
 import { cacheHook, dedupeHook } from "../hooks/recipes"
-import { GateTimeoutError } from "../lib/errors"
+import {
+  GateTimeoutError,
+  IdentityNotFoundError,
+  InvalidVariantError,
+  MalformedDecisionError,
+} from "../lib/errors"
 
 function createDeferred<T>() {
   let rejectDeferred!: (reason?: Error) => void
@@ -77,6 +89,154 @@ function createFailingHook(
 }
 
 describe("uniform hook lifecycle", () => {
+  test("shares evaluation state and a stable context across successful lifecycle phases", async () => {
+    const stateKey = Symbol("consumer state")
+    const contexts: HookContext[] = []
+    const values: unknown[] = []
+    const gate = buildGate({
+      decide: () => ({ type: "boolean", value: true }),
+      hooks: [
+        {
+          after(context) {
+            contexts.push(context)
+            values.push(context.state.get(stateKey))
+          },
+          before(context) {
+            contexts.push(context)
+            context.state.set(stateKey, "ready")
+          },
+          finally(context) {
+            contexts.push(context)
+            values.push(context.state.get(stateKey))
+          },
+          resolve(context) {
+            contexts.push(context)
+            values.push(context.state.get(stateKey))
+          },
+        },
+      ],
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess()).toBe(true)
+    await Bun.sleep(0)
+    expect(values).toEqual(["ready", "ready", "ready"])
+    expect(contexts.every((context) => context === contexts[0])).toBe(true)
+  })
+
+  test("shares evaluation state with error and finally hooks", async () => {
+    const stateKey = Symbol("consumer state")
+    const values: unknown[] = []
+    const gate = buildGate({
+      decide: () => Promise.reject(new Error("Provider failed")),
+      hooks: [
+        {
+          before(context) {
+            context.state.set(stateKey, "ready")
+          },
+          error(context) {
+            values.push(context.state.get(stateKey))
+          },
+          finally(context) {
+            values.push(context.state.get(stateKey))
+          },
+        },
+      ],
+      identify: () => ({ distinctId: "user123" }),
+    })
+
+    expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(false)
+    await Bun.sleep(0)
+    expect(values).toEqual(["ready", "ready"])
+  })
+
+  test("isolates symbol namespaces and concurrent evaluation state", async () => {
+    const firstKey = Symbol("first hook")
+    const secondKey = Symbol("second hook")
+    const states: Array<Map<unknown, unknown>> = []
+    const observations: unknown[] = []
+    const gate = buildGate({
+      decide: async () => {
+        await Bun.sleep(5)
+        return { type: "boolean", value: true } as const
+      },
+      hooks: [
+        {
+          after(context) {
+            observations.push(context.state.get(secondKey))
+          },
+          before(context) {
+            states.push(context.state)
+            context.state.set(firstKey, context.identity?.distinctId)
+          },
+        },
+        {
+          after(context) {
+            observations.push(context.state.get(firstKey))
+          },
+          before(context) {
+            expect(context.state.get(firstKey)).toBe(context.identity?.distinctId)
+            context.state.set(secondKey, "second")
+          },
+        },
+      ],
+      identify: () => ({ distinctId: "unused" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(
+      await Promise.all([
+        betaAccess({ identity: { distinctId: "one" } }),
+        betaAccess({ identity: { distinctId: "two" } }),
+      ])
+    ).toEqual([true, true])
+    await Bun.sleep(0)
+    expect(states).toHaveLength(2)
+    expect(states[0]).not.toBe(states[1])
+    expect(observations.filter((value) => value === "second")).toHaveLength(2)
+    expect(observations).toContain("one")
+    expect(observations).toContain("two")
+  })
+
+  test("commits a decision before detached after and finally hooks settle", async () => {
+    const afterWork = createDeferred<null>()
+    const events: string[] = []
+    const reports: HookErrorReport[] = []
+    const gate = buildGate({
+      decide: () => ({ type: "boolean", value: true }),
+      hooks: [
+        {
+          after: async () => {
+            events.push("after:start")
+            await afterWork.promise
+            events.push("after:end")
+            throw new Error("observer failed")
+          },
+          finally: () => {
+            events.push("finally")
+          },
+        },
+      ],
+      identify: () => ({ distinctId: "user123" }),
+      onHookError: (report) => {
+        reports.push(report)
+      },
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access", timeoutMs: 5 })
+
+    expect(await settleWithin(betaAccess(), 50)).toBe(true)
+    expect(events).toEqual(["after:start"])
+
+    afterWork.resolve(null)
+    await Bun.sleep(0)
+    expect(events).toEqual(["after:start", "after:end", "finally"])
+    expect(reports).toHaveLength(1)
+    expect(reports[0]?.error.message).toBe("observer failed")
+    expect(reports[0]?.hookIndex).toBe(0)
+    expect(reports[0]?.phase).toBe("after")
+  })
+
   const recipeScenarios = [
     "cache-hit",
     "cache-miss",
@@ -191,6 +351,7 @@ describe("uniform hook lifecycle", () => {
       })
 
       expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(source !== "default")
+      await Bun.sleep(0)
       expect(events).toEqual(
         source === "hook"
           ? ["before", "resolve", "after", "finally"]
@@ -201,6 +362,66 @@ describe("uniform hook lifecycle", () => {
     })
   }
 
+  test("fixes hook membership and indexes when an evaluation begins", async () => {
+    const events: string[] = []
+    const reports: HookErrorReport[] = []
+    const lateHook: Hook = {
+      after() {
+        events.push("late:after")
+      },
+      before() {
+        events.push("late:before")
+        throw new Error("late before failed")
+      },
+      finally() {
+        events.push("late:finally")
+      },
+      resolve() {
+        events.push("late:resolve")
+      },
+    }
+    let registered = false
+    const hooks: Hook[] = [
+      {
+        before() {
+          events.push("registered:before")
+          if (!registered) {
+            registered = true
+            hooks.push(lateHook)
+          }
+        },
+      },
+    ]
+    const gate = buildGate({
+      decide: () => ({ type: "boolean", value: true }),
+      hooks,
+      identify: () => ({ distinctId: "user123" }),
+      onHookError: (report) => {
+        reports.push(report)
+      },
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess()).toBe(true)
+    await Bun.sleep(0)
+    expect(events).toEqual(["registered:before"])
+    expect(reports).toEqual([])
+
+    events.length = 0
+    expect(await betaAccess()).toBe(true)
+    await Bun.sleep(0)
+    expect(events).toEqual([
+      "registered:before",
+      "late:before",
+      "late:resolve",
+      "late:after",
+      "late:finally",
+    ])
+    expect(reports).toHaveLength(1)
+    expect(reports[0]?.hookIndex).toBe(1)
+    expect(reports[0]?.phase).toBe("before")
+  })
+
   test("always settles across 100 hostile hook combinations", async () => {
     // Deterministic modulus schedules cover overlapping hostile phases without introducing flaky randomness.
     const evaluations = Array.from({ length: 100 }, (_, index) => {
@@ -208,6 +429,7 @@ describe("uniform hook lifecycle", () => {
         throw new Error(`${phase}-${index}`)
       }
       const gate = buildGate({
+        coalesce: true,
         decide: () => {
           if (index % 17 === 0) {
             throw new Error(`provider-${index}`)
@@ -311,6 +533,7 @@ describe("uniform hook lifecycle", () => {
         identity,
         kind: "boolean",
         signal: expect.any(AbortSignal),
+        state: expect.any(Map),
         variants: undefined,
       }),
       hookDecision,
@@ -349,6 +572,11 @@ describe("uniform hook lifecycle", () => {
     await gate({ defaultValue: false, key: "beta-access" })()
     await gate({ defaultValue: "light", key: "theme", variants: ["light", "dark"] })()
 
+    const [booleanContext, variantContext] = contexts
+    if (!booleanContext || !variantContext) {
+      throw new Error("Expected both hook contexts")
+    }
+
     expect(contexts).toEqual([
       {
         defaultValue: false,
@@ -356,6 +584,7 @@ describe("uniform hook lifecycle", () => {
         identity,
         kind: "boolean",
         signal: expect.any(AbortSignal),
+        state: booleanContext.state,
         variants: undefined,
       },
       {
@@ -364,9 +593,124 @@ describe("uniform hook lifecycle", () => {
         identity,
         kind: "variant",
         signal: expect.any(AbortSignal),
+        state: variantContext.state,
         variants: ["light", "dark"],
       },
     ])
+  })
+
+  test("cache recipe keys keep delimiter and distinctId type boundaries", async () => {
+    const decisions = new Map<string, Decision>()
+    const cache = {
+      get: mock((key: string) => Promise.resolve(decisions.get(key))),
+      set: mock((key: string, decision: Decision) => {
+        decisions.set(key, decision)
+        return Promise.resolve()
+      }),
+    }
+    const decide = mock((flagKey: string, identity: Identity) => ({
+      type: "boolean" as const,
+      value: flagKey === "a:1" || typeof identity.distinctId === "number",
+    }))
+    const gate = buildGate({
+      decide,
+      hooks: [cacheHook(cache)],
+      identify: () => ({ distinctId: "unused" }),
+    })
+    const aWithDelimiter = gate({ defaultValue: false, key: "a:1" })
+    const a = gate({ defaultValue: false, key: "a" })
+
+    expect(await aWithDelimiter({ identity: { distinctId: "2" } })).toBe(true)
+    expect(await a({ identity: { distinctId: "1:2" } })).toBe(false)
+    expect(await a({ identity: { distinctId: 1 } })).toBe(true)
+    expect(await a({ identity: { distinctId: "1" } })).toBe(false)
+    expect(decide).toHaveBeenCalledTimes(4)
+  })
+
+  test("a custom cache recipe key separates identity attributes", async () => {
+    const decisions = new Map<string, Decision>()
+    const cache = {
+      get: mock((key: string) => Promise.resolve(decisions.get(key))),
+      set: mock((key: string, decision: Decision) => {
+        decisions.set(key, decision)
+        return Promise.resolve()
+      }),
+    }
+    const decide = mock((_flagKey: string, identity: Identity) => ({
+      type: "boolean" as const,
+      value: identity.plan === "pro",
+    }))
+    const gate = buildGate({
+      decide,
+      hooks: [
+        cacheHook(cache, {
+          key: (context) =>
+            JSON.stringify([context.flagKey, context.identity?.distinctId, context.identity?.plan]),
+        }),
+      ],
+      identify: () => ({ distinctId: "user123", plan: "free" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess({ identity: { distinctId: "user123", plan: "free" } })).toBe(false)
+    expect(await betaAccess({ identity: { distinctId: "user123", plan: "pro" } })).toBe(true)
+    expect(await betaAccess({ identity: { distinctId: "user123", plan: "free" } })).toBe(false)
+    expect(decide).toHaveBeenCalledTimes(2)
+  })
+
+  test("dedupe recipe keys keep delimiter and distinctId type boundaries", async () => {
+    const decide = mock(async (flagKey: string, identity: Identity) => {
+      await Bun.sleep(5)
+      return {
+        type: "boolean" as const,
+        value: flagKey === "a:1" || typeof identity.distinctId === "number",
+      }
+    })
+    const gate = buildGate({
+      decide,
+      hooks: [dedupeHook()],
+      identify: () => ({ distinctId: "unused" }),
+    })
+    const aWithDelimiter = gate({ defaultValue: false, key: "a:1" })
+    const a = gate({ defaultValue: false, key: "a" })
+
+    expect(
+      await Promise.all([
+        aWithDelimiter({ identity: { distinctId: "2" } }),
+        a({ identity: { distinctId: "1:2" } }),
+        a({ identity: { distinctId: 1 } }),
+        a({ identity: { distinctId: "1" } }),
+      ])
+    ).toEqual([true, false, true, false])
+    expect(decide).toHaveBeenCalledTimes(4)
+  })
+
+  test("a custom dedupe recipe key separates identity attributes", async () => {
+    const decide = mock(async (_flagKey: string, identity: Identity) => {
+      await Bun.sleep(5)
+      return { type: "boolean" as const, value: identity.plan === "pro" }
+    })
+    const gate = buildGate({
+      decide,
+      hooks: [
+        dedupeHook({
+          key: (context) =>
+            JSON.stringify([context.flagKey, context.identity?.distinctId, context.identity?.plan]),
+        }),
+      ],
+      identify: () => ({ distinctId: "user123", plan: "free" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(
+      await Promise.all([
+        betaAccess({ identity: { distinctId: "user123", plan: "free" } }),
+        betaAccess({ identity: { distinctId: "user123", plan: "free" } }),
+        betaAccess({ identity: { distinctId: "user123", plan: "pro" } }),
+        betaAccess({ identity: { distinctId: "user123", plan: "pro" } }),
+      ])
+    ).toEqual([false, false, true, true])
+    expect(decide).toHaveBeenCalledTimes(2)
   })
 
   test("cacheHook replaces a cached decision whose shape does not match the gate", async () => {
@@ -385,7 +729,7 @@ describe("uniform hook lifecycle", () => {
     expect(await theme()).toBe("dark")
     expect(decide).toHaveBeenCalledTimes(1)
     expect(cache.set).toHaveBeenCalledTimes(1)
-    expect(cache.set).toHaveBeenCalledWith("theme:user123", {
+    expect(cache.set).toHaveBeenCalledWith('["theme","string","user123"]', {
       type: "variant",
       variant: "dark",
     })
@@ -423,7 +767,7 @@ describe("uniform hook lifecycle", () => {
     expect(await theme()).toBe("system")
     expect(decide).toHaveBeenCalledTimes(1)
     expect(cache.set).toHaveBeenCalledTimes(1)
-    expect(cache.set).toHaveBeenCalledWith("theme:user123", {
+    expect(cache.set).toHaveBeenCalledWith('["theme","string","user123"]', {
       type: "variant",
       variant: "system",
     })
@@ -458,7 +802,7 @@ describe("uniform hook lifecycle", () => {
     expect(await betaAccess()).toBe(false)
     expect(await betaAccess()).toBe(false)
     expect(decide).toHaveBeenCalledTimes(1)
-    expect(cache.set).toHaveBeenCalledWith("beta-access:user123", {
+    expect(cache.set).toHaveBeenCalledWith('["beta-access","string","user123"]', {
       type: "boolean",
       value: false,
     })
@@ -482,7 +826,7 @@ describe("uniform hook lifecycle", () => {
     expect(after).toHaveBeenCalledWith(expect.anything(), providerDecision, {
       source: "provider",
     })
-    expect(cache.set).toHaveBeenCalledWith("theme:user123", providerDecision)
+    expect(cache.set).toHaveBeenCalledWith('["theme","string","user123"]', providerDecision)
   })
 
   test("continues to the provider after a null cache miss", async () => {
@@ -500,7 +844,7 @@ describe("uniform hook lifecycle", () => {
 
     expect(await betaAccess()).toBe(true)
     expect(decide).toHaveBeenCalledTimes(1)
-    expect(cache.set).toHaveBeenCalledWith("beta-access:user123", {
+    expect(cache.set).toHaveBeenCalledWith('["beta-access","string","user123"]', {
       type: "boolean",
       value: true,
     })
@@ -523,7 +867,7 @@ describe("uniform hook lifecycle", () => {
     expect(await theme()).toBe("midnight")
     expect(await theme()).toBe("midnight")
     expect(decide).toHaveBeenCalledTimes(1)
-    expect(cache.set).toHaveBeenCalledWith("theme:user123", {
+    expect(cache.set).toHaveBeenCalledWith('["theme","string","user123"]', {
       type: "variant",
       variant: "midnight",
     })
@@ -543,7 +887,7 @@ describe("uniform hook lifecycle", () => {
     expect(await betaAccess()).toBe(true)
     expect(await betaAccess()).toBe(true)
     expect(decide).not.toHaveBeenCalled()
-    expect(memoryCache.set).toHaveBeenCalledWith("beta-access:user123", {
+    expect(memoryCache.set).toHaveBeenCalledWith('["beta-access","string","user123"]', {
       type: "boolean",
       value: true,
     })
@@ -650,6 +994,209 @@ describe("uniform hook lifecycle", () => {
 
     expect(await settleWithin(betaAccess())).toBe(true)
     expect(decide).toHaveBeenCalledTimes(2)
+  })
+
+  test("coalesced followers settle before detached after hooks", async () => {
+    const decide = mock(async () => {
+      await Bun.sleep(2)
+      return { type: "boolean", value: true } as const
+    })
+    const gate = buildGate({
+      coalesce: true,
+      decide,
+      hooks: [
+        {
+          async after() {
+            await Bun.sleep(20)
+          },
+        },
+      ],
+      identify: () => ({ distinctId: "user123" }),
+      timeoutMs: 5,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    const results = await settleWithin(
+      Promise.all([betaAccess(), betaAccess(), betaAccess(), betaAccess()]),
+      100
+    )
+    expect(results.every((result) => typeof result === "boolean")).toBe(true)
+
+    await Bun.sleep(25)
+    expect(await settleWithin(betaAccess(), 100)).toBe(true)
+    expect(decide).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe("core request coalescing", () => {
+  test("runs resolve hooks before coalescing and skips provider work on hook decisions", async () => {
+    const decide = mock(() => ({ type: "boolean", value: false }) as const)
+    const resolve = mock(() => ({ type: "boolean", value: true }) as const)
+    const gate = buildGate({
+      coalesce: true,
+      decide,
+      hooks: [{ resolve }],
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await Promise.all([betaAccess(), betaAccess(), betaAccess()])).toEqual([
+      true,
+      true,
+      true,
+    ])
+    expect(resolve).toHaveBeenCalledTimes(3)
+    expect(decide).not.toHaveBeenCalled()
+  })
+
+  test("supports an attribute-sensitive coalescing key", async () => {
+    const decide = mock(async (_flagKey: string, identity: Identity) => {
+      await Bun.sleep(5)
+      return { type: "boolean" as const, value: identity.plan === "pro" }
+    })
+    const gate = buildGate({
+      coalesce: {
+        key: (context) =>
+          JSON.stringify([context.flagKey, context.identity?.distinctId, context.identity?.plan]),
+      },
+      decide,
+      identify: () => ({ distinctId: "user123", plan: "free" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(
+      await Promise.all([
+        betaAccess({ identity: { distinctId: "user123", plan: "free" } }),
+        betaAccess({ identity: { distinctId: "user123", plan: "free" } }),
+        betaAccess({ identity: { distinctId: "user123", plan: "pro" } }),
+        betaAccess({ identity: { distinctId: "user123", plan: "pro" } }),
+      ])
+    ).toEqual([false, false, true, true])
+    expect(decide).toHaveBeenCalledTimes(2)
+  })
+
+  test("keeps delimiter and distinctId type boundaries in default coalescing keys", async () => {
+    const decide = mock(async (flagKey: string, identity: Identity) => {
+      await Bun.sleep(5)
+      return {
+        type: "boolean" as const,
+        value: flagKey === "a:1" || typeof identity.distinctId === "number",
+      }
+    })
+    const gate = buildGate<Identity>({
+      coalesce: true,
+      decide,
+      identify: () => ({ distinctId: "unused" }),
+    })
+    const aWithDelimiter = gate({ defaultValue: false, key: "a:1" })
+    const a = gate({ defaultValue: false, key: "a" })
+
+    expect(
+      await Promise.all([
+        aWithDelimiter({ identity: { distinctId: "2" } }),
+        a({ identity: { distinctId: "1:2" } }),
+        a({ identity: { distinctId: 1 } }),
+        a({ identity: { distinctId: "1" } }),
+      ])
+    ).toEqual([true, false, true, false])
+    expect(decide).toHaveBeenCalledTimes(4)
+  })
+
+  test("coalesces concurrent provider work after resolve hooks", async () => {
+    const providerResult = createDeferred<Decision>()
+    const decide = mock(() => providerResult.promise)
+    const resolve = mock(() => Promise.resolve<Decision | undefined>(void 0))
+    const gate = buildGate({
+      coalesce: true,
+      decide,
+      hooks: [{ resolve }],
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    const leader = betaAccess()
+    await Bun.sleep(0)
+    const follower = betaAccess()
+    await Bun.sleep(0)
+
+    expect(resolve).toHaveBeenCalledTimes(2)
+    expect(decide).toHaveBeenCalledTimes(1)
+    providerResult.resolve({ type: "boolean", value: true })
+    expect(await Promise.all([leader, follower])).toEqual([true, true])
+  })
+
+  test("runs failure observers for every coalesced evaluation", async () => {
+    const providerError = new Error("Provider failed")
+    const providerResult = createDeferred<Decision>()
+    const error = mock(() => Promise.resolve())
+    const onFallback = mock((_report: FallbackReport) => Promise.resolve())
+    const decide = mock(() => providerResult.promise)
+    const gate = buildGate({
+      coalesce: true,
+      decide,
+      hooks: [{ error }],
+      identify: () => ({ distinctId: "user123" }),
+      onFallback,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    const evaluations = [betaAccess(), betaAccess(), betaAccess()]
+    await Bun.sleep(0)
+    providerResult.reject(providerError)
+
+    expect(await Promise.all(evaluations)).toEqual([false, false, false])
+    expect(decide).toHaveBeenCalledTimes(1)
+    expect(error).toHaveBeenCalledTimes(3)
+    expect(onFallback).toHaveBeenCalledTimes(3)
+    for (const [report] of onFallback.mock.calls) {
+      expect(report.error).toBe(providerError)
+    }
+  })
+
+  test("a follower abort does not cancel the coalescing leader", async () => {
+    const providerResult = createDeferred<Decision>()
+    const decide = mock(() => providerResult.promise)
+    const gate = buildGate({
+      coalesce: true,
+      decide,
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+    const followerController = new AbortController()
+
+    const leader = betaAccess()
+    await Bun.sleep(0)
+    const follower = betaAccess({ signal: followerController.signal })
+    await Bun.sleep(0)
+    followerController.abort(new Error("Follower stopped"))
+
+    expect(await follower).toBe(false)
+    providerResult.resolve({ type: "boolean", value: true })
+    expect(await leader).toBe(true)
+    expect(decide).toHaveBeenCalledTimes(1)
+  })
+
+  test("a leader abort deterministically rejects its followers", async () => {
+    const decide = mock(() => never<Decision>())
+    const gate = buildGate({
+      coalesce: true,
+      decide,
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+    const leaderController = new AbortController()
+    const abortError = new Error("Leader stopped")
+
+    const leader = betaAccess.details({ signal: leaderController.signal })
+    await Bun.sleep(0)
+    const follower = betaAccess.details()
+    await Bun.sleep(0)
+    leaderController.abort(abortError)
+
+    const details = await settleWithin(Promise.all([leader, follower]), 100)
+    expect(details.map((result) => result.source)).toEqual(["default", "default"])
+    expect(details.map((result) => result.error)).toEqual([abortError, abortError])
+    expect(decide).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -830,7 +1377,7 @@ describe("timeout and cancellation", () => {
     expect(finallyHook).toHaveBeenCalledTimes(1)
   })
 
-  test("bounds finally hooks on a successful decision", async () => {
+  test("does not wait for finally hooks on a successful decision", async () => {
     const finallyHook = mock(() => never<undefined>())
     const gate = buildGate({
       decide: () => ({ type: "boolean", value: true }),
@@ -843,6 +1390,7 @@ describe("timeout and cancellation", () => {
     const details = await settleWithin(betaAccess.details(), 1000)
 
     expect(details).toEqual({ flagKey: "beta-access", source: "provider", value: true })
+    await Bun.sleep(0)
     expect(finallyHook).toHaveBeenCalledTimes(1)
   })
 
@@ -868,6 +1416,49 @@ describe("timeout and cancellation", () => {
 })
 
 describe("anonymous identity policy", () => {
+  test("forces one evaluation to use an anonymous identity", async () => {
+    const identify = mock(() => ({ distinctId: "identified" }))
+    const decide = mock((_key: string, identity: Identity | null) => ({
+      type: "boolean" as const,
+      value: identity === null,
+    }))
+    const gate = buildGate({
+      anonymous: "allow",
+      decide,
+      identify,
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess.details({ identity: null })).toEqual({
+      flagKey: "beta-access",
+      source: "provider",
+      value: true,
+    })
+    expect(identify).not.toHaveBeenCalled()
+    expect(decide).toHaveBeenCalledWith("beta-access", null, expect.any(Object))
+  })
+
+  test("rejects an explicit anonymous identity in strict mode", async () => {
+    const identify = mock(() => ({ distinctId: "identified" }))
+    const decide = mock(() => ({ type: "boolean", value: true }) as const)
+    const gate = buildGate({ decide, identify })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    const details = await betaAccess.details({
+      // @ts-expect-error -- Strict evaluators do not accept an explicit anonymous identity.
+      identity: null,
+    })
+
+    expect(details).toEqual({
+      error: expect.any(IdentityNotFoundError),
+      flagKey: "beta-access",
+      source: "default",
+      value: false,
+    })
+    expect(identify).not.toHaveBeenCalled()
+    expect(decide).not.toHaveBeenCalled()
+  })
+
   test("keeps null identity rejection as the default", async () => {
     const error = mock(() => Promise.resolve())
     const decide = mock(() => ({ type: "boolean", value: true }) as const)
@@ -943,15 +1534,15 @@ describe("anonymous identity policy", () => {
     expect(cache.set).not.toHaveBeenCalled()
   })
 
-  test("does not deduplicate concurrent anonymous evaluations", async () => {
+  test("does not coalesce concurrent anonymous evaluations", async () => {
     const decide = mock(async () => {
       await Bun.sleep(5)
       return { type: "boolean", value: true } as const
     })
     const gate = buildGate({
       anonymous: "allow",
+      coalesce: true,
       decide,
-      hooks: [dedupeHook()],
       identify: () => null,
     })
     const betaAccess = gate({ defaultValue: false, key: "beta-access" })
@@ -964,6 +1555,174 @@ describe("anonymous identity policy", () => {
     expect(decide).toHaveBeenCalledTimes(3)
     expect(await betaAccess()).toBe(true)
     expect(decide).toHaveBeenCalledTimes(4)
+  })
+})
+
+describe("fallback observability", () => {
+  test("reports each failure that returns a gate default", async () => {
+    const reports: FallbackReport[] = []
+    const onFallback = (report: FallbackReport) => {
+      reports.push(report)
+    }
+    const identity = { distinctId: "user123" }
+    const errorHook = mock(() => Promise.resolve())
+
+    const identityGate = buildGate({
+      decide: () => ({ type: "boolean", value: true }),
+      identify: () => null,
+      onFallback,
+    })({ defaultValue: false, key: "identity" })
+    const providerGate = buildGate({
+      decide: () => Promise.reject(new Error("Provider failed")),
+      hooks: [{ error: errorHook }],
+      identify: () => identity,
+      onFallback,
+    })({ defaultValue: false, key: "provider" })
+    const malformedGate = buildGate({
+      decide: () => ({ value: true }) as Decision,
+      identify: () => identity,
+      onFallback,
+    })({ defaultValue: false, key: "malformed" })
+    const invalidVariantGate = buildGate({
+      decide: () => ({ type: "variant", variant: "purple" }),
+      identify: () => identity,
+      onFallback,
+    })({ defaultValue: "light", key: "variant", variants: ["light", "dark"] })
+    const timeoutGate = buildGate({
+      decide: () => never<Decision>(),
+      identify: () => identity,
+      onFallback,
+    })({ defaultValue: false, key: "timeout", timeoutMs: 5 })
+    const controller = new AbortController()
+    const abortReason = new Error("Request closed")
+    controller.abort(abortReason)
+    const abortedGate = buildGate({
+      decide: () => ({ type: "boolean", value: true }),
+      identify: () => identity,
+      onFallback,
+    })({ defaultValue: false, key: "aborted" })
+
+    expect(await identityGate()).toBe(false)
+    expect(await providerGate()).toBe(false)
+    expect(await malformedGate()).toBe(false)
+    expect(await invalidVariantGate()).toBe("light")
+    expect(await timeoutGate()).toBe(false)
+    expect(await abortedGate({ signal: controller.signal })).toBe(false)
+    await Bun.sleep(0)
+
+    expect(reports).toHaveLength(6)
+    expect(errorHook).toHaveBeenCalledTimes(1)
+    expect(reports).toEqual([
+      {
+        defaultValue: false,
+        error: expect.any(IdentityNotFoundError),
+        flagKey: "identity",
+        identity: null,
+      },
+      {
+        defaultValue: false,
+        error: expect.objectContaining({ message: "Provider failed" }),
+        flagKey: "provider",
+        identity,
+      },
+      {
+        defaultValue: false,
+        error: expect.any(MalformedDecisionError),
+        flagKey: "malformed",
+        identity,
+      },
+      {
+        defaultValue: "light",
+        error: expect.any(InvalidVariantError),
+        flagKey: "variant",
+        identity,
+      },
+      {
+        defaultValue: false,
+        error: expect.any(GateTimeoutError),
+        flagKey: "timeout",
+        identity,
+      },
+      {
+        defaultValue: false,
+        error: abortReason,
+        flagKey: "aborted",
+        identity: null,
+      },
+    ])
+  })
+
+  test("does not report successful decisions that equal gate defaults", async () => {
+    const onFallback = mock(() => Promise.resolve())
+    const providerGate = buildGate({
+      decide: () => ({ type: "boolean", value: false }),
+      identify: () => ({ distinctId: "user123" }),
+      onFallback,
+    })({ defaultValue: false, key: "provider-default" })
+    const hookGate = buildGate({
+      decide: () => ({ type: "boolean", value: true }),
+      hooks: [{ resolve: () => ({ type: "boolean", value: false }) }],
+      identify: () => ({ distinctId: "user123" }),
+      onFallback,
+    })({ defaultValue: false, key: "hook-default" })
+    const successfulGate = buildGate({
+      decide: () => ({ type: "boolean", value: true }),
+      identify: () => ({ distinctId: "user123" }),
+      onFallback,
+    })({ defaultValue: false, key: "successful" })
+
+    expect(await providerGate()).toBe(false)
+    expect(await hookGate()).toBe(false)
+    expect(await successfulGate()).toBe(true)
+    await Bun.sleep(0)
+    expect(onFallback).not.toHaveBeenCalled()
+  })
+
+  for (const reporterBehavior of ["throws", "rejects", "never settles"] as const) {
+    test(`does not wait when onFallback ${reporterBehavior}`, async () => {
+      const reporter =
+        reporterBehavior === "throws"
+          ? mock(() => {
+              throw new Error("Reporter failed")
+            })
+          : reporterBehavior === "rejects"
+            ? mock(() => Promise.reject(new Error("Reporter failed")))
+            : mock(() => never<undefined>())
+      const gate = buildGate({
+        decide: () => Promise.reject(new Error("Provider failed")),
+        identify: () => ({ distinctId: "user123" }),
+        onFallback: reporter,
+      })
+      const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+      expect(await settleWithin(betaAccess(), 50)).toBe(false)
+      await Bun.sleep(0)
+      expect(reporter).toHaveBeenCalledTimes(1)
+    })
+  }
+
+  test("delivers a plain snapshot without coupling it to evaluation details", async () => {
+    let deliveredIdentity: Identity | null | undefined
+    const gate = buildGate({
+      anonymous: "allow",
+      decide: () => Promise.reject(new Error("Provider failed")),
+      identify: () => null,
+      onFallback: (report) => {
+        deliveredIdentity = report.identity
+        Reflect.set(report, "defaultValue", true)
+        Reflect.set(report, "flagKey", "mutated")
+      },
+    })
+    const betaAccess = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await betaAccess.details()).toEqual({
+      error: expect.objectContaining({ message: "Provider failed" }),
+      flagKey: "beta-access",
+      source: "default",
+      value: false,
+    })
+    await Bun.sleep(0)
+    expect(deliveredIdentity).toBeNull()
   })
 })
 

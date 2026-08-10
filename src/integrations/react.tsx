@@ -1,9 +1,11 @@
-import { type ReactNode, Suspense, use } from "react"
-import type { GateCallOptions, Identity } from "../lib/types"
+import { createContext, type ReactNode, Suspense, use, useSyncExternalStore } from "react"
+import type { GateCallOptions, GateChanges, Identity } from "../lib/types"
+import { getEvaluatorFlagKey } from "../lib/evaluator"
 
 const DEFAULT_MAX_ENTRIES = 100
 const DEFAULT_TTL_MS = 5 * 60 * 1000
 let nextReactGateNamespace = 0
+let didWarnAboutServerDefaultCache = false
 
 export type ReactGateCacheOptions = {
   /**
@@ -11,19 +13,25 @@ export type ReactGateCacheOptions = {
    */
   maxEntries?: number
   /**
+   * Time in milliseconds before a pending evaluation can be evicted. Disabled by default.
+   */
+  pendingTtlMs?: number
+  /**
    * Time in milliseconds that an evaluation remains cached. Defaults to five minutes.
    */
   ttlMs?: number
 }
 
 export type CreateReactGateOptions<TValue extends boolean | string> =
-  | (ReactGateCacheOptions & { cache?: undefined })
+  | (ReactGateCacheOptions & { cache?: undefined; changes?: GateChanges })
   | {
       /**
        * Injected caches own their bounds; maxEntries and ttlMs cannot also be supplied.
        */
       cache: ReactGateCache<TValue>
+      changes?: GateChanges
       maxEntries?: never
+      pendingTtlMs?: never
       ttlMs?: never
     }
 
@@ -53,6 +61,18 @@ export interface ReactGateCache<TValue extends boolean | string = boolean | stri
   set(key: string, promise: Promise<TValue>): void
 }
 
+const GateCacheContext = createContext<ReactGateCache | undefined>(undefined)
+
+export function GateCacheProvider({
+  cache,
+  children,
+}: {
+  cache: ReactGateCache
+  children: ReactNode
+}): ReactNode {
+  return <GateCacheContext value={cache}>{children}</GateCacheContext>
+}
+
 export type ReactGate<TIdentity extends Identity, TValue extends boolean | string> = {
   (identity?: TIdentity): TValue
   /**
@@ -72,6 +92,10 @@ export type CustomReactGate<TArgs extends unknown[], TValue extends boolean | st
    */
   invalidate(...args: TArgs): void
   /**
+   * Evicts one projected cache key without requiring the full invocation arguments.
+   */
+  invalidateKey(key: ReactGateCacheKey): void
+  /**
    * Evicts every invocation. The next render evaluates them again; this does not trigger a render.
    */
   clear(): void
@@ -79,8 +103,15 @@ export type CustomReactGate<TArgs extends unknown[], TValue extends boolean | st
 
 type CacheEntry<TValue extends boolean | string> = {
   expiresAt: number | undefined
+  pendingExpiresAt: number | undefined
   promise: Promise<TValue>
   settled: boolean
+}
+
+type ReactGateVersionStore = {
+  bump: () => void
+  getSnapshot: () => number
+  subscribe: (listener: () => void) => () => void
 }
 
 function assertPositiveNumber(value: number, name: string): void {
@@ -101,16 +132,20 @@ async function evictOnRejection<T>(evaluation: Promise<T>, onRejected: () => voi
 /**
  * Creates a bounded promise cache for React gates.
  *
- * Pending evaluations are pinned so TTL/LRU pressure cannot create repeated Suspense retries. The
- * cache may temporarily exceed maxEntries while evaluations are pending, then returns to its bound
- * after they settle. Create one cache per server request; sharing one across requests can retain
- * identities and stale decisions across users.
+ * Pending evaluations are pinned by default so TTL/LRU pressure cannot create repeated Suspense
+ * retries. When pendingTtlMs is set, older pending entries can be pruned without cancelling their
+ * work. Create one cache per server request; sharing one across requests can retain identities and
+ * stale decisions across users.
  */
 export function createReactGateCache<TValue extends boolean | string = boolean | string>({
   maxEntries = DEFAULT_MAX_ENTRIES,
+  pendingTtlMs,
   ttlMs = DEFAULT_TTL_MS,
 }: ReactGateCacheOptions = {}): ReactGateCache<TValue> {
   assertPositiveNumber(maxEntries, "maxEntries")
+  if (pendingTtlMs !== undefined) {
+    assertPositiveNumber(pendingTtlMs, "pendingTtlMs")
+  }
   assertPositiveNumber(ttlMs, "ttlMs")
 
   if (!Number.isInteger(maxEntries)) {
@@ -122,7 +157,11 @@ export function createReactGateCache<TValue extends boolean | string = boolean |
   function pruneEntries(): void {
     const now = Date.now()
     for (const [key, entry] of entries) {
-      if (entry.settled && entry.expiresAt !== undefined && now >= entry.expiresAt) {
+      const pendingExpired =
+        !entry.settled && entry.pendingExpiresAt !== undefined && now >= entry.pendingExpiresAt
+      const settledExpired =
+        entry.settled && entry.expiresAt !== undefined && now >= entry.expiresAt
+      if (pendingExpired || settledExpired) {
         entries.delete(key)
       }
     }
@@ -155,7 +194,12 @@ export function createReactGateCache<TValue extends boolean | string = boolean |
         return undefined
       }
 
-      if (entry.settled && entry.expiresAt !== undefined && Date.now() >= entry.expiresAt) {
+      const now = Date.now()
+      const pendingExpired =
+        !entry.settled && entry.pendingExpiresAt !== undefined && now >= entry.pendingExpiresAt
+      const settledExpired =
+        entry.settled && entry.expiresAt !== undefined && now >= entry.expiresAt
+      if (pendingExpired || settledExpired) {
         entries.delete(key)
         return undefined
       }
@@ -168,6 +212,7 @@ export function createReactGateCache<TValue extends boolean | string = boolean |
       entries.delete(key)
       const entry: CacheEntry<TValue> = {
         expiresAt: undefined,
+        pendingExpiresAt: pendingTtlMs === undefined ? undefined : Date.now() + pendingTtlMs,
         promise,
         settled: false,
       }
@@ -177,6 +222,7 @@ export function createReactGateCache<TValue extends boolean | string = boolean |
       void promise.then(
         () => {
           entry.expiresAt = Date.now() + ttlMs
+          entry.pendingExpiresAt = undefined
           entry.settled = true
           // Let React retry suspended renders before settled overflow entries become evictable.
           setTimeout(pruneEntries, 0)
@@ -184,6 +230,7 @@ export function createReactGateCache<TValue extends boolean | string = boolean |
         },
         () => {
           entry.expiresAt = Date.now() + ttlMs
+          entry.pendingExpiresAt = undefined
           entry.settled = true
           setTimeout(pruneEntries, 0)
           return null
@@ -193,11 +240,18 @@ export function createReactGateCache<TValue extends boolean | string = boolean |
   }
 }
 
-function stableSerialize(value: unknown): string {
-  const references = new WeakMap<object, number>()
-  let nextReference = 0
+function stableSerialize(value: unknown, rootPath: "cacheKey" | "identity"): string {
+  const ancestors = new Set<object>()
 
-  function encode(current: unknown): string {
+  function unsupported(path: string, kind: string): never {
+    const identityRemedy =
+      rootPath === "identity" ? " Change identify() to return supported cache-key values." : ""
+    throw new TypeError(
+      `Unsupported React gate cache key at ${path}: ${kind} is not supported.${identityRemedy}`
+    )
+  }
+
+  function encode(current: unknown, path: string): string {
     if (current === null) {
       return "null"
     }
@@ -212,38 +266,55 @@ function stableSerialize(value: unknown): string {
       case "string":
         return `string:${JSON.stringify(current)}`
       case "bigint":
-        return `bigint:${current}`
+        return unsupported(path, "bigint")
       case "symbol":
-        return `symbol:${JSON.stringify(current.description)}`
+        return unsupported(path, "symbol")
       case "function":
-        return `function:${JSON.stringify(current.name)}`
+        return unsupported(path, "function")
       case "object": {
-        const reference = references.get(current)
-        if (reference !== undefined) {
-          return `reference:${reference}`
+        const prototype = Object.getPrototypeOf(current)
+        if (!Array.isArray(current) && prototype !== Object.prototype && prototype !== null) {
+          const constructor = (prototype as { constructor?: unknown }).constructor
+          const kind =
+            typeof constructor === "function" && constructor.name
+              ? constructor.name
+              : "non-plain object"
+          return unsupported(path, kind)
         }
 
-        references.set(current, nextReference)
-        nextReference += 1
-
-        if (Array.isArray(current)) {
-          return `array:[${current.map((item) => encode(item)).join(",")}]`
+        if (ancestors.has(current)) {
+          return unsupported(path, "circular reference")
         }
 
-        const keys = Object.keys(current)
-        // oxlint-disable-next-line unicorn/no-array-sort -- Object.keys returns a fresh array; sort has broader runtime support than toSorted.
-        keys.sort()
-        const entries = keys.map(
-          (key) => `${JSON.stringify(key)}:${encode((current as Record<string, unknown>)[key])}`
-        )
-        return `object:{${entries.join(",")}}`
+        ancestors.add(current)
+        try {
+          if (Array.isArray(current)) {
+            return `array:[${current
+              .map((item, index) => encode(item, `${path}[${index}]`))
+              .join(",")}]`
+          }
+
+          const keys = Object.keys(current)
+          // oxlint-disable-next-line unicorn/no-array-sort -- Object.keys returns a fresh array; sort has broader runtime support than toSorted.
+          keys.sort()
+          const entries = keys.map(
+            (key) =>
+              `${JSON.stringify(key)}:${encode(
+                (current as Record<string, unknown>)[key],
+                `${path}.${key}`
+              )}`
+          )
+          return `object:{${entries.join(",")}}`
+        } finally {
+          ancestors.delete(current)
+        }
       }
     }
 
     throw new TypeError("Unsupported React gate cache key")
   }
 
-  return encode(value)
+  return encode(value, rootPath)
 }
 
 function trimTrailingUndefined(args: unknown[]): unknown[] {
@@ -277,31 +348,132 @@ export function createReactGate<TValue extends boolean | string>(
   options: CreateReactGateOptions<TValue> & {
     cacheKey?: (...args: never[]) => ReactGateCacheKey
   } = {}
-): CustomReactGate<never[], TValue> {
+): ReactGate<Identity, TValue> | CustomReactGate<never[], TValue> {
   const runtimeOptions = options as ReactGateCacheOptions & {
     cache?: ReactGateCache<TValue>
     cacheKey?: (...args: unknown[]) => ReactGateCacheKey
+    changes?: GateChanges
   }
   if (
     runtimeOptions.cache !== undefined &&
-    (runtimeOptions.maxEntries !== undefined || runtimeOptions.ttlMs !== undefined)
+    (runtimeOptions.maxEntries !== undefined ||
+      runtimeOptions.pendingTtlMs !== undefined ||
+      runtimeOptions.ttlMs !== undefined)
   ) {
-    throw new TypeError("An injected cache cannot be combined with maxEntries or ttlMs")
+    throw new TypeError(
+      "An injected cache cannot be combined with maxEntries, pendingTtlMs, or ttlMs"
+    )
   }
 
-  const cache = runtimeOptions.cache ?? createReactGateCache<TValue>(runtimeOptions)
+  const defaultCache = runtimeOptions.cache ?? createReactGateCache<TValue>(runtimeOptions)
+  const evaluatorFlagKey = getEvaluatorFlagKey(gateFn)
   const cacheNamespace = `gate:${nextReactGateNamespace}:`
   nextReactGateNamespace += 1
+  const storesByCache = new WeakMap<ReactGateCache<TValue>, Map<string, ReactGateVersionStore>>()
+  const activeStores = new Set<ReactGateVersionStore>()
+  let detachChanges: (() => void) | undefined
+
+  const attachStore = (store: ReactGateVersionStore): void => {
+    activeStores.add(store)
+    if (activeStores.size === 1 && runtimeOptions.changes) {
+      detachChanges = runtimeOptions.changes.subscribe((changedFlagKeys) => {
+        if (
+          changedFlagKeys !== undefined &&
+          evaluatorFlagKey !== undefined &&
+          !changedFlagKeys.includes(evaluatorFlagKey)
+        ) {
+          return
+        }
+        for (const activeStore of activeStores) {
+          activeStore.bump()
+        }
+      })
+    }
+  }
+
+  const detachStore = (store: ReactGateVersionStore): void => {
+    activeStores.delete(store)
+    if (activeStores.size === 0) {
+      detachChanges?.()
+      detachChanges = undefined
+    }
+  }
+
+  const getVersionStore = (cache: ReactGateCache<TValue>, key: string): ReactGateVersionStore => {
+    let stores = storesByCache.get(cache)
+    if (!stores) {
+      stores = new Map()
+      storesByCache.set(cache, stores)
+    }
+    const existing = stores.get(key)
+    if (existing) {
+      return existing
+    }
+
+    let version = 0
+    const listeners = new Set<() => void>()
+    const store: ReactGateVersionStore = {
+      bump: () => {
+        cache.delete(key)
+        version += 1
+        for (const listener of listeners) {
+          listener()
+        }
+      },
+      getSnapshot: () => version,
+      subscribe: (listener) => {
+        listeners.add(listener)
+        if (listeners.size === 1) {
+          attachStore(store)
+        }
+        let attached = true
+        return () => {
+          if (!attached) {
+            return
+          }
+          attached = false
+          listeners.delete(listener)
+          if (listeners.size === 0) {
+            detachStore(store)
+          }
+        }
+      },
+    }
+    stores.set(key, store)
+    return store
+  }
   const keyOf = (args: unknown[]): string => {
     const normalizedArgs = trimTrailingUndefined(args)
     const semanticKey = runtimeOptions.cacheKey
       ? runtimeOptions.cacheKey(...normalizedArgs)
       : (normalizedArgs[0] ?? null)
-    return cacheNamespace + stableSerialize(semanticKey)
+    return (
+      cacheNamespace +
+      stableSerialize(semanticKey, runtimeOptions.cacheKey ? "cacheKey" : "identity")
+    )
   }
 
   function useGateValue(...args: unknown[]): TValue {
+    const providerCache = use(GateCacheContext) as ReactGateCache<TValue> | undefined
+    const cache = runtimeOptions.cache ?? providerCache ?? defaultCache
+    if (
+      runtimeOptions.cache === undefined &&
+      providerCache === undefined &&
+      !didWarnAboutServerDefaultCache &&
+      isDevelopmentEnvironment() &&
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- DOM types include window, but server runtimes do not.
+      globalThis.window === undefined
+    ) {
+      // oxlint-disable-next-line react/react-compiler -- Effects do not run during server rendering; this one-time diagnostic must be emitted while rendering.
+      didWarnAboutServerDefaultCache = true
+      // oxlint-disable-next-line no-console -- Development-only warning for server cache isolation.
+      console.error(
+        "createReactGate is using its module-scope default cache during server rendering. Wrap the app in GateCacheProvider with a per-request cache."
+      )
+    }
     const key = keyOf(args)
+    const versionStore = getVersionStore(cache, key)
+    useSyncExternalStore(versionStore.subscribe, versionStore.getSnapshot, versionStore.getSnapshot)
     let promise = cache.get(key)
 
     if (!promise) {
@@ -327,13 +499,20 @@ export function createReactGate<TValue extends boolean | string>(
   }
 
   useGateValue.invalidate = (...args: unknown[]): void => {
-    cache.delete(keyOf(args))
+    defaultCache.delete(keyOf(args))
+  }
+  let customGate: CustomReactGate<never[], TValue> | undefined
+  if (runtimeOptions.cacheKey) {
+    customGate = useGateValue as unknown as CustomReactGate<never[], TValue>
+    customGate.invalidateKey = (key): void => {
+      defaultCache.delete(cacheNamespace + stableSerialize(key, "cacheKey"))
+    }
   }
   useGateValue.clear = (): void => {
-    cache.clear()
+    defaultCache.clear()
   }
 
-  return useGateValue
+  return customGate ?? useGateValue
 }
 
 type GateSlotProps<

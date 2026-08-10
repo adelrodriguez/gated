@@ -1,5 +1,3 @@
-import type { IdentityValue } from "./types"
-
 class HookControlError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options)
@@ -7,7 +5,7 @@ class HookControlError extends Error {
   }
 }
 
-export function normalizeError(error: IdentityValue): Error {
+export function normalizeError(error: unknown): Error {
   try {
     if (error instanceof Error) {
       return error

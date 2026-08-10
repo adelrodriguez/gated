@@ -1,13 +1,13 @@
-import type { Decision, IdentityValue } from "./types"
+import type { Decision } from "./types"
 
 type BooleanDecision = Extract<Decision, { type: "boolean" }>
-type VariantDecision = Extract<Decision, { type: "variant" }>
+type VariantDecision<TPayload> = Extract<Decision<TPayload>, { type: "variant" }>
 
 export const decision = {
   boolean(value: boolean): BooleanDecision {
     return { type: "boolean", value }
   },
-  variant(variant: string, payload?: IdentityValue): VariantDecision {
+  variant<TPayload = unknown>(variant: string, payload?: TPayload): VariantDecision<TPayload> {
     return payload === undefined
       ? { type: "variant", variant }
       : { payload, type: "variant", variant }
