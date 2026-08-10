@@ -1251,6 +1251,7 @@ describe("timeout and cancellation", () => {
     const gate = buildGate({
       decide: () => never<Decision>(),
       identify: () => ({ distinctId: "user123" }),
+      timeoutMs: 1000,
     })
     const betaAccess = gate({ defaultValue: false, key: "beta-access" })
     setTimeout(() => {
