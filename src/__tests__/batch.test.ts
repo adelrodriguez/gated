@@ -20,6 +20,24 @@ function delay(milliseconds: number): Promise<void> {
 }
 
 describe("gate batches", () => {
+  test("returns a destructurable array in flag order", async () => {
+    const gate = buildGate({
+      decide: (key) =>
+        key === "theme"
+          ? ({ type: "variant", variant: "dark" } as const)
+          : ({ type: "boolean", value: true } as const),
+      identify: () => ({ distinctId: "user" }),
+    })
+    const beta = gate({ defaultValue: false, key: "beta" })
+    const theme = gate({ defaultValue: "light", key: "theme", variants: ["light", "dark"] })
+    const batch = await gate.batch([beta, theme])
+    const [betaValue, themeValue] = batch
+
+    expect(Array.isArray(batch)).toBe(true)
+    expect([betaValue, themeValue]).toEqual([batch.get(beta), batch.get(theme)])
+    expect(Array.from(batch)).toEqual([true, "dark"])
+    expect([...batch]).toEqual([true, "dark"])
+  })
   test("runs error hooks for each batch entry that falls back", async () => {
     const reportedFlagKeys: string[] = []
     const gate = buildGate({

@@ -1,322 +1,537 @@
-import { createContext, type ReactNode, Suspense, use, useSyncExternalStore } from "react"
-import type { GateCallOptions, GateChanges, Identity } from "../lib/types"
+"use client"
+
 import {
-  createCacheNamespace,
-  createGateCache,
-  type CreateGateOptions,
-  deriveKey,
-  evictOnRejection,
-  type GateCache,
-  type GateCacheKey,
-  type GateCacheOptions,
-  serializeKey,
-} from "../lib/cache"
-import { getEvaluatorFlagKey } from "../lib/evaluation/registry"
+  createContext,
+  type ReactNode,
+  Suspense,
+  use,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react"
+import type { EvaluationDetails, GateEvaluator, Identity } from "../lib/types"
+import { evictOnRejection, type GateCacheOptions } from "../lib/cache"
+import { type GateCacheKey, serializeKey } from "../lib/cache/key"
+import { ForeignGateEvaluatorError } from "../lib/errors"
+import { getEvaluatorFactoryRef, getEvaluatorFlagKey } from "../lib/evaluation/registry"
 import { isDevelopmentEnvironment } from "../lib/utils"
 
-let didWarnAboutServerDefaultCache = false
+type AnyGateEvaluator =
+  | GateEvaluator<never, boolean | string, never>
+  | GateEvaluator<never, boolean | string, never, unknown, true>
 
+export type GateValueOf<TFlag> = TFlag extends (...args: never[]) => Promise<infer TValue>
+  ? TValue
+  : never
+export type GateIdentityOf<TFlag> =
+  TFlag extends GateEvaluator<
+    infer TIdentity,
+    boolean | string,
+    infer TCallIdentity,
+    unknown,
+    infer _TRequired
+  >
+    ? TCallIdentity extends Identity
+      ? TCallIdentity
+      : TIdentity
+    : never
+export type GateDetailsOf<TFlag> = TFlag extends {
+  details: (...args: never[]) => Promise<infer TDetails>
+}
+  ? TDetails
+  : never
+export type GateBatchValuesOf<TFlags extends readonly AnyGateEvaluator[]> = Readonly<{
+  [K in keyof TFlags]: GateValueOf<TFlags[K]>
+}>
+export type GateBatchIdentityOf<TFlags extends readonly AnyGateEvaluator[]> = GateIdentityOf<
+  TFlags[number]
+>
+export type ReactGateCacheKey = GateCacheKey
 export type ReactGateCacheOptions = GateCacheOptions
 
-export type CreateReactGateOptions<TValue extends boolean | string> = CreateGateOptions<TValue>
-
-export type ReactGateCacheKey = GateCacheKey
-
-export type CustomCreateReactGateOptions<
-  TArgs extends unknown[],
-  TValue extends boolean | string,
-> = CreateReactGateOptions<TValue> & {
-  /**
-   * Projects the function arguments to the semantic value used for cache lookup and invalidation.
-   */
-  cacheKey: (...args: TArgs) => ReactGateCacheKey
-}
-
-export type ReactGateCache<TValue extends boolean | string = boolean | string> = GateCache<TValue>
-
-export { createGateCache as createReactGateCache } from "../lib/cache"
-
-const GateCacheContext = createContext<ReactGateCache | undefined>(undefined)
-
-export function GateCacheProvider({
-  cache,
-  children,
-}: {
-  cache: ReactGateCache
-  children: ReactNode
-}): ReactNode {
-  return <GateCacheContext value={cache}>{children}</GateCacheContext>
-}
-
-export type ReactGate<TIdentity extends Identity, TValue extends boolean | string> = {
-  (identity?: TIdentity): TValue
-  /**
-   * Evicts one identity. The next render evaluates it again; this does not trigger a render.
-   */
-  invalidate(identity?: TIdentity): void
-  /**
-   * Evicts every identity. The next render evaluates them again; this does not trigger a render.
-   */
-  clear(): void
-}
-
-export type CustomReactGate<TArgs extends unknown[], TValue extends boolean | string> = {
-  (...args: TArgs): TValue
-  /**
-   * Evicts one invocation. The next render evaluates it again; this does not trigger a render.
-   */
-  invalidate(...args: TArgs): void
-  /**
-   * Evicts one projected cache key without requiring the full invocation arguments.
-   */
-  invalidateKey(key: ReactGateCacheKey): void
-  /**
-   * Evicts every invocation. The next render evaluates them again; this does not trigger a render.
-   */
-  clear(): void
-}
-
-/**
- * Portable in concept — nothing here imports React — but the integer-snapshot/subscribe shape is
- * molded to the useSyncExternalStore contract. Keep this and its registry in the integration until
- * a second integration (Solid, Svelte) proves the shape, then hoist the shared parts into lib.
- */
-type ReactGateVersionStore = {
+type VersionStore = {
   bump: () => void
   getSnapshot: () => number
   subscribe: (listener: () => void) => () => void
 }
 
-/**
- * Creates a React hook backed by a bounded promise cache.
- *
- * Components calling the returned hook must be inside a Suspense boundary. Cache invalidation and
- * expiry take effect on the next render; they do not schedule a render themselves.
- */
-export function createReactGate<TIdentity extends Identity, TValue extends boolean | string>(
-  gateFn: (options?: GateCallOptions<TIdentity>) => Promise<TValue>,
-  options?: CreateReactGateOptions<TValue>
-): ReactGate<TIdentity, TValue>
-export function createReactGate<TArgs extends unknown[], TValue extends boolean | string>(
-  gateFn: (...args: TArgs) => Promise<TValue>,
-  options: CustomCreateReactGateOptions<TArgs, TValue>
-): CustomReactGate<TArgs, TValue>
-export function createReactGate<TValue extends boolean | string>(
-  gateFn: (...args: never[]) => Promise<TValue>,
-  options: CreateReactGateOptions<TValue> & {
-    cacheKey?: (...args: never[]) => ReactGateCacheKey
-  } = {}
-): ReactGate<Identity, TValue> | CustomReactGate<never[], TValue> {
-  const runtimeOptions = options as ReactGateCacheOptions & {
-    cache?: ReactGateCache<TValue>
-    cacheKey?: (...args: unknown[]) => ReactGateCacheKey
-    changes?: GateChanges
+type CacheEntry = {
+  expiresAt?: number
+  pendingExpiresAt?: number
+  promise: Promise<unknown>
+  settled: boolean
+}
+
+type Bucket = {
+  entries: Map<string, CacheEntry>
+  stores: Map<string, VersionStore>
+}
+
+export type ReactGateCache = {
+  clear(): void
+  invalidate<TFlag extends AnyGateEvaluator>(flag: TFlag, identity?: GateIdentityOf<TFlag>): void
+  invalidateBatch<TFlags extends readonly AnyGateEvaluator[]>(
+    flags: TFlags,
+    identity?: GateBatchIdentityOf<TFlags>
+  ): void
+  invalidateKey(key: ReactGateCacheKey): void
+  prefetch<TFlag extends AnyGateEvaluator>(
+    flag: TFlag,
+    options?: { identity?: GateIdentityOf<TFlag>; ttlMs?: number }
+  ): Promise<void>
+  prefetchBatch<TFlags extends readonly AnyGateEvaluator[]>(
+    flags: TFlags,
+    options?: { identity?: GateBatchIdentityOf<TFlags>; ttlMs?: number }
+  ): Promise<void>
+}
+
+type InternalGateCache = ReactGateCache & {
+  allBuckets: Set<Bucket>
+  batchBuckets: WeakMap<object, Bucket>
+  customBucket: Bucket
+  gateBuckets: WeakMap<object, Bucket>
+  options: Required<Pick<GateCacheOptions, "maxEntries" | "ttlMs">> &
+    Pick<GateCacheOptions, "pendingTtlMs">
+}
+
+const IDENTIFY_SENTINEL = "identify:core"
+const DEFAULT_MAX_ENTRIES = 100
+const DEFAULT_TTL_MS = 5 * 60 * 1000
+const emptySnapshot = (): number => 0
+const emptySubscribe = (): (() => null) => () => null
+const EMPTY_VERSION_STORE: VersionStore = {
+  bump: () => null,
+  getSnapshot: emptySnapshot,
+  subscribe: emptySubscribe,
+}
+
+function assertCacheOptions(options: GateCacheOptions): void {
+  const { maxEntries = DEFAULT_MAX_ENTRIES, pendingTtlMs, ttlMs = DEFAULT_TTL_MS } = options
+  if (!Number.isFinite(maxEntries) || maxEntries <= 0 || !Number.isInteger(maxEntries)) {
+    throw new RangeError("maxEntries must be a positive finite integer")
   }
-  const invokeGate = gateFn as (...args: unknown[]) => Promise<TValue>
-
-  const defaultCache = runtimeOptions.cache ?? createGateCache<TValue>(runtimeOptions)
-  const evaluatorFlagKey = getEvaluatorFlagKey(gateFn)
-  const cacheNamespace = createCacheNamespace()
-  const storesByCache = new WeakMap<ReactGateCache<TValue>, Map<string, ReactGateVersionStore>>()
-  const activeStores = new Set<ReactGateVersionStore>()
-  let detachChanges: (() => void) | undefined
-
-  const attachStore = (store: ReactGateVersionStore): void => {
-    activeStores.add(store)
-    if (activeStores.size === 1 && runtimeOptions.changes) {
-      detachChanges = runtimeOptions.changes.subscribe((changedFlagKeys) => {
-        if (
-          changedFlagKeys !== undefined &&
-          evaluatorFlagKey !== undefined &&
-          !changedFlagKeys.includes(evaluatorFlagKey)
-        ) {
-          return
-        }
-        for (const activeStore of activeStores) {
-          activeStore.bump()
-        }
-      })
-    }
+  if (pendingTtlMs !== undefined && (!Number.isFinite(pendingTtlMs) || pendingTtlMs <= 0)) {
+    throw new RangeError("pendingTtlMs must be a positive finite number")
   }
-
-  const detachStore = (store: ReactGateVersionStore): void => {
-    activeStores.delete(store)
-    if (activeStores.size === 0) {
-      detachChanges?.()
-      detachChanges = undefined
-    }
+  if (!Number.isFinite(ttlMs) || ttlMs <= 0) {
+    throw new RangeError("ttlMs must be a positive finite number")
   }
+}
 
-  const getVersionStore = (cache: ReactGateCache<TValue>, key: string): ReactGateVersionStore => {
-    let stores = storesByCache.get(cache)
-    if (!stores) {
-      stores = new Map()
-      storesByCache.set(cache, stores)
-    }
-    const existing = stores.get(key)
-    if (existing) {
-      return existing
-    }
+function createBucket(): Bucket {
+  return { entries: new Map(), stores: new Map() }
+}
 
-    let version = 0
-    const listeners = new Set<() => void>()
-    const store: ReactGateVersionStore = {
-      bump: () => {
-        cache.delete(key)
-        version += 1
-        for (const listener of listeners) {
-          listener()
-        }
-      },
-      getSnapshot: () => version,
-      subscribe: (listener) => {
-        if (!stores.has(key)) {
-          stores.set(key, store)
-        }
-        listeners.add(listener)
-        if (listeners.size === 1) {
-          attachStore(store)
-        }
-        let attached = true
-        return () => {
-          if (!attached) {
-            return
-          }
-          attached = false
-          listeners.delete(listener)
-          if (listeners.size === 0) {
-            detachStore(store)
-            if (stores.get(key) === store) {
-              stores.delete(key)
-            }
-          }
-        }
-      },
-    }
-    stores.set(key, store)
-    return store
+function identityKey(identity: Identity | undefined): string {
+  return identity === undefined ? IDENTIFY_SENTINEL : serializeKey(identity, "identity")
+}
+
+function batchKey(flags: readonly AnyGateEvaluator[], identity?: Identity): string {
+  const keys = flags.map((flag) => getEvaluatorFlagKey(flag) ?? "")
+  return serializeKey([keys, identityKey(identity)], "cacheKey")
+}
+
+function getBucket(cache: InternalGateCache, flag: object): Bucket {
+  let bucket = cache.gateBuckets.get(flag)
+  if (!bucket) {
+    bucket = createBucket()
+    cache.gateBuckets.set(flag, bucket)
+    cache.allBuckets.add(bucket)
   }
-  const keyOf = (args: unknown[]): string =>
-    deriveKey(args, { cacheKey: runtimeOptions.cacheKey, namespace: cacheNamespace })
+  return bucket
+}
 
-  function useGateValue(...args: unknown[]): TValue {
-    const providerCache = use(GateCacheContext) as ReactGateCache<TValue> | undefined
-    const cache = runtimeOptions.cache ?? providerCache ?? defaultCache
+function getBatchBucket(cache: InternalGateCache, flags: readonly AnyGateEvaluator[]): Bucket {
+  const ref = validateBatch(flags)
+  let bucket = cache.batchBuckets.get(ref)
+  if (!bucket) {
+    bucket = createBucket()
+    cache.batchBuckets.set(ref, bucket)
+    cache.allBuckets.add(bucket)
+  }
+  return bucket
+}
+
+function deleteAndBump(bucket: Bucket, key: string): void {
+  bucket.entries.delete(key)
+  bucket.stores.get(key)?.bump()
+}
+
+function readEntry(bucket: Bucket, key: string): Promise<unknown> | undefined {
+  const entry = bucket.entries.get(key)
+  if (!entry) return undefined
+  const now = Date.now()
+  if (
+    (!entry.settled && entry.pendingExpiresAt !== undefined && now >= entry.pendingExpiresAt) ||
+    (entry.settled && entry.expiresAt !== undefined && now >= entry.expiresAt)
+  ) {
+    bucket.entries.delete(key)
+    return undefined
+  }
+  bucket.entries.delete(key)
+  bucket.entries.set(key, entry)
+  return entry.promise
+}
+
+function setEntry(
+  cache: InternalGateCache,
+  bucket: Bucket,
+  key: string,
+  promise: Promise<unknown>,
+  ttlMs?: number
+): Promise<unknown> {
+  const entry: CacheEntry = {
+    pendingExpiresAt:
+      cache.options.pendingTtlMs === undefined
+        ? undefined
+        : Date.now() + cache.options.pendingTtlMs,
+    promise,
+    settled: false,
+  }
+  bucket.entries.set(key, entry)
+  void promise.then(
+    () => {
+      entry.settled = true
+      entry.pendingExpiresAt = undefined
+      entry.expiresAt = Date.now() + (ttlMs ?? cache.options.ttlMs)
+      setTimeout(() => {
+        prune(cache, bucket)
+      }, 0)
+      return null
+    },
+    () => {
+      entry.settled = true
+      entry.pendingExpiresAt = undefined
+      entry.expiresAt = Date.now() + (ttlMs ?? cache.options.ttlMs)
+      setTimeout(() => {
+        prune(cache, bucket)
+      }, 0)
+      return null
+    }
+  )
+  prune(cache, bucket)
+  return promise
+}
+
+function prune(cache: InternalGateCache, bucket: Bucket): void {
+  const now = Date.now()
+  for (const [key, entry] of bucket.entries) {
     if (
-      runtimeOptions.cache === undefined &&
-      providerCache === undefined &&
+      (!entry.settled && entry.pendingExpiresAt !== undefined && now >= entry.pendingExpiresAt) ||
+      (entry.settled && entry.expiresAt !== undefined && now >= entry.expiresAt)
+    ) {
+      bucket.entries.delete(key)
+    }
+  }
+  while (bucket.entries.size > cache.options.maxEntries) {
+    const settled = [...bucket.entries].find(([, entry]) => entry.settled)
+    if (!settled) break
+    bucket.entries.delete(settled[0])
+  }
+}
+
+function evaluateFlag(flag: AnyGateEvaluator, identity?: Identity): Promise<unknown> {
+  const details = flag.details as (options?: { identity?: Identity }) => Promise<unknown>
+  return identity === undefined ? details() : details({ identity })
+}
+
+function validateBatch(flags: readonly AnyGateEvaluator[]) {
+  const ref = flags[0] ? getEvaluatorFactoryRef(flags[0]) : undefined
+  if (!ref || flags.some((flag) => getEvaluatorFactoryRef(flag) !== ref)) {
+    throw new ForeignGateEvaluatorError()
+  }
+  return ref
+}
+
+function evaluateBatch(flags: readonly AnyGateEvaluator[], identity?: Identity): Promise<unknown> {
+  const ref = validateBatch(flags)
+  return ref.batch(flags, identity === undefined ? undefined : ({ identity } as never))
+}
+
+export function createGateCache(options: ReactGateCacheOptions = {}): ReactGateCache {
+  assertCacheOptions(options)
+  const buckets = new Set<Bucket>()
+  const cache: InternalGateCache = {
+    allBuckets: buckets,
+    batchBuckets: new WeakMap(),
+    clear() {
+      for (const bucket of buckets) {
+        bucket.entries.clear()
+        for (const store of bucket.stores.values()) store.bump()
+      }
+    },
+    customBucket: createBucket(),
+    gateBuckets: new WeakMap(),
+    invalidate(flag, identity) {
+      const bucket = getBucket(cache, flag)
+      buckets.add(bucket)
+      deleteAndBump(bucket, identityKey(identity))
+    },
+    invalidateBatch(flags, identity) {
+      if (flags.length === 0) return
+      const bucket = getBatchBucket(cache, flags)
+      deleteAndBump(bucket, batchKey(flags, identity))
+    },
+    invalidateKey(key) {
+      deleteAndBump(cache.customBucket, serializeKey(key, "cacheKey"))
+    },
+    options: {
+      maxEntries: options.maxEntries ?? DEFAULT_MAX_ENTRIES,
+      pendingTtlMs: options.pendingTtlMs,
+      ttlMs: options.ttlMs ?? DEFAULT_TTL_MS,
+    },
+    async prefetch(flag, prefetchOptions = {}) {
+      const bucket = getBucket(cache, flag)
+      buckets.add(bucket)
+      const key = identityKey(prefetchOptions.identity)
+      let promise = readEntry(bucket, key)
+      promise ??= createCachedEvaluation(
+        cache,
+        bucket,
+        key,
+        () => evaluateFlag(flag, prefetchOptions.identity),
+        prefetchOptions.ttlMs
+      )
+      await promise
+    },
+    async prefetchBatch(flags, prefetchOptions = {}) {
+      if (flags.length === 0) return
+      const bucket = getBatchBucket(cache, flags)
+      const key = batchKey(flags, prefetchOptions.identity)
+      let promise = readEntry(bucket, key)
+      promise ??= createCachedEvaluation(
+        cache,
+        bucket,
+        key,
+        () => evaluateBatch(flags, prefetchOptions.identity),
+        prefetchOptions.ttlMs
+      )
+      await promise
+    },
+  }
+  buckets.add(cache.customBucket)
+  return cache
+}
+
+function createCachedEvaluation(
+  cache: InternalGateCache,
+  bucket: Bucket,
+  key: string,
+  evaluate: () => Promise<unknown>,
+  ttlMs?: number
+): Promise<unknown> {
+  const cachedEvaluation = evictOnRejection(evaluate(), () => {
+    setTimeout(() => {
+      if (readEntry(bucket, key) === cachedEvaluation) bucket.entries.delete(key)
+    }, 0)
+  })
+  return setEntry(cache, bucket, key, cachedEvaluation, ttlMs)
+}
+
+type GateContextValue = { cache: ReactGateCache; identity?: Identity }
+const defaultCache = createGateCache()
+const GateContext = createContext<GateContextValue | undefined>(undefined)
+let didWarnAboutServerDefaultCache = false
+
+export function GateProvider({
+  cache: suppliedCache,
+  identity,
+  children,
+}: {
+  cache?: ReactGateCache
+  identity?: Identity
+  children: ReactNode
+}): ReactNode {
+  const [mountedCache, setMountedCache] = useState(createGateCache)
+  void setMountedCache
+  const value = useMemo(
+    () => ({ cache: suppliedCache ?? mountedCache, identity }),
+    [identity, mountedCache, suppliedCache]
+  )
+  return <GateContext value={value}>{children}</GateContext>
+}
+
+function useGateContext(): GateContextValue {
+  const context = use(GateContext)
+  if (!context) {
+    if (
       !didWarnAboutServerDefaultCache &&
       isDevelopmentEnvironment() &&
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- DOM types include window, but server runtimes do not.
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- Server runtimes do not define window.
       globalThis.window === undefined
     ) {
-      // oxlint-disable-next-line react/react-compiler -- Effects do not run during server rendering; this one-time diagnostic must be emitted while rendering.
       didWarnAboutServerDefaultCache = true
-      // oxlint-disable-next-line no-console -- Development-only warning for server cache isolation.
+      // oxlint-disable-next-line no-console -- Development-only SSR safety warning.
       console.error(
-        "createReactGate is using its module-scope default cache during server rendering. Wrap the app in GateCacheProvider with a per-request cache."
+        "useGate is using the shared default cache during server rendering. Mount GateProvider above the consumer Suspense boundary."
       )
     }
-    const key = keyOf(args)
-    const versionStore = getVersionStore(cache, key)
-    useSyncExternalStore(versionStore.subscribe, versionStore.getSnapshot, versionStore.getSnapshot)
-    let promise = cache.get(key)
-
-    if (!promise) {
-      const evaluation = runtimeOptions.cacheKey
-        ? invokeGate(...args)
-        : args[0] === undefined
-          ? invokeGate()
-          : invokeGate({ identity: args[0] })
-      // React must observe the rejected promise on its retry render. Defer eviction until the
-      // next task, and do not delete a newer evaluation that reused this key in the meantime.
-      const cachedEvaluation = evictOnRejection(evaluation, () => {
-        setTimeout(() => {
-          if (cache.get(key) === cachedEvaluation) {
-            cache.delete(key)
-          }
-        }, 0)
-      })
-      cache.set(key, cachedEvaluation)
-      promise = cachedEvaluation
-    }
-
-    return use(promise)
+    return { cache: defaultCache }
   }
-
-  useGateValue.invalidate = (...args: unknown[]): void => {
-    defaultCache.delete(keyOf(args))
-  }
-  let customGate: CustomReactGate<never[], TValue> | undefined
-  if (runtimeOptions.cacheKey) {
-    customGate = useGateValue as unknown as CustomReactGate<never[], TValue>
-    customGate.invalidateKey = (key): void => {
-      defaultCache.delete(cacheNamespace + serializeKey(key, "cacheKey"))
-    }
-  }
-  useGateValue.clear = (): void => {
-    defaultCache.clear()
-  }
-
-  return customGate ?? useGateValue
+  return context
 }
 
-type GateSlotProps<
-  TIdentity extends Identity,
-  TGate extends (identity?: TIdentity) => boolean | string,
-> = {
+export function useGateCache(): ReactGateCache {
+  return useGateContext().cache
+}
+
+function getVersionStore(
+  bucket: Bucket,
+  key: string,
+  onFirstSubscribe?: (bump: () => void) => () => void
+): VersionStore {
+  const existing = bucket.stores.get(key)
+  if (existing) return existing
+  let version = 0
+  const listeners = new Set<() => void>()
+  let detach: (() => void) | undefined
+  const store: VersionStore = {
+    bump: () => {
+      bucket.entries.delete(key)
+      version += 1
+      for (const listener of listeners) listener()
+    },
+    getSnapshot: () => version,
+    subscribe: (listener) => {
+      listeners.add(listener)
+      if (listeners.size === 1) detach = onFirstSubscribe?.(store.bump)
+      return () => {
+        listeners.delete(listener)
+        if (listeners.size === 0) {
+          detach?.()
+          detach = undefined
+        }
+      }
+    },
+  }
+  bucket.stores.set(key, store)
+  return store
+}
+
+function changesSubscriber(flags: readonly AnyGateEvaluator[]) {
+  const ref = flags[0] ? getEvaluatorFactoryRef(flags[0]) : undefined
+  const keys = new Set(flags.map((flag) => getEvaluatorFlagKey(flag)))
+  return (bump: () => void): (() => void) =>
+    ref?.changes.subscribe((changedKeys) => {
+      if (changedKeys === undefined || changedKeys.some((key) => keys.has(key))) bump()
+    }) ?? (() => null)
+}
+
+export function useGate<TFlag extends AnyGateEvaluator>(
+  flag: TFlag,
+  options?: { identity?: GateIdentityOf<TFlag>; ttlMs?: number; details?: false }
+): GateValueOf<TFlag>
+export function useGate<TFlag extends AnyGateEvaluator>(
+  flag: TFlag,
+  options: { identity?: GateIdentityOf<TFlag>; ttlMs?: number; details: true }
+): GateDetailsOf<TFlag>
+export function useGate<TValue>(
+  fn: () => Promise<TValue>,
+  options: { key: ReactGateCacheKey; ttlMs?: number }
+): TValue
+export function useGate(
+  input: AnyGateEvaluator | (() => Promise<unknown>),
+  options: {
+    identity?: Identity
+    ttlMs?: number
+    details?: boolean
+    key?: ReactGateCacheKey
+  } = {}
+): unknown {
+  const context = useGateContext()
+  const cache = context.cache as InternalGateCache
+  const evaluator = getEvaluatorFlagKey(input) !== undefined
+  if (!evaluator && !("key" in options)) {
+    throw new TypeError("useGate(fn, options) requires a key option")
+  }
+  const identity = options.identity ?? context.identity
+  const bucket = evaluator ? getBucket(cache, input) : cache.customBucket
+  const key = evaluator ? identityKey(identity) : serializeKey(options.key, "cacheKey")
+  const store = getVersionStore(
+    bucket,
+    key,
+    evaluator ? changesSubscriber([input as AnyGateEvaluator]) : undefined
+  )
+  useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  let promise = readEntry(bucket, key)
+  promise ??= createCachedEvaluation(
+    cache,
+    bucket,
+    key,
+    evaluator
+      ? () => evaluateFlag(input as AnyGateEvaluator, identity)
+      : (input as () => Promise<unknown>),
+    options.ttlMs
+  )
+  const result = use(promise)
+  return evaluator && !options.details
+    ? (result as EvaluationDetails<boolean | string>).value
+    : result
+}
+
+export function useGateBatch<const TFlags extends readonly AnyGateEvaluator[]>(
+  flags: TFlags,
+  options: { identity?: GateBatchIdentityOf<TFlags>; ttlMs?: number } = {}
+): GateBatchValuesOf<TFlags> {
+  const context = useGateContext()
+  const cache = context.cache as InternalGateCache
+  const identity = options.identity ?? context.identity
+  const bucket = flags.length === 0 ? undefined : getBatchBucket(cache, flags)
+  const key = batchKey(flags, identity)
+  const store = bucket
+    ? getVersionStore(bucket, key, changesSubscriber(flags))
+    : EMPTY_VERSION_STORE
+  useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
+  if (!bucket) return [] as unknown as GateBatchValuesOf<TFlags>
+  let promise = readEntry(bucket, key)
+  promise ??= createCachedEvaluation(
+    cache,
+    bucket,
+    key,
+    () => evaluateBatch(flags, identity),
+    options.ttlMs
+  )
+  return use(promise) as GateBatchValuesOf<TFlags>
+}
+
+type FeatureGateBase<TFlag extends AnyGateEvaluator> = {
   children: ReactNode
   fallback?: ReactNode
-  gate: TGate
-  match?: ReturnType<TGate>
-  identity?: TIdentity
+  gate: TFlag
+  identity?: GateIdentityOf<TFlag>
+  loading?: ReactNode
+}
+type FeatureGateProps<TFlag extends AnyGateEvaluator> =
+  GateValueOf<TFlag> extends boolean
+    ? FeatureGateBase<TFlag> & { match?: boolean }
+    : FeatureGateBase<TFlag> & { match: GateValueOf<TFlag> }
+
+type GateSlotRuntimeProps = {
+  children: ReactNode
+  fallback?: ReactNode
+  gate: AnyGateEvaluator
+  identity?: Identity
+  match?: boolean | string
 }
 
-function GateSlot<
-  TIdentity extends Identity,
-  TGate extends (identity?: TIdentity) => boolean | string,
->({ children, fallback, gate, match, identity }: GateSlotProps<TIdentity, TGate>): ReactNode {
-  const value = gate(identity)
-
+function GateSlot({ children, fallback, gate, identity, match }: GateSlotRuntimeProps): ReactNode {
+  const value = useGate(gate, { identity } as never)
   if (typeof value === "string" && match === undefined) {
     if (isDevelopmentEnvironment()) {
-      // oxlint-disable-next-line no-console -- Development-only warning for JavaScript misuse.
+      // oxlint-disable-next-line no-console -- Development-only JavaScript misuse warning.
       console.error("FeatureGate requires a match prop when its gate returns a string variant.")
     }
     return fallback
   }
-
-  const matchValue = match ?? true
-  return value === matchValue ? children : fallback
+  return value === (match ?? true) ? children : fallback
 }
 
-export function FeatureGate<TIdentity extends Identity>(props: {
-  children: ReactNode
-  fallback?: ReactNode
-  gate: (identity?: TIdentity) => boolean
-  loading?: ReactNode
-  match?: boolean
-  identity?: TIdentity
-}): ReactNode
-export function FeatureGate<
-  TIdentity extends Identity,
-  TGate extends (identity?: TIdentity) => string,
->(props: {
-  children: ReactNode
-  fallback?: ReactNode
-  gate: TGate
-  loading?: ReactNode
-  match: ReturnType<TGate>
-  identity?: TIdentity
-}): ReactNode
-export function FeatureGate<
-  TIdentity extends Identity,
-  TGate extends (identity?: TIdentity) => boolean | string,
->({ loading, ...slotProps }: GateSlotProps<TIdentity, TGate> & { loading?: ReactNode }): ReactNode {
-  const slot = <GateSlot {...slotProps} />
-  if (loading === undefined) {
-    return slot
+export function FeatureGate<TFlag extends AnyGateEvaluator>(
+  props: FeatureGateProps<TFlag>
+): ReactNode {
+  const { loading, ...slotProps } = props as unknown as GateSlotRuntimeProps & {
+    loading?: ReactNode
   }
-
-  return <Suspense fallback={loading}>{slot}</Suspense>
+  const slot = <GateSlot {...slotProps} />
+  return loading === undefined ? slot : <Suspense fallback={loading}>{slot}</Suspense>
 }

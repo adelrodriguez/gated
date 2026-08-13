@@ -22,7 +22,7 @@ The example keeps the code a package consumer would write separate from the fake
 ```text
 src/shared/gates/
   server.ts              buildGate factories, hooks, and gate definitions
-  client.ts              browser factory and createReactGate registrations
+  client.ts              browser gate factory and custom hook
 
 src/shared/demo-provider/
   adapter.ts             fake decide/decideMany adapter returning gated Decisions

@@ -1,10 +1,7 @@
-import type { GateChanges } from "../types"
-
 export * from "./key"
 
 const DEFAULT_MAX_ENTRIES = 100
 const DEFAULT_TTL_MS = 5 * 60 * 1000
-let nextGateNamespace = 0
 
 export type GateCacheOptions = {
   /**
@@ -21,19 +18,6 @@ export type GateCacheOptions = {
   ttlMs?: number
 }
 
-export type CreateGateOptions<TValue extends boolean | string> =
-  | (GateCacheOptions & { cache?: undefined; changes?: GateChanges })
-  | {
-      /**
-       * Injected caches own their bounds; maxEntries and ttlMs cannot also be supplied.
-       */
-      cache: GateCache<TValue>
-      changes?: GateChanges
-      maxEntries?: never
-      pendingTtlMs?: never
-      ttlMs?: never
-    }
-
 export interface GateCache<TValue extends boolean | string = boolean | string> {
   clear(): void
   delete(key: string): boolean
@@ -46,15 +30,6 @@ type CacheEntry<TValue extends boolean | string> = {
   pendingExpiresAt: number | undefined
   promise: Promise<TValue>
   settled: boolean
-}
-
-/**
- * Allocates a cache-key prefix unique to one gate, so gates sharing a cache never collide.
- */
-export function createCacheNamespace(): string {
-  const namespace = `gate:${nextGateNamespace}:`
-  nextGateNamespace += 1
-  return namespace
 }
 
 export async function evictOnRejection<T>(
