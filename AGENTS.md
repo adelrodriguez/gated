@@ -1,6 +1,7 @@
 # AGENTS.md
 
-Use ASD-STE100 / Simplified Technical English and Google developer documentation style guide as references for all communication.
+Use ASD-STE100 (Simplified Technical English) for all communication. Use the Google
+developer documentation style guide for points that ASD-STE100 does not cover.
 
 Before you explore or change code, read `CONTEXT.md` and
 `docs/agents/domain.md`. Use the project's domain language.
