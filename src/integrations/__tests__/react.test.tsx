@@ -515,13 +515,12 @@ describe("createReactGate", () => {
     rendered.unmount()
     expect(detachProvider.mock.calls.length).toBeGreaterThanOrEqual(1)
 
-    // A change after unmount refetches nothing, and once it empties the factory's decision
-    // memory, every provider subscription (changes hub and invalidation) has been detached.
+    // A change after unmount refetches nothing. The factory's invalidation subscription is
+    // factory-scoped, so it outlives the component; only the changes-hub listener detaches.
     notify({ keys: ["beta-access"] })
     await Bun.sleep(0)
     expect(decide).toHaveBeenCalledTimes(2)
-    expect(listeners.size).toBe(0)
-    expect(subscribe.mock.calls.length).toBe(detachProvider.mock.calls.length)
+    expect(listeners.size).toBe(1)
   })
 
   test("prunes a reactive version store after its last subscriber detaches", async () => {

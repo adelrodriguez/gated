@@ -15,3 +15,5 @@ Behavior changes:
 
 - A throwing `evaluationKey` now degrades softly for coalescing too: it is reported through `onCacheError` (operation `"key"`) and the evaluation continues without cache or coalescing, instead of failing the evaluation
 - A flag-change notification now drops in-flight coalesced provider work for the changed flags whenever `subscribe` is configured — with or without a cache — so evaluations that start after the notification lead a fresh provider call instead of receiving the pre-change decision
+- A flag-change notification now invalidates pending cache writes for the changed flags even when the store cannot delete, so a decision fetched before the change is never written after it
+- The invalidation subscription attaches on the first evaluation that touches cache or coalescing and stays attached for the factory's lifetime, instead of detaching when the cache key index empties

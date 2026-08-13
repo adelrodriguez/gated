@@ -430,6 +430,8 @@ When both `cache.delete` and `subscribe` exist, the engine indexes evaluated cac
 
 A notification also drops in-flight coalesced provider work for the changed flags whenever `subscribe` is set, with or without a cache. Evaluations already awaiting the shared call keep its decision; evaluations that start after the notification lead a fresh provider call.
 
+A notification also invalidates pending cache writes for the changed flags, so a decision fetched before the change is never written to the store after it — even when the store cannot delete. The invalidation subscription attaches on the first evaluation that touches cache or coalescing and stays attached for the factory's lifetime.
+
 Core evaluation remains pull-based. Subscribe directly to `gate.changes` when another integration or application store needs notifications:
 
 ```typescript

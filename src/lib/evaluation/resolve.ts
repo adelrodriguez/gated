@@ -26,7 +26,7 @@ type PendingResolution = {
  * when built from the same config object.
  */
 export type ResolutionState = {
-  generationByFlag: Map<string, number>
+  generations: { all: number; byFlag: Map<string, number> }
   keysByFlag: Map<string, Map<string, Identity | null>>
   pending: Map<string, PendingResolution>
   subscription: { attaching: boolean; detach?: () => void }
@@ -34,7 +34,7 @@ export type ResolutionState = {
 
 export function createResolutionState(): ResolutionState {
   return {
-    generationByFlag: new Map(),
+    generations: { all: 0, byFlag: new Map() },
     keysByFlag: new Map(),
     pending: new Map(),
     subscription: { attaching: false },
@@ -80,7 +80,8 @@ function deleteCacheEntry<TIdentity extends Identity>(
 }
 
 function generationOf(state: ResolutionState, flagKey: string): number {
-  return state.generationByFlag.get(flagKey) ?? 0
+  const { generations } = state
+  return generations.all + (generations.byFlag.get(flagKey) ?? 0)
 }
 
 function indexCacheKey<TIdentity extends Identity>(
@@ -97,13 +98,13 @@ function indexCacheKey<TIdentity extends Identity>(
   const keys = state.keysByFlag.get(context.flagKey) ?? new Map<string, Identity | null>()
   keys.set(key, context.identity)
   state.keysByFlag.set(context.flagKey, keys)
-  attachInvalidationSubscription(config, state)
 }
 
 /**
- * Attaches the flag-change subscription that invalidates this factory's decision memory. Attached
- * lazily once there is memory to protect — an indexed cache key or an in-flight coalesced call —
- * and detached when both are gone.
+ * Attaches the flag-change subscription that invalidates this factory's decision memory: it drops
+ * in-flight coalesced calls, invalidates pending cache writes, and deletes indexed store entries
+ * for the changed flags. Attached on the first evaluation that touches cache or coalescing and kept
+ * for the factory's lifetime.
  */
 function attachInvalidationSubscription<TIdentity extends Identity>(
   config: AnyGatedConfig<TIdentity>,
@@ -119,46 +120,49 @@ function attachInvalidationSubscription<TIdentity extends Identity>(
   }
 
   subscription.attaching = true
-  const detach = subscribe(({ keys: changedFlagKeys }) => {
-    // An invalidated flag's in-flight provider call is stale too: already-attached followers
-    // keep the leader's decision, but later evaluations must not join it.
-    const changed = changedFlagKeys && new Set(changedFlagKeys)
-    for (const [pendingKey, entry] of state.pending) {
-      if (!changed || changed.has(entry.flagKey)) {
-        state.pending.delete(pendingKey)
+  try {
+    subscription.detach = subscribe(({ keys: changedFlagKeys }) => {
+      // An invalidated flag's in-flight provider call is stale too: already-attached followers
+      // keep the leader's decision, but later evaluations must not join it.
+      const changed = changedFlagKeys && new Set(changedFlagKeys)
+      for (const [pendingKey, entry] of state.pending) {
+        if (!changed || changed.has(entry.flagKey)) {
+          state.pending.delete(pendingKey)
+        }
       }
-    }
-    const store = config.cache
-    const flagKeys = changedFlagKeys ?? [...state.keysByFlag.keys()]
-    for (const flagKey of flagKeys) {
-      const cacheKeys = state.keysByFlag.get(flagKey)
-      if (!cacheKeys) {
-        continue
+      // Invalidate open write tickets independently of the key index, which only fills when the
+      // store can delete: a decision fetched before the change must never be written after it.
+      const { generations } = state
+      if (changedFlagKeys) {
+        for (const flagKey of changedFlagKeys) {
+          generations.byFlag.set(flagKey, (generations.byFlag.get(flagKey) ?? 0) + 1)
+        }
+      } else {
+        generations.all += 1
       }
-      state.generationByFlag.set(flagKey, (state.generationByFlag.get(flagKey) ?? 0) + 1)
-      state.keysByFlag.delete(flagKey)
-      if (!store) {
-        continue
+      const store = config.cache
+      const flagKeys = changedFlagKeys ?? [...state.keysByFlag.keys()]
+      for (const flagKey of flagKeys) {
+        const cacheKeys = state.keysByFlag.get(flagKey)
+        if (!cacheKeys) {
+          continue
+        }
+        state.keysByFlag.delete(flagKey)
+        if (!store) {
+          continue
+        }
+        for (const [cacheKey, identity] of cacheKeys) {
+          deleteCacheEntry(
+            config,
+            { flagKey, identity: identity as TIdentity | null },
+            store,
+            cacheKey
+          )
+        }
       }
-      for (const [cacheKey, identity] of cacheKeys) {
-        deleteCacheEntry(
-          config,
-          { flagKey, identity: identity as TIdentity | null },
-          store,
-          cacheKey
-        )
-      }
-    }
-    if (state.keysByFlag.size === 0 && state.pending.size === 0 && !subscription.attaching) {
-      subscription.detach?.()
-      subscription.detach = undefined
-    }
-  })
-  subscription.attaching = false
-  if (state.keysByFlag.size === 0 && state.pending.size === 0) {
-    detach()
-  } else {
-    subscription.detach = detach
+    })
+  } finally {
+    subscription.attaching = false
   }
 }
 
@@ -255,6 +259,7 @@ export async function resolveDecision<TIdentity extends Identity, T extends stri
   let write: { generation: number; store: DecisionCache } | undefined
   if (store) {
     indexCacheKey(config, state, context, store, key)
+    attachInvalidationSubscription(config, state)
     const consultation = await raceWithSignal(
       () => consultStore(config, state, context, options, store, key),
       signal

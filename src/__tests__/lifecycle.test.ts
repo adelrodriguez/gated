@@ -340,7 +340,7 @@ describe("first-class cache", () => {
     expect(reports.map(({ operation }) => operation)).toEqual(["validate"])
   })
 
-  test("detaches immediately when subscription setup invalidates all decision memory", async () => {
+  test("attaches one invalidation subscription for the factory's lifetime", async () => {
     const subscribe = mock((listener: (change: { keys?: readonly string[] }) => void) => {
       listener({ keys: ["beta-access"] })
       return detach
@@ -356,13 +356,12 @@ describe("first-class cache", () => {
       identify: () => ({ distinctId: "user123" }),
       subscribe,
     })
+    const evaluator = gate({ defaultValue: false, key: "beta-access" })
 
-    expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(true)
-    // The indexed cache key and the in-flight provider call each attach the subscription, and the
-    // self-invalidating subscriber immediately empties the memory each time: every attach must be
-    // matched by a detach, leaving nothing attached.
-    expect(detach.mock.calls.length).toBe(subscribe.mock.calls.length)
-    expect(subscribe).toHaveBeenCalledTimes(2)
+    expect(await evaluator()).toBe(true)
+    expect(await evaluator()).toBe(true)
+    expect(subscribe).toHaveBeenCalledTimes(1)
+    expect(detach).not.toHaveBeenCalled()
   })
 
   test("reports delete failures without failing invalidation", async () => {
@@ -736,6 +735,43 @@ describe("request coalescing", () => {
     expect(await leader).toBe(true)
     expect(await late).toBe(false)
     expect(decide).toHaveBeenCalledTimes(2)
+  })
+
+  test("does not write a pre-change decision into a store that cannot delete", async () => {
+    const first = createDeferred<Decision>()
+    const store = new Map<string, Decision>()
+    let notifyChange: ((change: { keys?: readonly string[] }) => void) | undefined
+    const decide = mock((): Decision | Promise<Decision> =>
+      decide.mock.calls.length === 1 ? first.promise : { type: "boolean", value: false }
+    )
+    const gate = buildGate({
+      cache: {
+        get: (key) => Promise.resolve(store.get(key) ?? null),
+        set: (key, decision) => {
+          store.set(key, decision)
+          return Promise.resolve()
+        },
+      },
+      decide,
+      identify: () => ({ distinctId: "user123" }),
+      subscribe: (notify) => {
+        notifyChange = notify
+        return () => null
+      },
+    })
+    const evaluator = gate({ defaultValue: true, key: "beta-access" })
+
+    const leader = evaluator()
+    await Bun.sleep(0)
+    notifyChange?.({ keys: ["beta-access"] })
+    const late = evaluator()
+    await Bun.sleep(0)
+
+    first.resolve({ type: "boolean", value: true })
+    expect(await leader).toBe(true)
+    expect(await late).toBe(false)
+    await flushBackground()
+    expect(await evaluator()).toBe(false)
   })
 
   test("rejects every follower with the normalized leader failure and permits a retry", async () => {
