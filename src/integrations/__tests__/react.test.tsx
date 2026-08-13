@@ -247,13 +247,14 @@ describe("React integration", () => {
       identify: () => ({ distinctId: "core" }),
     })
     const beta = factory({ defaultValue: false, key: "beta" })
+    let prefetching: Promise<void> | undefined
     function Runner() {
       const cache = useGateCache()
       return (
         <button
           type="button"
           onClick={() => {
-            void (async () => {
+            prefetching = (async () => {
               await cache.prefetch(beta)
               await cache.prefetchBatch([beta])
               cache.invalidateBatch([beta])
@@ -270,8 +271,10 @@ describe("React integration", () => {
         <Runner />
       </GateProvider>
     )
-    screen.getByRole("button").click()
-    await Bun.sleep(5)
+    await act(async () => {
+      screen.getByRole("button").click()
+      await prefetching
+    })
     expect(seen).toEqual(["provider", "provider", "provider"])
     expect(decideMany).toHaveBeenCalledTimes(2)
   })
