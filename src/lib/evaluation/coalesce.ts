@@ -9,7 +9,11 @@ type PendingDecision = {
   resolve: (decision: Decision) => void
 }
 
-const pendingByConfig = new WeakMap<object, Map<string, PendingDecision>>()
+export type CoalescingState = Map<string, PendingDecision>
+
+export function createCoalescingState(): CoalescingState {
+  return new Map()
+}
 
 function getCoalescingOptions<TIdentity extends Identity>(
   config: Pick<AnyGatedConfig<TIdentity>, "coalesce">
@@ -26,6 +30,7 @@ function getCoalescingOptions<TIdentity extends Identity>(
 
 export async function coalesceProviderDecision<TIdentity extends Identity>(
   config: AnyGatedConfig<TIdentity>,
+  pending: CoalescingState,
   context: HookContext<TIdentity>,
   onPrepared: (providerRequired: boolean) => void,
   provider: () => Decision | Promise<Decision>,
@@ -43,11 +48,6 @@ export async function coalesceProviderDecision<TIdentity extends Identity>(
     return await provider()
   }
 
-  let pending = pendingByConfig.get(config)
-  if (!pending) {
-    pending = new Map()
-    pendingByConfig.set(config, pending)
-  }
   const existing = pending.get(key)
   if (existing) {
     onPrepared(false)

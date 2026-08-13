@@ -12,6 +12,7 @@ import { consultCache, writeCacheDecision } from "./cache"
 import { coalesceProviderDecision } from "./coalesce"
 import { extractDecisionValue, validateDecision } from "./decision"
 import { evaluateConfiguredDecision, identify } from "./identity"
+import { createEvaluationRuntime, type EvaluationRuntime } from "./runtime"
 import {
   type AnyGatedConfig,
   type GateConfiguration,
@@ -102,7 +103,8 @@ export async function executeGateDetails<
   config: AnyGatedConfig<TIdentity>,
   options: GateOptions<T>,
   callOptions?: GateCallOptions<TIdentity | null>,
-  execution?: ExecutionOverrides<TIdentity>
+  execution?: ExecutionOverrides<TIdentity>,
+  runtime: EvaluationRuntime = createEvaluationRuntime()
 ): Promise<EvaluationDetails<boolean | T[number], TPayload>> {
   const hooks = [...(config.hooks ?? [])]
   const gateConfiguration = getGateConfiguration(options.variants)
@@ -147,7 +149,7 @@ export async function executeGateDetails<
     await raceWithSignal(() => runBeforeHooks(hooks, hookContext, config.onHookError), signal)
 
     const cacheConsultation = await raceWithSignal(
-      () => consultCache(config, hookContext, options),
+      () => consultCache(config, runtime.cache, hookContext, options),
       signal
     )
     let decision: Decision
@@ -160,6 +162,7 @@ export async function executeGateDetails<
         () =>
           coalesceProviderDecision(
             config,
+            runtime.coalescing,
             hookContext,
             (required) => {
               preparation.providerRequired = required
@@ -180,7 +183,7 @@ export async function executeGateDetails<
 
     result = extractDecisionValue(decision)
     if (preparation.providerRequired && cacheConsultation) {
-      writeCacheDecision(config, hookContext, cacheConsultation, decision)
+      writeCacheDecision(config, runtime.cache, hookContext, cacheConsultation, decision)
     }
     postCommitHooks = runAfterHooks(
       hooks,
@@ -242,8 +245,9 @@ export async function executeGateDetails<
 export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
   config: AnyGatedConfig<TIdentity>,
   options: GateOptions<T>,
-  callOptions?: GateCallOptions<TIdentity | null>
+  callOptions?: GateCallOptions<TIdentity | null>,
+  runtime?: EvaluationRuntime
 ): Promise<boolean | T[number]> {
-  const details = await executeGateDetails(config, options, callOptions)
+  const details = await executeGateDetails(config, options, callOptions, undefined, runtime)
   return details.value
 }

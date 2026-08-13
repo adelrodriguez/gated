@@ -4,6 +4,7 @@ import { DuplicateBatchKeyError } from "../errors"
 import { normalizeError } from "../utils"
 import { executeGateDetails, type IdentityResult } from "./engine"
 import { evaluateConfiguredDecision, evaluateConfiguredMany, identify } from "./identity"
+import { createEvaluationRuntime, type EvaluationRuntime } from "./runtime"
 import { createEvaluationSignal, raceWithSignal } from "./signals"
 
 export type BatchEntry = {
@@ -26,7 +27,8 @@ function createDecisionRequest(): DecisionRequest {
 export async function executeGateBatch<TIdentity extends Identity>(
   config: AnyGatedConfig<TIdentity>,
   entries: readonly BatchEntry[],
-  callOptions?: GateCallOptions<TIdentity | null>
+  callOptions?: GateCallOptions<TIdentity | null>,
+  runtime: EvaluationRuntime = createEvaluationRuntime()
 ): Promise<Map<object, EvaluationDetails<boolean | string>>> {
   if (entries.length === 0) {
     return new Map()
@@ -148,7 +150,8 @@ export async function executeGateBatch<TIdentity extends Identity>(
             }
           },
           provider: () => request.promise,
-        }
+        },
+        runtime
       ).finally(() => {
         entrySignal?.cleanup()
       }),
