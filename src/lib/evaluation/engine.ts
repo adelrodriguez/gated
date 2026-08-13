@@ -158,21 +158,17 @@ export async function executeGateDetails<
       decision = cacheConsultation.decision
       evaluation.source = "cache"
     } else {
-      decision = await raceWithSignal(
+      decision = await coalesceProviderDecision(
+        config,
+        runtime.coalescing,
+        hookContext,
+        (required) => {
+          preparation.providerRequired = required
+          reportPreparation(required)
+        },
         () =>
-          coalesceProviderDecision(
-            config,
-            runtime.coalescing,
-            hookContext,
-            (required) => {
-              preparation.providerRequired = required
-              reportPreparation(required)
-            },
-            () =>
-              execution?.provider() ??
-              evaluateConfiguredDecision(config, evaluation.key, identity, signal),
-            signal
-          ),
+          execution?.provider() ??
+          evaluateConfiguredDecision(config, evaluation.key, identity, signal),
         signal
       )
       evaluation.source = "provider"

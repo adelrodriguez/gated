@@ -39,13 +39,13 @@ export async function coalesceProviderDecision<TIdentity extends Identity>(
   const options = getCoalescingOptions(config)
   if (!options) {
     onPrepared(true)
-    return await provider()
+    return await raceWithSignal(provider, signal)
   }
 
   const key = getEvaluationKey(context, options.key)
   if (key === undefined) {
     onPrepared(true)
-    return await provider()
+    return await raceWithSignal(provider, signal)
   }
 
   const existing = pending.get(key)
