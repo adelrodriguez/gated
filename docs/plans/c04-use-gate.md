@@ -129,6 +129,13 @@ Extend `src/integrations/__tests__/react.test.tsx`:
 - Rejection: failed evaluation is observed by the retry render, then evicted
   (existing `evictOnRejection` semantics); strict-mode identity errors reach an
   Error Boundary.
+- Proving c03's invalidation end to end (these live here because c03 has no
+  entry writers): `cache.invalidate(flag)` evicts and re-renders a subscribed
+  component, which re-evaluates (fresh provider call observed); invalidation
+  from outside a component (direct method call on the cache reference)
+  re-renders subscribers; `clear()` re-renders all subscribers; filling one
+  gate's bucket past `maxEntries` through identity churn does not evict
+  another gate's entries.
 - Entrypoint pins: `useGate` joins `src/__tests__/entrypoints.test.ts`;
   `GateValueOf`, `GateIdentityOf`, and `GateDetailsOf` get type-level
   assertions in `entrypoints.types.ts`.

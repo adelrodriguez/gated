@@ -1,6 +1,6 @@
 # c08 — Preload seam (`cache.prefetch`)
 
-Delivers: source-document decision 14. Depends on: c03, c04. Additive.
+Delivers: source-document decision 14. Depends on: c03, c04, c05. Additive.
 
 ## Goal
 

@@ -18,7 +18,7 @@ dependency notes say otherwise.
 | c05 | `useGateBatch`                                    | D1                 | c02, c04   | No (additive)                          |
 | c06 | `FeatureGate` takes evaluators                    | D8                 | c04        | Yes (`gate` prop type changes)         |
 | c07 | Remove `createReactGate` and `GateCacheProvider`  | D2 closure         | c01–c06    | Yes (removal)                          |
-| c08 | Preload seam (`cache.prefetch`)                   | decision 14        | c03, c04   | No (additive)                          |
+| c08 | Preload seam (`cache.prefetch`)                   | decision 14        | c03–c05    | No (additive)                          |
 
 Notes:
 
@@ -35,6 +35,6 @@ Notes:
   final surface has no definition step and no per-hook cache option, so nothing
   references them after c04–c06 land. Pre-1.0 breaking changes remain
   acceptable; the c07 changeset carries the full migration table.
-- c08 is additive polish and can land any time after c04.
+- c08 is additive polish and can land any time after c05.
 - Ship c02 through c07 as one minor release: the React entrypoint is effectively
   new, and consumers should migrate once, not four times.

@@ -103,21 +103,27 @@ export function GateProvider(props: {
 
 ## Tests
 
+This slice has no hook that writes cache entries — `useGate` lands in c04 — so
+its tests cover only what the slice can prove: provider identity and the cache
+object's direct behavior. Every test that needs a subscribed component
+(evict → re-render → re-evaluate, outside-React invalidation re-rendering,
+`clear()` re-rendering, bucket eviction under identity churn) lives in c04's
+test list, marked there as proving c03's methods end to end.
+
 Extend `src/integrations/__tests__/react.test.tsx`:
 
-- Bare provider isolates: two sibling providers do not share entries; two
-  renders of the same tree with fresh providers do not share entries.
-- `cache` prop wins over auto-creation.
-- Placement rule: a provider mounted inside the Suspense boundary its consumers
-  suspend in — pin the retry behavior the documented rule warns about.
-- `cache.invalidate(flag)` evicts and re-renders a subscribed component, which
-  re-evaluates (fresh provider call observed); `invalidate(flag, identityA)`
-  does not evict `identityB`'s entry.
-- Bucket isolation: filling one gate's bucket past `maxEntries` does not evict
-  another gate's entries.
-- Invalidation from outside a component (direct method call on the cache
-  reference) re-renders subscribers.
-- `clear()` re-renders all subscribers of that cache.
+- Bare provider isolates: two sibling providers expose different cache objects
+  through `useGateCache()`; two renders of the same tree with fresh providers
+  do not share a cache.
+- `cache` prop wins over auto-creation, and `useGateCache()` returns it.
+- Placement rule: a provider mounted inside a Suspense boundary that a
+  synthetic suspending child triggers — pin that the `useState` initializer
+  re-runs per retry (the behavior the documented rule warns about). No gate
+  hook needed.
+- Direct store behavior, no React: seed buckets through the store contract,
+  then `invalidate(flag, identityA)` removes exactly that entry and not
+  `identityB`'s; `invalidateKey` and `clear()` empty their targets; per-bucket
+  `maxEntries` bounds do not evict across buckets.
 - Entrypoint pins: `GateProvider`, `useGateCache`, and `createGateCache` join
   the runtime surface in `src/__tests__/entrypoints.test.ts`; the
   `ReactGateCache` shape gets a type-level assertion in

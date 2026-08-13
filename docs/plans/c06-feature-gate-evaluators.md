@@ -28,7 +28,7 @@ evaluator's variant tuple.
 
 ## Design
 
-- `GateSlot` swaps `gate(identity)` for `useGate(gate, identity)` (c04). The dev
+- `GateSlot` swaps `gate(identity)` for `useGate(gate, { identity })` (c04). The dev
   warning for a missing `match` on variant gates, the `match ?? true`
   comparison, and the `loading`-wraps-Suspense structure carry over unchanged
   (`react.tsx:281-321`).

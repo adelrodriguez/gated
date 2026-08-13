@@ -37,11 +37,15 @@ export function useGateBatch<const TFlags extends readonly AnyGateEvaluator[]>(
   or to none — the same failure `gate.batch` raises today
   (`src/factory.ts:228`), now raised client-side before the call.
 - An empty `flags` array resolves to an empty batch tuple without factory-ref
-  resolution, provider work, or suspension — parity with the server, where
+  resolution, a batch call, or suspension — parity with the server, where
   `executeGateBatch` returns an empty `Map` before identity resolution
   (`src/lib/evaluation/batch.ts:31-33`), so `gate.batch([])` resolves. Do not
   route `[]` through the foreign-evaluator rule: `flags[0]` being `undefined`
-  is not a foreign evaluator.
+  is not a foreign evaluator. The empty case still runs the same hooks as the
+  populated case (`useSyncExternalStore` and the rest of the render path,
+  `react.tsx:222`) so the hook count stays stable when a `flags` prop changes
+  between `[]` and populated; only the batch call and the suspension are
+  skipped.
 - Cache one promise per invocation shape, in a batch bucket of the active cache
   (c03's bucketed structure). Entry key: the ordered flag keys plus the
   serialized resolved identity. Array identity of the `flags` literal is
@@ -87,8 +91,9 @@ Extend `src/integrations/__tests__/react.test.tsx`:
   a distinct entry.
 - Mixed-factory arrays throw `ForeignGateEvaluatorError`; duplicate flags throw
   `DuplicateBatchKeyError`.
-- `useGateBatch([])` renders without suspension or provider work and
-  destructures to nothing.
+- `useGateBatch([])` renders without suspension or a batch call and
+  destructures to nothing; a component whose `flags` prop changes from `[]` to
+  a populated array re-renders without hook-order errors.
 - Identity precedence (option > provider `identity` > identify sentinel) and
   per-identity entries (mirror c04).
 - A `subscribe` emission for one member key re-evaluates the batch; an unrelated
@@ -107,6 +112,6 @@ Extend `src/integrations/__tests__/react.test.tsx`:
 
 ## Release
 
-- Changeset: minor. "Add `useGateBatch([flags], identity?)`: one `decideMany`
+- Changeset: minor. "Add `useGateBatch(flags, options?)`: one `decideMany`
   round trip and one suspension for N gates. Wrap the consumer in one Suspense
   boundary to reveal all gated UI together."
