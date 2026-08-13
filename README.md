@@ -357,6 +357,25 @@ const gate = buildGate({
 The cache store controls serialization and expiry. Cache errors do not fail evaluation.
 Gated discards an invalid cached decision and continues to the provider.
 
+### Invalidate on provider changes
+
+Supply `subscribe` when the provider can push flag changes. Gated calls it with a notify
+function and expects a detach function:
+
+```typescript
+const gate = buildGate({
+  cache,
+  identify,
+  decide,
+  subscribe: (notify) => provider.on("change", (keys) => notify({ keys })),
+})
+```
+
+Call `notify({ keys })` to invalidate the named flags, or `notify({})` to invalidate every
+flag. Gated drops the cached decisions and the in-flight provider calls for those flags. A
+`subscribe` function that throws is reported through `onCacheError` and does not fail the
+evaluation.
+
 ### Share concurrent provider work
 
 Gated coalesces concurrent evaluations for the same evaluation key by default. These
@@ -453,8 +472,8 @@ Boolean gates match `true` by default. Variant gates require a `match` prop.
 ### Control the React gate cache
 
 React evaluations use a bounded promise cache. The default cache keeps at most 100 settled
-entries for each evaluator, batch tuple, or custom function. The limit applies to identities
-in each bucket, not to the full cache.
+entries for each evaluator and each batch tuple. All custom functions share one budget. The
+limit applies to identities in each bucket, not to the full cache.
 
 Pending evaluations stay in the cache by default. Set `pendingTtlMs` to let the cache remove
 old pending evaluations. Cache removal does not cancel the evaluation.
@@ -476,7 +495,8 @@ cache.clear()
 ```
 
 Provider change notifications invalidate matching entries automatically when the gate
-factory has a `subscribe` function.
+factory has a [`subscribe` function](#invalidate-on-provider-changes). Components that read
+the changed flags re-evaluate.
 
 Pass the cache and an identity to `GateProvider`:
 
