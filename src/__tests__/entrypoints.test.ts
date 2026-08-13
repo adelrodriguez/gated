@@ -12,8 +12,13 @@ describe("public entry points", () => {
     expect(await factory({ defaultValue: false, key: "beta" })()).toBe(true)
   })
 
-  it("exposes hook helpers", () => {
+  it("exposes hook helpers without the core factory", () => {
     expect(hooks.defineHook({})).toBeObject()
+    expect("buildGate" in hooks).toBe(false)
+  })
+
+  it("no longer exposes the removed React factory from the core entry point", () => {
+    expect("createReactGate" in gated).toBe(false)
   })
 
   it("exposes the final React surface", () => {

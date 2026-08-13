@@ -470,20 +470,33 @@ function App() {
 }
 ```
 
-Evaluations are cached by gate and identity for five minutes after they settle, with a maximum of 100 settled entries. Pending evaluations stay pinned by default, so the cache can temporarily exceed that bound without causing repeated Suspense retries. Set `pendingTtlMs` to make older pending entries evictable, or configure a core gate `timeoutMs` so evaluations cannot remain pending indefinitely. Eviction only removes the cache reference; it does not cancel the in-flight promise. The default pending behavior is unchanged. Identity cache-key inputs are validated at render. They can contain only strings, numbers, booleans, `null`, `undefined`, arrays, and string-keyed plain records composed recursively from those values. Non-plain objects such as `Date` and `Map`, symbols, functions, bigints, and circular references throw a `TypeError` that names the invalid path. Change `identify` to stringify or project unsupported identity values. Configure the bounds and explicitly invalidate cached decisions when application state changes:
+Evaluations are cached by gate and identity for five minutes after they settle, with a maximum of 100 settled entries per gate. Each evaluator, each batch tuple, and the function form of `useGate` hold their own bucket, so `maxEntries` bounds identities within a bucket rather than the cache as a whole. Pending evaluations stay pinned by default, so the cache can temporarily exceed that bound without causing repeated Suspense retries. Set `pendingTtlMs` to make older pending entries evictable, or configure a core gate `timeoutMs` so evaluations cannot remain pending indefinitely. Eviction only removes the cache reference; it does not cancel the in-flight promise. The default pending behavior is unchanged. Identity cache-key inputs are validated at render. They can contain only strings, numbers, booleans, `null`, `undefined`, arrays, and string-keyed plain records composed recursively from those values. Non-plain objects such as `Date` and `Map`, symbols, functions, bigints, and circular references throw a `TypeError` that names the invalid path. Change `identify` to stringify or project unsupported identity values. Configure the bounds and explicitly invalidate cached decisions when application state changes:
 
-```typescript
+```tsx
 const cache = createGateCache({ maxEntries: 250, pendingTtlMs: 30_000, ttlMs: 60_000 })
-cache.invalidate(betaFlag, { distinctId: user.id })
-cache.invalidate(betaFlag)
-cache.clear()
+
+function App() {
+  return (
+    <GateProvider cache={cache} identity={{ distinctId: user.id }}>
+      <Routes />
+    </GateProvider>
+  )
+}
 ```
 
 Invalidation and clearing evict entries and re-render subscribed components. Provider change notifications are connected automatically. A matching notification re-evaluates the gate; notifications for other flag keys do not render the component.
 
-```typescript
-const beta = useGate(betaFlag, { identity, ttlMs: 60_000 })
+```tsx
+function RefreshButton() {
+  const cache = useGateCache()
+  // Defaults to the provider identity, so this evicts the entry the tree is reading.
+  return <button onClick={() => cache.invalidate(betaFlag)}>Refresh</button>
+}
 ```
+
+A cache read through `useGateCache()` applies the provider identity to `invalidate`, `invalidateBatch`, `prefetch`, and `prefetchBatch` when the call omits one. A cache used directly, outside React, has no provider to read, so it always requires an explicit identity: `cache.invalidate(betaFlag, { distinctId: user.id })`.
+
+Every `gated/react` export is client-only; the module carries a `"use client"` directive. Achieve per-request isolation on the server by mounting `GateProvider` inside the client boundary rather than by constructing a cache in a Server Component.
 
 For server rendering, mount `GateProvider` above the Suspense boundaries that contain its consumers. A bare provider creates an isolated cache per mount. Client-only applications do not need a provider.
 
@@ -667,7 +680,7 @@ Evaluates one tuple of gates with one suspension and one provider `decideMany` c
 
 #### `createGateCache(options?)` and `useGateCache()`
 
-Creates or reads the bounded active cache. It provides `invalidate`, `invalidateBatch`, `invalidateKey`, `clear`, `prefetch`, and `prefetchBatch`. Prefetch uses the same entries as the hooks, so route loaders and hover handlers can start work before render. Prefetch has no provider-identity fallback because it runs outside React.
+Creates or reads the bounded active cache. It provides `invalidate`, `invalidateBatch`, `invalidateKey`, `clear`, `prefetch`, and `prefetchBatch`. Prefetch uses the same entries as the hooks, so client-side navigation handlers and hover handlers can start work before render. A cache reached through `useGateCache()` falls back to the provider identity; a directly constructed cache has no provider to read and always needs an explicit identity. Both exports are client-only.
 
 #### `<GateProvider>`
 

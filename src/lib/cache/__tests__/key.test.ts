@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { normalizeKey, serializeKey } from "../key"
+import { serializeKey } from "../key"
 
 describe("serializeKey", () => {
   test.each([
@@ -101,33 +101,5 @@ describe("serializeKey", () => {
     expect(() => serializeKey(value, "cacheKey")).toThrow(
       "Unsupported gate cache key at cacheKey.self: circular reference is not supported."
     )
-  })
-})
-
-describe("normalizeKey", () => {
-  test.each([
-    [[], []],
-    [[undefined], []],
-    [["user", undefined, undefined], ["user"]],
-    [
-      ["user", undefined, "scope"],
-      ["user", undefined, "scope"],
-    ],
-    [
-      [null, false, 0, ""],
-      [null, false, 0, ""],
-    ],
-  ])("normalizes %p to %p", (args, expected) => {
-    expect(normalizeKey(args)).toEqual(expected)
-  })
-
-  test("does not mutate the input array", () => {
-    const args = ["user", undefined]
-
-    const normalized = normalizeKey(args)
-
-    expect(args).toEqual(["user", undefined])
-    expect(normalized).toEqual(["user"])
-    expect(normalized).not.toBe(args)
   })
 })

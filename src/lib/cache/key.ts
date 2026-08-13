@@ -91,11 +91,3 @@ export function serializeKey(value: unknown, rootPath: "cacheKey" | "identity"):
 
   return encode(value, rootPath)
 }
-
-export function normalizeKey(args: unknown[]): unknown[] {
-  const normalized = [...args]
-  while (normalized.length > 0 && normalized.at(-1) === undefined) {
-    normalized.pop()
-  }
-  return normalized
-}

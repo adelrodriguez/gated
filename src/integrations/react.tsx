@@ -342,8 +342,8 @@ export function GateProvider({
   identity?: Identity
   children: ReactNode
 }): ReactNode {
-  const [mountedCache, setMountedCache] = useState(createGateCache)
-  void setMountedCache
+  // oxlint-disable-next-line react/hook-use-state -- The mounted cache is never replaced, and useState is the only hook that guarantees a stable identity across renders.
+  const [mountedCache] = useState(createGateCache)
   const value = useMemo(
     () => ({ cache: suppliedCache ?? mountedCache, identity }),
     [identity, mountedCache, suppliedCache]
@@ -371,8 +371,41 @@ function useGateContext(): GateContextValue {
   return context
 }
 
+function bindCacheIdentity(cache: ReactGateCache, identity: Identity): ReactGateCache {
+  return {
+    clear() {
+      cache.clear()
+    },
+    invalidate(flag, flagIdentity = identity as never) {
+      cache.invalidate(flag, flagIdentity)
+    },
+    invalidateBatch(flags, batchIdentity = identity as never) {
+      cache.invalidateBatch(flags, batchIdentity)
+    },
+    invalidateKey(key) {
+      cache.invalidateKey(key)
+    },
+    prefetch(flag, options) {
+      return cache.prefetch(flag, {
+        ...options,
+        identity: options?.identity ?? (identity as never),
+      })
+    },
+    prefetchBatch(flags, options) {
+      return cache.prefetchBatch(flags, {
+        ...options,
+        identity: options?.identity ?? (identity as never),
+      })
+    },
+  }
+}
+
 export function useGateCache(): ReactGateCache {
-  return useGateContext().cache
+  const { cache, identity } = useGateContext()
+  return useMemo(
+    () => (identity === undefined ? cache : bindCacheIdentity(cache, identity)),
+    [cache, identity]
+  )
 }
 
 function getVersionStore(
@@ -400,6 +433,8 @@ function getVersionStore(
         if (listeners.size === 0) {
           detach?.()
           detach = undefined
+          // Do not evict a newer store that reused this key after the last unsubscribe.
+          if (bucket.stores.get(key) === store) bucket.stores.delete(key)
         }
       }
     },

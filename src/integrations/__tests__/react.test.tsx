@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, mock } from "bun:test"
+import { afterEach, describe, expect, it, mock, spyOn } from "bun:test"
 import { act, cleanup, render, screen } from "@testing-library/react"
-import { type ReactNode, Suspense } from "react"
+import { Component, type ReactNode, Suspense } from "react"
 import { buildGate, decision } from "../../index"
 import {
   createGateCache,
@@ -199,12 +199,319 @@ describe("React integration", () => {
     expect(await screen.findByText("dark UI")).toBeTruthy()
   })
 
+  it("invalidates through the hook cache using the provider identity", async () => {
+    const { decide, factory } = makeFactory()
+    const flag = factory({ defaultValue: false, key: "beta" })
+    function Consumer() {
+      const cache = useGateCache()
+      const value = useGate(flag)
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            cache.invalidate(flag)
+          }}
+        >
+          {String(value)}
+        </button>
+      )
+    }
+    await renderAsync(
+      <GateProvider identity={{ distinctId: "provider" }}>
+        <Suspense fallback="loading">
+          <Consumer />
+        </Suspense>
+      </GateProvider>
+    )
+    expect(decide).toHaveBeenCalledTimes(1)
+    await act(() => {
+      screen.getByRole("button").click()
+      return Promise.resolve()
+    })
+    expect(await screen.findByText("true")).toBeTruthy()
+    expect(decide).toHaveBeenCalledTimes(2)
+  })
+
+  it("applies the provider identity to hook cache prefetching", async () => {
+    const seen: string[] = []
+    const decideMany = mock((keys: readonly string[], identity: { distinctId: string }) => {
+      seen.push(identity.distinctId)
+      return Object.fromEntries(keys.map((key) => [key, decision.boolean(true)]))
+    })
+    const factory = buildGate({
+      decide: (_key, identity) => {
+        seen.push(identity.distinctId)
+        return decision.boolean(true)
+      },
+      decideMany,
+      identify: () => ({ distinctId: "core" }),
+    })
+    const beta = factory({ defaultValue: false, key: "beta" })
+    function Runner() {
+      const cache = useGateCache()
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            void (async () => {
+              await cache.prefetch(beta)
+              await cache.prefetchBatch([beta])
+              cache.invalidateBatch([beta])
+              await cache.prefetchBatch([beta])
+            })()
+          }}
+        >
+          run
+        </button>
+      )
+    }
+    render(
+      <GateProvider identity={{ distinctId: "provider" }}>
+        <Runner />
+      </GateProvider>
+    )
+    screen.getByRole("button").click()
+    await Bun.sleep(5)
+    expect(seen).toEqual(["provider", "provider", "provider"])
+    expect(decideMany).toHaveBeenCalledTimes(2)
+  })
+
+  it("invalidates a batch and clears the whole cache", async () => {
+    const { decideMany, factory } = makeFactory()
+    const beta = factory({ defaultValue: false, key: "beta" })
+    const theme = factory({ defaultValue: "light", key: "theme", variants: ["light", "dark"] })
+    const cache = createGateCache()
+    function Consumer() {
+      const [betaValue, themeValue] = useGateBatch([beta, theme])
+      return <span>{`${betaValue}:${themeValue}`}</span>
+    }
+    await renderAsync(
+      <GateProvider cache={cache}>
+        <Suspense fallback="loading">
+          <Consumer />
+        </Suspense>
+      </GateProvider>
+    )
+    expect(await screen.findByText("true:dark")).toBeTruthy()
+    expect(decideMany).toHaveBeenCalledTimes(1)
+    await act(() => {
+      cache.invalidateBatch([beta, theme])
+      return Promise.resolve()
+    })
+    expect(await screen.findByText("true:dark")).toBeTruthy()
+    expect(decideMany).toHaveBeenCalledTimes(2)
+    await act(() => {
+      cache.clear()
+      return Promise.resolve()
+    })
+    expect(await screen.findByText("true:dark")).toBeTruthy()
+    expect(decideMany).toHaveBeenCalledTimes(3)
+  })
+
+  it("re-evaluates only for change notifications naming a subscribed key", async () => {
+    let emit: ((keys: readonly string[]) => void) | undefined
+    const decide = mock(() => decision.boolean(true))
+    const factory = buildGate({
+      decide,
+      identify: () => ({ distinctId: "core" }),
+      subscribe: (listener) => {
+        emit = (keys) => {
+          listener({ keys })
+        }
+        return () => null
+      },
+    })
+    const flag = factory({ defaultValue: false, key: "beta" })
+    function Consumer() {
+      return <span>{String(useGate(flag))}</span>
+    }
+    await renderAsync(
+      <GateProvider>
+        <Suspense fallback="loading">
+          <Consumer />
+        </Suspense>
+      </GateProvider>
+    )
+    expect(decide).toHaveBeenCalledTimes(1)
+    await act(() => {
+      emit?.(["other"])
+      return Promise.resolve()
+    })
+    expect(decide).toHaveBeenCalledTimes(1)
+    await act(() => {
+      emit?.(["beta"])
+      return Promise.resolve()
+    })
+    expect(await screen.findByText("true")).toBeTruthy()
+    expect(decide).toHaveBeenCalledTimes(2)
+  })
+
+  it("releases the version store when the last subscriber unmounts", async () => {
+    const flag = makeFactory().factory({ defaultValue: false, key: "beta" })
+    const cache = createGateCache()
+    function Consumer() {
+      return <span>{String(useGate(flag))}</span>
+    }
+    await renderAsync(
+      <GateProvider cache={cache}>
+        <Suspense fallback="loading">
+          <Consumer />
+        </Suspense>
+      </GateProvider>
+    )
+    const stores = [
+      ...(cache as unknown as { allBuckets: Set<{ stores: Map<string, unknown> }> }).allBuckets,
+    ]
+    expect(stores.some((bucket) => bucket.stores.size > 0)).toBe(true)
+    cleanup()
+    expect(stores.every((bucket) => bucket.stores.size === 0)).toBe(true)
+  })
+
+  it("evicts a rejected evaluation so a later read retries", async () => {
+    const errors: unknown[] = []
+    // oxlint-disable-next-line no-console -- Captures the development warning under test.
+    const original = console.error
+    // oxlint-disable-next-line no-console -- The warning under test is emitted through console.error.
+    console.error = (...args: unknown[]) => errors.push(args[0])
+    const call = mock(() => Promise.reject(new Error("boom")))
+    const cache = createGateCache()
+    function Consumer() {
+      return <span>{useGate(call, { key: "retry" })}</span>
+    }
+    try {
+      await renderAsync(
+        <GateProvider cache={cache}>
+          <ErrorBoundary>
+            <Suspense fallback="loading">
+              <Consumer />
+            </Suspense>
+          </ErrorBoundary>
+        </GateProvider>
+      )
+      expect(await screen.findByText("failed")).toBeTruthy()
+    } finally {
+      // oxlint-disable-next-line no-console -- Restores the stub installed above.
+      console.error = original
+    }
+    // The rejected entry is evicted on the next task, not synchronously.
+    await Bun.sleep(1)
+    cleanup()
+    const call2 = mock(() => Promise.resolve(9))
+    function Retry() {
+      return <span>{useGate(call2, { key: "retry" })}</span>
+    }
+    await renderAsync(
+      <GateProvider cache={cache}>
+        <Suspense fallback="loading">
+          <Retry />
+        </Suspense>
+      </GateProvider>
+    )
+    expect(await screen.findByText("9")).toBeTruthy()
+  })
+
+  it("rejects invalid cache options", () => {
+    expect(() => createGateCache({ maxEntries: 0 })).toThrow(RangeError)
+    expect(() => createGateCache({ maxEntries: 1.5 })).toThrow(RangeError)
+    expect(() => createGateCache({ pendingTtlMs: 0 })).toThrow(RangeError)
+    expect(() => createGateCache({ ttlMs: Number.POSITIVE_INFINITY })).toThrow(RangeError)
+  })
+
+  it("requires a key for the function form", () => {
+    expect(() => render(<KeylessConsumer />)).toThrow("useGate(fn, options) requires a key option")
+  })
+
+  it("falls back when a variant gate has no match prop", async () => {
+    const errors: unknown[] = []
+    // oxlint-disable-next-line no-console -- Captures the development warning under test.
+    const original = console.error
+    // oxlint-disable-next-line no-console -- The warning under test is emitted through console.error.
+    console.error = (...args: unknown[]) => errors.push(args[0])
+    const flag = makeFactory().factory({
+      defaultValue: "light",
+      key: "theme",
+      variants: ["light", "dark"],
+    })
+    try {
+      await renderAsync(
+        // @ts-expect-error -- omitting match is the misuse under test.
+        <FeatureGate gate={flag} loading="loading" fallback="off">
+          dark UI
+        </FeatureGate>
+      )
+      expect(await screen.findByText("off")).toBeTruthy()
+    } finally {
+      // oxlint-disable-next-line no-console -- Restores the stub installed above.
+      console.error = original
+    }
+    expect(errors.some((error) => String(error).includes("requires a match prop"))).toBe(true)
+  })
+
   it("cleans up between tests", () => {
     cleanup()
     expect(document.body.textContent).toBe("")
   })
 })
 
+class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false }
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
+  }
+  override render(): ReactNode {
+    return this.state.failed ? "failed" : this.props.children
+  }
+}
+
+function KeylessConsumer() {
+  // @ts-expect-error -- the key option is required for the function form.
+  useGate(() => Promise.resolve(1))
+  return null
+}
+
 function EmptyBatchConsumer() {
   return <span>{useGateBatch([]).length}</span>
 }
+
+function settledFactory() {
+  const decide = mock(() => decision.boolean(true))
+  const factory = buildGate({ decide, identify: () => ({ distinctId: "core" }) })
+  return { decide, flag: factory({ defaultValue: false, key: "beta" }) }
+}
+
+describe("gate cache bounds", () => {
+  it("evicts the least recently used settled evaluation", async () => {
+    const { decide, flag } = settledFactory()
+    const cache = createGateCache({ maxEntries: 2 })
+
+    await cache.prefetch(flag, { identity: { distinctId: "first" } })
+    await cache.prefetch(flag, { identity: { distinctId: "second" } })
+    await Bun.sleep(1)
+    await cache.prefetch(flag, { identity: { distinctId: "first" } })
+    await cache.prefetch(flag, { identity: { distinctId: "third" } })
+    await Bun.sleep(1)
+    expect(decide).toHaveBeenCalledTimes(3)
+
+    await cache.prefetch(flag, { identity: { distinctId: "second" } })
+    expect(decide).toHaveBeenCalledTimes(4)
+    await cache.prefetch(flag, { identity: { distinctId: "third" } })
+    expect(decide).toHaveBeenCalledTimes(4)
+  })
+
+  it("expires settled evaluations after ttlMs", async () => {
+    let now = 0
+    const dateNow = spyOn(Date, "now").mockImplementation(() => now)
+    const { decide, flag } = settledFactory()
+    const cache = createGateCache({ ttlMs: 100 })
+
+    await cache.prefetch(flag)
+    now = 50
+    await cache.prefetch(flag)
+    expect(decide).toHaveBeenCalledTimes(1)
+
+    now = 201
+    await cache.prefetch(flag)
+    expect(decide).toHaveBeenCalledTimes(2)
+    dateNow.mockRestore()
+  })
+})
