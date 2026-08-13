@@ -26,20 +26,23 @@ type PendingResolution = {
  * when built from the same config object.
  */
 export type ResolutionState = {
-  generations: { all: number; byFlag: Map<string, number> }
   keysByFlag: Map<string, Map<string, Identity | null>>
   pending: Map<string, PendingResolution>
   // The invalidation subscription lives for the factory's lifetime, so the provider's detach
   // function is intentionally not retained.
   subscription: { attached: boolean; attaching: boolean }
+  // One factory-wide counter: any flag-change notification invalidates every open write ticket.
+  // A pending write lives for milliseconds and the next evaluation re-establishes it, so dropping
+  // one is always safe — cheaper than tracking which flags a notification covers.
+  writes: { generation: number }
 }
 
 export function createResolutionState(): ResolutionState {
   return {
-    generations: { all: 0, byFlag: new Map() },
     keysByFlag: new Map(),
     pending: new Map(),
     subscription: { attached: false, attaching: false },
+    writes: { generation: 0 },
   }
 }
 
@@ -79,11 +82,6 @@ function deleteCacheEntry<TIdentity extends Identity>(
       reportCacheError(config, context, "delete", key, error)
       return null
     })
-}
-
-function generationOf(state: ResolutionState, flagKey: string): number {
-  const { generations } = state
-  return generations.all + (generations.byFlag.get(flagKey) ?? 0)
 }
 
 function indexCacheKey<TIdentity extends Identity>(
@@ -137,14 +135,8 @@ function attachInvalidationSubscription<TIdentity extends Identity>(
       }
       // Invalidate open write tickets independently of the key index, which only fills when the
       // store can delete: a decision fetched before the change must never be written after it.
-      const { generations } = state
-      if (changedFlagKeys) {
-        for (const flagKey of changedFlagKeys) {
-          generations.byFlag.set(flagKey, (generations.byFlag.get(flagKey) ?? 0) + 1)
-        }
-      } else {
-        generations.all += 1
-      }
+      const { writes } = state
+      writes.generation += 1
       const store = config.cache
       const flagKeys = changedFlagKeys ?? [...state.keysByFlag.keys()]
       for (const flagKey of flagKeys) {
@@ -187,16 +179,16 @@ async function consultStore<TIdentity extends Identity, T extends string[]>(
   store: DecisionCache,
   key: string
 ): Promise<StoreConsultation> {
-  const generationBeforeRead = generationOf(state, context.flagKey)
+  const generationBeforeRead = state.writes.generation
 
   let cached: Decision | null | undefined
   try {
     cached = await store.get(key)
   } catch (error) {
     reportCacheError(config, context, "get", key, error)
-    return { generation: generationOf(state, context.flagKey) }
+    return { generation: state.writes.generation }
   }
-  const generation = generationOf(state, context.flagKey)
+  const generation = state.writes.generation
   if (generation !== generationBeforeRead || cached === null || cached === undefined) {
     return { generation }
   }
@@ -222,7 +214,7 @@ function writeThrough<TIdentity extends Identity>(
 ): void {
   void Promise.resolve()
     .then(() => {
-      if (generationOf(state, context.flagKey) !== generation) {
+      if (state.writes.generation !== generation) {
         return
       }
       return store.set(key, decision)

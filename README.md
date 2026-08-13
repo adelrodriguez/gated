@@ -430,7 +430,7 @@ When both `cache.delete` and `subscribe` exist, the engine indexes evaluated cac
 
 A notification also drops in-flight coalesced provider work for the changed flags whenever `subscribe` is set, with or without a cache. Evaluations already awaiting the shared call keep its decision; evaluations that start after the notification lead a fresh provider call.
 
-A notification also invalidates pending cache writes for the changed flags, so a decision fetched before the change is never written to the store after it — even when the store cannot delete. The invalidation subscription attaches on the first evaluation that touches cache or coalescing and stays attached for the factory's lifetime. A `subscribe` function that throws never fails an evaluation: the error is reported through `onCacheError` with operation `"subscribe"`, and the evaluation continues without invalidation.
+A notification also invalidates every pending cache write, regardless of which flags changed, so a decision fetched before the change is never written to the store after it — even when the store cannot delete. Pending writes live only for the duration of a provider call and the next evaluation re-establishes them, so the engine prefers dropping a write over tracking which flags a notification covers. The invalidation subscription attaches on the first evaluation that touches cache or coalescing and stays attached for the factory's lifetime. A `subscribe` function that throws never fails an evaluation: the error is reported through `onCacheError` with operation `"subscribe"`, and the evaluation continues without invalidation.
 
 Core evaluation remains pull-based. Subscribe directly to `gate.changes` when another integration or application store needs notifications:
 
