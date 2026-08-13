@@ -1,5 +1,5 @@
 import type { Decision, EvaluationDetails, GateCallOptions, Identity } from "../types"
-import type { EvaluationRuntime } from "./runtime"
+import type { ResolutionState } from "./resolve"
 import type { AnyGatedConfig, GateOptions } from "./shared"
 import { DuplicateBatchKeyError } from "../errors"
 import { normalizeError } from "../utils"
@@ -29,7 +29,7 @@ export async function executeGateBatch<TIdentity extends Identity>(
   config: AnyGatedConfig<TIdentity>,
   entries: readonly BatchEntry[],
   callOptions: GateCallOptions<TIdentity | null> | undefined,
-  runtime: EvaluationRuntime
+  state: ResolutionState
 ): Promise<Map<object, EvaluationDetails<boolean | string>>> {
   if (entries.length === 0) {
     return new Map()
@@ -132,7 +132,7 @@ export async function executeGateBatch<TIdentity extends Identity>(
         entry.options,
         { ...callOptions, signal: entrySignal?.signal },
         { identityResult, provider },
-        runtime
+        state
       ).finally(() => {
         entrySignal?.cleanup()
       }),

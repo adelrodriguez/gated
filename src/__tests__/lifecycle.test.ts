@@ -202,16 +202,14 @@ describe("first-class cache", () => {
     const keys: string[] = []
     const gate = buildGate<{ distinctId: string; tenant: string }>({
       cache: {
-        key: (context) => `${context.identity?.tenant}:${context.flagKey}`,
-        store: {
-          get: (key) => {
-            keys.push(key)
-            return Promise.resolve(null)
-          },
-          set: () => Promise.resolve(),
+        get: (key) => {
+          keys.push(key)
+          return Promise.resolve(null)
         },
+        set: () => Promise.resolve(),
       },
       decide: () => ({ type: "boolean", value: true }),
+      evaluationKey: (context) => `${context.identity?.tenant}:${context.flagKey}`,
       identify: () => ({ distinctId: "user123", tenant: "acme" }),
     })
 
@@ -225,15 +223,13 @@ describe("first-class cache", () => {
     const get = mock(() => Promise.resolve(null))
     const gate = buildGate({
       cache: {
-        key: () => {
-          throw error
-        },
-        store: {
-          get,
-          set: () => Promise.resolve(),
-        },
+        get,
+        set: () => Promise.resolve(),
       },
       decide: () => ({ type: "boolean", value: true }),
+      evaluationKey: () => {
+        throw error
+      },
       identify: () => ({ distinctId: "user123" }),
       onCacheError: (report) => void reports.push(report),
     })
@@ -592,8 +588,9 @@ describe("request coalescing", () => {
       return { type: "boolean", value: true } as const
     })
     const gate = buildGate<{ distinctId: string; tenant: string }>({
-      coalesce: { key: (context) => `${context.identity?.tenant}:${context.flagKey}` },
+      coalesce: true,
       decide,
+      evaluationKey: (context) => `${context.identity?.tenant}:${context.flagKey}`,
       identify: () => ({ distinctId: "user123", tenant: "unused" }),
     })
     const evaluator = gate({ defaultValue: false, key: "beta-access" })

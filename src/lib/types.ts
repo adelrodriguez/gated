@@ -101,14 +101,6 @@ export type HookContext<TIdentity extends Identity = Identity> = HookContextBase
       }
   )
 
-export type CoalescingOptions<TIdentity extends Identity = Identity> = {
-  /**
-   * Projects an evaluation context to its coalescing key. The default key uses the flag key and the
-   * type and value of `identity.distinctId`.
-   */
-  key?: (context: HookContext<TIdentity>) => string
-}
-
 /**
  * A cache store for decisions. The store owns serialization and expiry policy.
  *
@@ -119,14 +111,6 @@ export type DecisionCache = {
   delete?(key: string): Promise<boolean | undefined>
   get(key: string): Promise<Decision | null | undefined>
   set(key: string, value: Decision): Promise<void>
-}
-
-export type DecisionCacheOptions<TIdentity extends Identity = Identity> = {
-  /**
-   * Projects an evaluation context to its cache key. The default is the coalescing key.
-   */
-  key?: (context: HookContext<TIdentity>) => string
-  store: DecisionCache
 }
 
 export type DecisionSource = "cache" | "provider"
@@ -167,8 +151,15 @@ export interface Hook<T extends Identity = Identity> {
 
 export type GatedConfig<TIdentity extends Identity = Identity> = {
   anonymous?: "reject"
-  cache?: DecisionCache | DecisionCacheOptions<TIdentity>
-  coalesce?: boolean | CoalescingOptions<TIdentity>
+  cache?: DecisionCache
+  coalesce?: boolean
+  /**
+   * Projects an evaluation context to its evaluation key — the collision-safe string that
+   * identifies interchangeable evaluations. Used as the cache store key and the coalescing key.
+   * The default key uses the flag key, the gate shape, and the type and value of
+   * `identity.distinctId`.
+   */
+  evaluationKey?: (context: HookContext<TIdentity>) => string
   identify: () => MaybePromise<TIdentity | null>
   decide: (
     key: string,
