@@ -16,6 +16,21 @@ caching, request coalescing, batches, and timeouts.
 Gated works in browsers and servers. React support is available as an optional entry
 point.
 
+## Contents
+
+- [Features](#features)
+- [Install Gated](#install-gated)
+- [Create your first gate](#create-your-first-gate)
+- [Evaluate gates](#evaluate-gates)
+- [Supply an identity](#supply-an-identity)
+- [Configure evaluation](#configure-evaluation)
+- [Use Gated with React](#use-gated-with-react)
+- [Connect a provider](#connect-a-provider)
+- [Test a gate](#test-a-gate)
+- [Public entry points](#public-entry-points)
+- [Contribute](#contribute)
+- [License](#license)
+
 ## Features
 
 - **Type-safe gates:** Infer boolean and string variant values in TypeScript.
@@ -68,7 +83,10 @@ if (await betaAccess()) {
 `betaAccess()` returns `false` if identity resolution or provider evaluation fails.
 This fail-soft behavior lets your application continue with a known value.
 
-## Use boolean and variant gates
+## Evaluate gates
+
+A gate returns a boolean value or one variant value. You can also read the evaluation
+details or evaluate several gates in one batch.
 
 ### Boolean gates
 
@@ -110,7 +128,7 @@ decision.boolean(true)
 decision.variant("dark", { experiment: "checkout-theme" })
 ```
 
-## Inspect evaluation details
+### Evaluation details
 
 Call `details()` when you need more than the returned value:
 
@@ -149,6 +167,40 @@ result.payload?.experiment // string | undefined
 
 Gated does not validate payload data at runtime. If you do not declare a payload type,
 the payload type is `unknown`.
+
+### Batches
+
+Use `batch()` when one operation needs several gates. A batch resolves the identity once.
+Add `decideMany` when your provider has a batch API:
+
+```typescript
+const gate = buildGate({
+  identify,
+  decide,
+  decideMany: (keys, identity, { signal } = {}) => provider.evaluateAll(keys, identity, { signal }),
+})
+
+const betaAccess = gate({ key: "beta-access", defaultValue: false })
+const theme = gate({
+  key: "theme",
+  defaultValue: "light",
+  variants: ["light", "dark"],
+})
+
+const result = await gate.batch([betaAccess, theme])
+const [hasBetaAccess, selectedTheme] = result
+
+result.details(theme)
+```
+
+The returned tuple is type-safe and synchronously readable. Each gate keeps its own
+hooks, validation, timeout, fallback value, and details.
+
+A batch does not always make one provider request. Cache hits do not go to the provider.
+If `decideMany` omits a key, Gated calls `decide` for that key. If you do not supply
+`decideMany`, Gated evaluates cache misses in parallel.
+
+All batch keys must be unique, and all evaluators must come from the same gate factory.
 
 ## Supply an identity
 
@@ -214,41 +266,12 @@ await landingPage({ identity: null })
 
 Gated does not cache or coalesce anonymous evaluations.
 
-## Evaluate a batch
+## Configure evaluation
 
-Use `batch()` when one operation needs several gates. A batch resolves the identity once.
-Add `decideMany` when your provider has a batch API:
+These options control how Gated runs an evaluation: timeouts, hooks, the cache, request
+coalescing, and the evaluation key.
 
-```typescript
-const gate = buildGate({
-  identify,
-  decide,
-  decideMany: (keys, identity, { signal } = {}) => provider.evaluateAll(keys, identity, { signal }),
-})
-
-const betaAccess = gate({ key: "beta-access", defaultValue: false })
-const theme = gate({
-  key: "theme",
-  defaultValue: "light",
-  variants: ["light", "dark"],
-})
-
-const result = await gate.batch([betaAccess, theme])
-const [hasBetaAccess, selectedTheme] = result
-
-result.details(theme)
-```
-
-The returned tuple is type-safe and synchronously readable. Each gate keeps its own
-hooks, validation, timeout, fallback value, and details.
-
-A batch does not always make one provider request. Cache hits do not go to the provider.
-If `decideMany` omits a key, Gated calls `decide` for that key. If you do not supply
-`decideMany`, Gated evaluates cache misses in parallel.
-
-All batch keys must be unique, and all evaluators must come from the same gate factory.
-
-## Set timeouts and cancel evaluations
+### Set timeouts and cancel evaluations
 
 Set a timeout on the factory or on one gate:
 
@@ -284,7 +307,7 @@ Timeouts cover identity resolution, `before` hooks, cache reads, provider work, 
 decision validation. The `after` and `finally` hooks run after a successful commit and do
 not add evaluation latency.
 
-## Observe evaluations with hooks
+### Observe evaluations with hooks
 
 Hooks observe four lifecycle phases:
 
@@ -330,8 +353,6 @@ them. Do not use these phases for work that must finish before a serverless runt
 Each hook receives one read-only context for the full evaluation. The context contains
 the flag key, identity, gate kind, default value, variants when present, and cancellation
 signal.
-
-## Cache decisions and coalesce requests
 
 ### Cache provider decisions
 
@@ -412,7 +433,7 @@ const gate = buildGate({
 A custom function replaces the complete default key. Return the same key only when all
 matching evaluators can use the same provider decision.
 
-## React integration
+## Use Gated with React
 
 The `gated/react` entry point supports React 19 and Suspense.
 
