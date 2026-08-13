@@ -441,13 +441,22 @@ describe("createReactGate", () => {
 
   test("reacts only to changes for the rendered evaluator and detaches on unmount", async () => {
     let enabled = false
-    let notify!: (change: { keys?: readonly string[] }) => void
     let renderCount = 0
+    const listeners = new Set<(change: { keys?: readonly string[] }) => void>()
     const detachProvider = mock(() => null)
-    const subscribe = mock((listener: typeof notify) => {
-      notify = listener
-      return detachProvider
+    const subscribe = mock((listener: (change: { keys?: readonly string[] }) => void) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+        detachProvider()
+        return null
+      }
     })
+    const notify = (change: { keys?: readonly string[] }) => {
+      for (const listener of listeners) {
+        listener(change)
+      }
+    }
     const decide = mock(async () => {
       await Promise.resolve()
       return decision.boolean(enabled)
@@ -483,7 +492,6 @@ describe("createReactGate", () => {
     await waitFor(() => {
       expect(screen.getByTestId("reactive-value").textContent).toBe("false")
     })
-    expect(subscribe).toHaveBeenCalledTimes(1)
     expect(decide).toHaveBeenCalledTimes(1)
     const settledRenderCount = renderCount
 
@@ -505,7 +513,14 @@ describe("createReactGate", () => {
     expect(decide).toHaveBeenCalledTimes(2)
 
     rendered.unmount()
-    expect(detachProvider).toHaveBeenCalledTimes(1)
+    expect(detachProvider.mock.calls.length).toBeGreaterThanOrEqual(1)
+
+    // A change after unmount refetches nothing. The factory's invalidation subscription is
+    // factory-scoped, so it outlives the component; only the changes-hub listener detaches.
+    notify({ keys: ["beta-access"] })
+    await Bun.sleep(0)
+    expect(decide).toHaveBeenCalledTimes(2)
+    expect(listeners.size).toBe(1)
   })
 
   test("prunes a reactive version store after its last subscriber detaches", async () => {

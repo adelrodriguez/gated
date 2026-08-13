@@ -6,13 +6,11 @@ import type {
   HookContext,
   Identity,
 } from "../types"
-import type { EvaluationRuntime } from "./runtime"
 import { runAfterHooks, runBeforeHooks, runErrorHooks, runFinallyHooks } from "../hook"
 import { normalizeError } from "../utils"
-import { consultCache, writeCacheDecision } from "./cache"
-import { coalesceProviderDecision } from "./coalesce"
-import { extractDecisionValue, validateDecision } from "./decision"
+import { extractDecisionValue } from "./decision"
 import { evaluateConfiguredDecision, identify } from "./identity"
+import { resolveDecision, type ResolutionState } from "./resolve"
 import {
   type AnyGatedConfig,
   type GateConfiguration,
@@ -102,7 +100,7 @@ export async function executeGateDetails<
   options: GateOptions<T>,
   callOptions: GateCallOptions<TIdentity | null> | undefined,
   execution: ExecutionOverrides<TIdentity> | undefined,
-  runtime: EvaluationRuntime
+  state: ResolutionState
 ): Promise<EvaluationDetails<boolean | T[number], TPayload>> {
   const hooks = [...(config.hooks ?? [])]
   const gateConfiguration = getGateConfiguration(options.variants)
@@ -123,7 +121,6 @@ export async function executeGateDetails<
   let result: boolean | T[number] | undefined
   let failure: Error | undefined
   let postCommitHooks: Promise<void> | undefined
-  let providerOwned = false
 
   try {
     const identity = await raceWithSignal(async () => {
@@ -139,36 +136,22 @@ export async function executeGateDetails<
 
     await raceWithSignal(() => runBeforeHooks(hooks, hookContext, config.onHookError), signal)
 
-    const cacheConsultation = await raceWithSignal(
-      () => consultCache(config, runtime.cache, hookContext, options),
+    const resolution = await resolveDecision(
+      config,
+      state,
+      hookContext,
+      options,
+      () =>
+        execution?.provider() ??
+        evaluateConfiguredDecision(config, evaluation.key, identity, signal),
       signal
     )
-    let decision: Decision
-    if (cacheConsultation?.decision) {
-      decision = cacheConsultation.decision
-      evaluation.source = "cache"
-    } else {
-      const coalesced = await coalesceProviderDecision(
-        config,
-        runtime.coalescing,
-        hookContext,
-        () =>
-          execution?.provider() ??
-          evaluateConfiguredDecision(config, evaluation.key, identity, signal),
-        signal
-      )
-      decision = coalesced.decision
-      providerOwned = coalesced.owned
-      evaluation.source = "provider"
-      validateDecision(decision, options)
-    }
+    const { decision } = resolution
     evaluation.decision = decision
-    const afterMeta = { source: evaluation.source }
+    evaluation.source = resolution.source
+    const afterMeta = { source: resolution.source }
 
     result = extractDecisionValue(decision)
-    if (providerOwned && cacheConsultation) {
-      writeCacheDecision(config, runtime.cache, hookContext, cacheConsultation, decision)
-    }
     postCommitHooks = runAfterHooks(
       hooks,
       hookContext,
@@ -227,8 +210,8 @@ export async function executeGate<TIdentity extends Identity, T extends string[]
   config: AnyGatedConfig<TIdentity>,
   options: GateOptions<T>,
   callOptions: GateCallOptions<TIdentity | null> | undefined,
-  runtime: EvaluationRuntime
+  state: ResolutionState
 ): Promise<boolean | T[number]> {
-  const details = await executeGateDetails(config, options, callOptions, undefined, runtime)
+  const details = await executeGateDetails(config, options, callOptions, undefined, state)
   return details.value
 }

@@ -325,37 +325,25 @@ and allowed variants.
 
 ### Request Coalescing
 
-Set `coalesce` on a gate factory to share concurrent provider work for the same flag and identity:
+Concurrent evaluations for the same flag and identity share one provider call by default. Set
+`coalesce: false` to give every evaluation its own provider call, for example when `decide` has
+per-call side effects such as exposure logging:
 
 ```typescript
 const gate = buildGate({
-  coalesce: true,
+  coalesce: false,
   identify: async () => ({ distinctId: userId }),
   decide: async (key, identity) => provider.evaluate(key, identity),
 })
 ```
 
-Coalescing runs after cache reads, so cache hits do not create pending provider work. By default,
-its collision-safe key contains the flag key, gate kind, configured
-variant list for variant gates, and the type and value of `distinctId`. Evaluators with one
-provider flag key but incompatible decision shapes therefore do not share provider work. The key
-does not include other identity attributes. Provide a projection when targeting uses such
-attributes:
+Prefer tracking exposures in hooks: `after` hooks run once per evaluation, including for
+evaluations that shared a coalesced provider call, so per-evaluation observability survives
+coalescing.
 
-```typescript
-const gate = buildGate({
-  coalesce: {
-    key: (context) =>
-      JSON.stringify([context.flagKey, context.identity?.distinctId, context.identity?.plan]),
-  },
-  identify: async () => ({ distinctId: userId, plan }),
-  decide: async (key, identity) => provider.evaluate(key, identity),
-})
-```
-
-A custom projection fully replaces the default key, including its gate-shape fields. It can
-therefore deliberately coalesce evaluations across shapes; the projection must only return the
-same key when the provider decision is compatible with every matching evaluator.
+Coalescing runs after cache reads, so cache hits do not create pending provider work. Both
+coalescing and the cache identify interchangeable evaluations with the same [evaluation
+key](#evaluation-key).
 
 A follower's cancellation does not cancel the leader. If the leader is cancelled or fails, all
 followers receive that same failure and run their own error hooks and fallback reporter. Anonymous
@@ -385,24 +373,38 @@ The engine treats a decision with the wrong shape or an unsupported variant as s
 
 Cache stores own serialization and expiry. Variant payloads can contain values that are not JSON-safe. A persistent store must preserve or normalize them. Return `null` or `undefined` from `get` when an entry expires. Cache writes run after commit in the background. A short-lived runtime can stop before a write finishes.
 
-The default cache key is also the default coalescing key. It contains the flag key, gate kind,
-configured variants, and the type and value of `distinctId`. Other identity attributes are not
-part of the key. Provide a projection when targeting uses other attributes:
-
-```typescript
-const gate = buildGate({
-  cache: {
-    key: (context) =>
-      JSON.stringify([context.flagKey, context.identity?.distinctId, context.identity?.plan]),
-    store: cache,
-  },
-  identify,
-  decide,
-})
-```
+Decisions are stored under the [evaluation key](#evaluation-key), which is shared with request
+coalescing.
 
 `onCacheError` receives `operation`, `key`, `flagKey`, `identity`, and the normalized `error`.
 Reporting is fire-and-forget.
+
+### Evaluation Key
+
+The evaluation key is the collision-safe string that the cache and request coalescing use to
+identify interchangeable evaluations. By default it contains the flag key, gate kind, configured
+variant list for variant gates, and the type and value of `distinctId`. Evaluators with one
+provider flag key but incompatible decision shapes therefore never share decisions. The key does
+not include other identity attributes. Set `evaluationKey` when targeting uses such attributes:
+
+```typescript
+const gate = buildGate({
+  cache,
+  coalesce: true,
+  evaluationKey: (context) =>
+    JSON.stringify([context.flagKey, context.identity?.distinctId, context.identity?.plan]),
+  identify: async () => ({ distinctId: userId, plan }),
+  decide: async (key, identity) => provider.evaluate(key, identity),
+})
+```
+
+A custom projection fully replaces the default key, including its gate-shape fields. It can
+therefore deliberately share decisions across shapes; the projection must only return the same
+key when the provider decision is compatible with every matching evaluator.
+
+A throwing `evaluationKey` never fails the evaluation: the error is reported through
+`onCacheError` with operation `"key"` — even when only coalescing is configured — and the
+evaluation continues without cache or coalescing.
 
 ### Reactive Updates
 
@@ -425,6 +427,10 @@ const gate = buildGate({
 ```
 
 When both `cache.delete` and `subscribe` exist, the engine indexes evaluated cache keys by flag and deletes entries affected by a notification. Other flag entries stay cached. If either function is absent, entries remain until the store expires them.
+
+A notification also drops in-flight coalesced provider work for the changed flags whenever `subscribe` is set, with or without a cache. Evaluations already awaiting the shared call keep its decision; evaluations that start after the notification lead a fresh provider call.
+
+A notification also invalidates every pending cache write, regardless of which flags changed, so a decision fetched before the change is never written to the store after it — even when the store cannot delete. Pending writes live only for the duration of a provider call and the next evaluation re-establishes them, so the engine prefers dropping a write over tracking which flags a notification covers. The invalidation subscription attaches on the first evaluation that touches cache or coalescing and stays attached for the factory's lifetime. A `subscribe` function that throws never fails an evaluation: the error is reported through `onCacheError` with operation `"subscribe"`, and the evaluation continues without invalidation.
 
 Core evaluation remains pull-based. Subscribe directly to `gate.changes` when another integration or application store needs notifications:
 

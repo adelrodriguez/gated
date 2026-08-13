@@ -16,11 +16,9 @@ export {
 export type {
   AnonymousGatedConfig,
   CallerIdentityGatedConfig,
-  CoalescingOptions,
   Decision,
   DecisionCache,
   DecisionCacheErrorReport,
-  DecisionCacheOptions,
   DecisionSource,
   EvaluationDetails,
   GateChange,

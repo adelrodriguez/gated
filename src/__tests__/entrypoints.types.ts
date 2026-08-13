@@ -2,9 +2,7 @@ import type {
   AnonymousGatedConfig,
   DecisionCache,
   DecisionCacheErrorReport,
-  DecisionCacheOptions,
   CallerIdentityGatedConfig,
-  CoalescingOptions,
   Decision,
   DecisionSource,
   EvaluationDetails,
@@ -94,13 +92,9 @@ const hookErrorReport: HookErrorReport<ConsumerIdentity> = {
 
 const maybeDecision: MaybePromise<Decision> = decision
 const identityValue: IdentityValue = { plan: "pro" }
-const coalescingOptions: CoalescingOptions<ConsumerIdentity> = {
-  key: (context) => String(context.identity?.plan),
-}
-const cacheOptions: DecisionCacheOptions<ConsumerIdentity> = {
-  key: (context) => String(context.identity?.plan),
-  store: cache,
-}
+const evaluationKey: GatedConfig<ConsumerIdentity>["evaluationKey"] = (context) =>
+  String(context.identity?.plan)
+const configuredCache: GatedConfig<ConsumerIdentity>["cache"] = cache
 const cacheErrorReport: DecisionCacheErrorReport<ConsumerIdentity> = {
   error: new Error("DecisionCache failed"),
   flagKey: "beta-access",
@@ -201,9 +195,9 @@ void callerIdentityConfig
 void annotatedVariantGate
 void constructedBooleanValue
 void constructedVariantValue
-void coalescingOptions
+void evaluationKey
 void cache
-void cacheOptions
+void configuredCache
 void cacheErrorReport
 void assertSnapshotApiIsRemoved
 void assertPayloadTypes

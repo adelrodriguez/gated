@@ -57,7 +57,6 @@ function onHookError(report: {
 }
 
 export const gate = buildGate({
-  coalesce: true,
   identify: getIdentity,
   ...demoProvider,
   hooks: [loggingHook],
@@ -67,7 +66,6 @@ export const gate = buildGate({
 
 const cachedGate = buildGate({
   cache: visibleCache,
-  coalesce: true,
   identify: getIdentity,
   ...demoProvider,
   hooks: [loggingHook],
@@ -77,7 +75,6 @@ const cachedGate = buildGate({
 
 const anonymousGate = buildGate({
   anonymous: "allow",
-  coalesce: true,
   identify: getIdentity,
   ...demoProvider,
   hooks: [loggingHook],
