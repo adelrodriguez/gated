@@ -24,6 +24,10 @@ import {
 
 setGateContext({ identity, cache: createGateCache() })
 
+// Capture the active cache during component initialization for later handlers.
+const cache = getGateCache()
+const warmBeta = () => cache.prefetch(betaAccess, { identity })
+
 const beta = createGateStore(betaAccess)
 const theme = createGateStore(checkoutTheme, { details: true })
 const dashboard = createGateBatchStore([betaAccess, checkoutTheme])
@@ -43,7 +47,7 @@ The public store state is discriminated:
 
 ```ts
 type GateStoreState<T> =
-  | { status: "pending"; promise: Promise<void> }
+  | { status: "pending"; promise: Promise<T> }
   | { status: "ready"; value: T }
   | { status: "error"; error: Error }
 ```
@@ -59,7 +63,8 @@ tuple.
    first-subscriber and last-unsubscriber lifecycle.
 2. Do not copy React Suspense. Svelte consumers render the discriminated store
    state. The pending state contains the stable promise for consumers that want
-   an `{#await}` block.
+   an `{#await}` block; the promise resolves to the same typed value that the
+   store publishes in its ready state.
 3. Do not add a Svelte `FeatureGate` in the first release. `{#if}` over a store
    value is already the native conditional-rendering interface. Add a component
    only when repeated consumer code proves that it earns its interface.
@@ -76,7 +81,9 @@ tuple.
    `createGateCache`; stores accept `ttlMs` but no per-store cache bounds.
 8. A store starts evaluation when its first subscriber attaches, shares the
    cached evaluation with other stores, and detaches its provider-change
-   subscription after its last subscriber leaves.
+   subscription after its last subscriber leaves. Detaching a subscriber never
+   cancels or evicts an in-flight evaluation; the request cache owns that work
+   and can serve a later subscriber.
 9. Matching provider changes and cache invalidation publish `pending`, start or
    join a fresh evaluation, and then publish `ready` or `error`. Unrelated flag
    changes do nothing.
@@ -88,11 +95,18 @@ tuple.
     Svelte use case requires them.
 12. Ship the adapter as an optional entry point. Importing `gated` or
     `gated/react` must not load Svelte.
+13. Server rendering reads a settled resource synchronously: the first
+    subscription publishes `ready` before its initial callback returns. This
+    lets loader prefetch affect server HTML. A cache miss publishes `pending`,
+    which is the intended server output because Svelte server rendering does not
+    await store updates. The pending evaluation continues after the server
+    subscription detaches. Without dehydration, browser hydration starts or
+    joins the browser cache's evaluation independently.
 
 ## Shared module seam
 
-Move proven framework-neutral behavior from `src/integrations/react.tsx` into
-`src/lib/integration/`:
+After Plan Series C lands, move its proven framework-neutral behavior from the
+post-Series-C `src/integrations/react.tsx` into `src/lib/integration/`:
 
 ```ts
 type GateResource<T> = {
@@ -135,7 +149,8 @@ implementations actually use.
 
 ### S01 — Extract the shared integration cache
 
-Depends on: none. No public behavior change.
+Depends on: Plan Series C c01–c08, implemented by PR #87. No public behavior
+change.
 
 - Move cache entries, buckets, key derivation, evaluation dispatch, batch
   validation, invalidation, prefetch, and change subscriptions from
@@ -147,12 +162,19 @@ Depends on: none. No public behavior change.
   on context, hooks, Suspense, and `FeatureGate`.
 - Run dependency analysis to prove the shared module does not import React or
   Svelte.
+- Reuse the post-Series-C integration `createGateCache`. This is the bucketed
+  promise cache exported by `gated/react`, not the older flat internal cache in
+  `src/lib/cache/index.ts`; S01 replaces the duplicate cache concepts with the
+  shared integration cache before `gated/svelte` re-exports it.
 
 ### S02 — Add evaluator and batch stores
 
 Depends on: S01. Additive.
 
 - Add `src/integrations/svelte.ts`.
+- Add Svelte as a development dependency and add a Svelte-aware test build that
+  compiles fixture `.svelte` files before Bun runs them. Keep plain store tests
+  in Bun; use compiled components only for context, rendering, and teardown.
 - Implement `createGateStore` overloads for values and details.
 - Implement `createGateBatchStore` with tuple inference and empty-batch parity.
 - Implement first-subscriber evaluation and last-unsubscriber cleanup with a
@@ -163,6 +185,9 @@ Depends on: S01. Additive.
 - Test boolean gates, variant gates, details payloads, batches, rejection,
   invalidation, provider changes, duplicate flags, foreign evaluators, and
   subscription disposal.
+- Keep the new Svelte source and shared integration source above Bun's per-file
+  `coverageThreshold = 0.9`; run `bun run test:coverage` because normal CI
+  `bun test --parallel` does not enforce the coverage gate.
 
 ### S03 — Add context and SSR isolation
 
@@ -176,6 +201,10 @@ Depends on: S02. Additive.
 - Verify that two rendered trees with separate contexts do not share entries.
 - Verify that one server request cannot retain another request's identity or
   promise.
+- Verify that a prefetched settled resource renders `ready` server HTML, while a
+  miss renders `pending` and leaves its evaluation running after the render
+  subscription detaches. Verify that hydration evaluates against the browser
+  cache because dehydration is out of scope.
 - Document that context functions run during component initialization and that
   module-scope caches must not be shared across server requests.
 
@@ -184,6 +213,8 @@ Depends on: S02. Additive.
 Depends on: S01–S03. Additive minor release.
 
 - Add `gated/svelte` to `package.json` exports and `bunup.config.ts`.
+- Add `src/integrations/svelte.ts` to `knip.config.ts` entry points so dependency
+  analysis treats its public exports as intentional.
 - Add optional `svelte` peer dependency with the selected supported Svelte 5
   range. Pin the exact minimum after the implementation test matrix confirms
   it.
@@ -191,6 +222,8 @@ Depends on: S01–S03. Additive minor release.
   points do not expose or load Svelte symbols.
 - Add a minimal SvelteKit example that covers SSR context isolation, a boolean
   store, a variant store, a batch store, invalidation, and prefetch.
+- Run SvelteKit development and production build checks through this example,
+  not through the root Bun test loader.
 - Add README sections for Svelte setup, state rendering, batching, SSR,
   invalidation, and error handling.
 - Update `CONTEXT.md` and the domain vocabulary with the Svelte adapter and the
@@ -201,8 +234,9 @@ Depends on: S01–S03. Additive minor release.
 ## Test matrix
 
 - Svelte client rendering and teardown.
-- Svelte server rendering with two isolated requests.
-- SvelteKit development and production builds.
+- Svelte server rendering with two isolated requests in a separate DOM-free test
+  process that does not load the root `bunfig.toml` Happy DOM preload.
+- SvelteKit development and production builds through the S04 example.
 - Lowest supported Svelte 5 version and current Svelte 5 version.
 - TypeScript inference for boolean, variant, payload, identity, and batch tuple
   types.
@@ -212,6 +246,7 @@ Depends on: S01–S03. Additive minor release.
 ## Verification
 
 - `bun run test`
+- `bun run test:coverage` with the 90% per-file floor
 - `bun run build`
 - `bun run check`
 - `bun run fix`
