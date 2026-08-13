@@ -12,16 +12,17 @@ export type BatchEntry = {
   options: GateOptions<string[]>
 }
 
-type DecisionRequest = {
-  promise: Promise<Decision>
+/**
+ * One `decideMany` call shared by every evaluation that needed provider work in the same tick.
+ * Entries join the open round; the round closes when its timer fires, so evaluations that resolve
+ * from cache never delay or join it.
+ */
+type FlushRound = {
+  keys: string[]
+  promise: Promise<Record<string, Decision>>
   reject: (error: Error) => void
-  resolve: (decision: Decision) => void
-}
-
-function createDecisionRequest(): DecisionRequest {
-  const { promise, reject, resolve } = Promise.withResolvers<Decision>()
-  void promise.catch(() => null)
-  return { promise, reject, resolve }
+  resolve: (decisions: Record<string, Decision>) => void
+  timer: ReturnType<typeof setTimeout>
 }
 
 export async function executeGateBatch<TIdentity extends Identity>(
@@ -65,92 +66,72 @@ export async function executeGateBatch<TIdentity extends Identity>(
     identityResult = { error: normalizeError(error) }
   }
 
-  const requests = new Map<object, DecisionRequest>()
-  const queued = new Map<object, BatchEntry>()
-  let batchTimer: ReturnType<typeof setTimeout> | undefined
+  let round: FlushRound | undefined
 
-  const flushBatch = async (): Promise<void> => {
-    batchTimer = undefined
-    const unresolved = [...queued.values()]
-    queued.clear()
-    if (unresolved.length === 0 || !("value" in identityResult)) {
+  const flushRound = async (current: FlushRound): Promise<void> => {
+    round = undefined
+    if ("error" in identityResult) {
+      current.reject(identityResult.error)
       return
     }
-
     const identity = identityResult.value
     try {
-      const decisions = await raceWithSignal(
-        () =>
-          evaluateConfiguredMany(
-            config,
-            unresolved.map((entry) => entry.options.key),
-            identity,
-            signal
-          ),
-        signal
-      )
-
-      await Promise.all(
-        unresolved.map(async (entry) => {
-          const request = requests.get(entry.flag)
-          if (!request) {
-            return
-          }
-          const batched = Object.hasOwn(decisions, entry.options.key)
-            ? decisions[entry.options.key]
-            : undefined
-          if (batched) {
-            request.resolve(batched)
-            return
-          }
-          const entrySignal = entrySignals.get(entry.flag)?.signal ?? signal
-          try {
-            request.resolve(
-              await raceWithSignal(
-                () => evaluateConfiguredDecision(config, entry.options.key, identity, entrySignal),
-                entrySignal
-              )
-            )
-          } catch (error) {
-            request.reject(normalizeError(error))
-          }
-        })
+      current.resolve(
+        await raceWithSignal(
+          () => evaluateConfiguredMany(config, current.keys, identity, signal),
+          signal
+        )
       )
     } catch (error) {
-      for (const entry of unresolved) {
-        requests.get(entry.flag)?.reject(normalizeError(error))
-      }
+      current.reject(normalizeError(error))
     }
   }
 
-  const scheduleBatch = (): void => {
-    if (batchTimer !== undefined) {
-      return
+  const joinFlushRound = (key: string): Promise<Record<string, Decision>> => {
+    if (!round) {
+      const { promise, reject, resolve } = Promise.withResolvers<Record<string, Decision>>()
+      void promise.catch(() => null)
+      const current: FlushRound = {
+        keys: [],
+        promise,
+        reject,
+        resolve,
+        timer: setTimeout(() => {
+          void flushRound(current)
+        }, 0),
+      }
+      round = current
     }
-    batchTimer = setTimeout(() => {
-      void flushBatch()
-    }, 0)
+    round.keys.push(key)
+    return round.promise
   }
 
   const evaluations = entries.map((entry) => {
-    const request = createDecisionRequest()
     const entrySignal = entrySignals.get(entry.flag)
+    const provider = async (): Promise<Decision> => {
+      if ("error" in identityResult) {
+        throw identityResult.error
+      }
+      const decisions = await joinFlushRound(entry.options.key)
+      const batched = Object.hasOwn(decisions, entry.options.key)
+        ? decisions[entry.options.key]
+        : undefined
+      if (batched) {
+        return batched
+      }
+      return await evaluateConfiguredDecision(
+        config,
+        entry.options.key,
+        identityResult.value,
+        entrySignal?.signal ?? signal
+      )
+    }
     return {
       evaluation: executeGateDetails(
         config,
         entry.options,
         { ...callOptions, signal: entrySignal?.signal },
-        {
-          identityResult,
-          onPrepared(providerRequired) {
-            if (providerRequired) {
-              requests.set(entry.flag, request)
-              queued.set(entry.flag, entry)
-              scheduleBatch()
-            }
-          },
-          provider: () => request.promise,
-        },
+        { identityResult, provider },
         runtime
       ).finally(() => {
         entrySignal?.cleanup()
@@ -168,8 +149,8 @@ export async function executeGateBatch<TIdentity extends Identity>(
     )
     return new Map(settled.map(({ details, flag }) => [flag, details]))
   } finally {
-    if (batchTimer !== undefined) {
-      clearTimeout(batchTimer)
+    if (round) {
+      clearTimeout(round.timer)
     }
     batchController.abort()
     batchTimeout.cleanup()

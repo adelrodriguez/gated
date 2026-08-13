@@ -39,14 +39,12 @@ export type IdentityResult<TIdentity extends Identity> =
 /**
  * Contract between the batch orchestrator and one evaluation.
  *
- * `identityResult` replaces identity resolution. `onPrepared` fires exactly once, before provider
- * work: `true` only when this evaluation owns provider work, and `false` after a cache hit, a
- * pre-provider failure, or when it follows coalesced provider work. `provider` replaces configured
- * `decide` and is not called before `onPrepared(true)`.
+ * `identityResult` replaces identity resolution. `provider` replaces the configured `decide` and
+ * is called only when the evaluation needs provider work — after a cache miss, and never as a
+ * coalesced follower.
  */
 export type ExecutionOverrides<TIdentity extends Identity> = {
   identityResult: IdentityResult<TIdentity>
-  onPrepared: (providerRequired: boolean) => void
   provider: () => Promise<Decision>
 }
 
@@ -125,14 +123,7 @@ export async function executeGateDetails<
   let result: boolean | T[number] | undefined
   let failure: Error | undefined
   let postCommitHooks: Promise<void> | undefined
-  const preparation = { providerRequired: false, reported: false }
-  const reportPreparation = (providerRequired: boolean): void => {
-    if (preparation.reported) {
-      throw new Error("Evaluation preparation was reported more than once")
-    }
-    preparation.reported = true
-    execution?.onPrepared(providerRequired)
-  }
+  let providerOwned = false
 
   try {
     const identity = await raceWithSignal(async () => {
@@ -154,23 +145,20 @@ export async function executeGateDetails<
     )
     let decision: Decision
     if (cacheConsultation?.decision) {
-      reportPreparation(false)
       decision = cacheConsultation.decision
       evaluation.source = "cache"
     } else {
-      decision = await coalesceProviderDecision(
+      const coalesced = await coalesceProviderDecision(
         config,
         runtime.coalescing,
         hookContext,
-        (required) => {
-          preparation.providerRequired = required
-          reportPreparation(required)
-        },
         () =>
           execution?.provider() ??
           evaluateConfiguredDecision(config, evaluation.key, identity, signal),
         signal
       )
+      decision = coalesced.decision
+      providerOwned = coalesced.owned
       evaluation.source = "provider"
       validateDecision(decision, options)
     }
@@ -178,7 +166,7 @@ export async function executeGateDetails<
     const afterMeta = { source: evaluation.source }
 
     result = extractDecisionValue(decision)
-    if (preparation.providerRequired && cacheConsultation) {
+    if (providerOwned && cacheConsultation) {
       writeCacheDecision(config, runtime.cache, hookContext, cacheConsultation, decision)
     }
     postCommitHooks = runAfterHooks(
@@ -191,9 +179,6 @@ export async function executeGateDetails<
     consumeCleanup(postCommitHooks)
   } catch (error) {
     const gateError = normalizeError(error)
-    if (!preparation.reported) {
-      reportPreparation(false)
-    }
     failure = gateError
     evaluation.source = "default"
     const errorHooks = runErrorHooks(hooks, hookContext, gateError, config.onHookError)
