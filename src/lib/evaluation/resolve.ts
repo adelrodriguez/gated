@@ -216,7 +216,7 @@ export async function resolveDecision<TIdentity extends Identity, T extends stri
   signal: AbortSignal
 ): Promise<DecisionResolution> {
   const store = config.cache
-  const coalesce = config.coalesce === true
+  const coalesce = config.coalesce !== false
 
   let key: string | undefined
   try {

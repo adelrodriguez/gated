@@ -325,15 +325,21 @@ and allowed variants.
 
 ### Request Coalescing
 
-Set `coalesce` on a gate factory to share concurrent provider work for the same flag and identity:
+Concurrent evaluations for the same flag and identity share one provider call by default. Set
+`coalesce: false` to give every evaluation its own provider call, for example when `decide` has
+per-call side effects such as exposure logging:
 
 ```typescript
 const gate = buildGate({
-  coalesce: true,
+  coalesce: false,
   identify: async () => ({ distinctId: userId }),
   decide: async (key, identity) => provider.evaluate(key, identity),
 })
 ```
+
+Prefer tracking exposures in hooks: `after` hooks run once per evaluation, including for
+evaluations that shared a coalesced provider call, so per-evaluation observability survives
+coalescing.
 
 Coalescing runs after cache reads, so cache hits do not create pending provider work. Both
 coalescing and the cache identify interchangeable evaluations with the same [evaluation

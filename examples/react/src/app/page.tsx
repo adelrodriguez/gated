@@ -32,7 +32,6 @@ export default function OverviewPage() {
           ))}
         </div>
         <CodeBlock label="The factory behind every demo">{`const gate = buildGate({
-  coalesce: true,
   identify: getIdentity,
   ...demoProvider,
   hooks: [loggingHook],

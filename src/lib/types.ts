@@ -152,6 +152,11 @@ export interface Hook<T extends Identity = Identity> {
 export type GatedConfig<TIdentity extends Identity = Identity> = {
   anonymous?: "reject"
   cache?: DecisionCache
+  /**
+   * Concurrent evaluations with one evaluation key share a single provider call. Enabled by
+   * default; set `false` when `decide` has per-call side effects such as exposure logging.
+   * Track exposures in hooks to keep per-evaluation observability with coalescing enabled.
+   */
   coalesce?: boolean
   /**
    * Projects an evaluation context to its evaluation key — the collision-safe string that

@@ -532,13 +532,12 @@ describe("first-class cache", () => {
 })
 
 describe("request coalescing", () => {
-  test("shares concurrent provider work for one evaluation key", async () => {
+  test("shares concurrent provider work for one evaluation key by default", async () => {
     const decide = mock(async () => {
       await Bun.sleep(5)
       return { type: "boolean", value: true } as const
     })
     const gate = buildGate({
-      coalesce: true,
       decide,
       identify: () => ({ distinctId: "user123" }),
     })
@@ -548,13 +547,28 @@ describe("request coalescing", () => {
     expect(decide).toHaveBeenCalledTimes(1)
   })
 
+  test("gives every evaluation its own provider call when coalescing is disabled", async () => {
+    const decide = mock(async () => {
+      await Bun.sleep(5)
+      return { type: "boolean", value: true } as const
+    })
+    const gate = buildGate({
+      coalesce: false,
+      decide,
+      identify: () => ({ distinctId: "user123" }),
+    })
+    const evaluator = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await Promise.all([evaluator(), evaluator(), evaluator()])).toEqual([true, true, true])
+    expect(decide).toHaveBeenCalledTimes(3)
+  })
+
   test("does not share provider work across factories built from one config object", async () => {
     const decide = mock(async () => {
       await Bun.sleep(5)
       return { type: "boolean", value: true } as const
     })
     const config = {
-      coalesce: true,
       decide,
       identify: () => ({ distinctId: "user123" }),
     }

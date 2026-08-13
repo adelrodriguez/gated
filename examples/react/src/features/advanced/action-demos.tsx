@@ -135,7 +135,6 @@ export function ActionDemos() {
         action={runCache}
         snippet={`const cachedGate = buildGate({
   cache,
-  coalesce: true,
   // ...provider config
 })
 
