@@ -36,6 +36,12 @@ export function useGateBatch<const TFlags extends readonly AnyGateEvaluator[]>(
   Throw `ForeignGateEvaluatorError` when any member resolves to a different ref
   or to none — the same failure `gate.batch` raises today
   (`src/factory.ts:228`), now raised client-side before the call.
+- An empty `flags` array resolves to an empty batch tuple without factory-ref
+  resolution, provider work, or suspension — parity with the server, where
+  `executeGateBatch` returns an empty `Map` before identity resolution
+  (`src/lib/evaluation/batch.ts:31-33`), so `gate.batch([])` resolves. Do not
+  route `[]` through the foreign-evaluator rule: `flags[0]` being `undefined`
+  is not a foreign evaluator.
 - Cache one promise per invocation shape. Entry key: the ordered flag keys plus
   the serialized resolved identity, through the existing `deriveKey` machinery
   with a batch namespace. Array identity of the `flags` literal is irrelevant —
@@ -80,12 +86,18 @@ Extend `src/integrations/__tests__/react.test.tsx`:
   a distinct entry.
 - Mixed-factory arrays throw `ForeignGateEvaluatorError`; duplicate flags throw
   `DuplicateBatchKeyError`.
+- `useGateBatch([])` renders without suspension or provider work and
+  destructures to nothing.
 - Identity precedence and per-identity entries (mirror c04).
 - A `subscribe` emission for one member key re-evaluates the batch; an unrelated
   key does not.
 - `invalidateBatch` evicts and re-renders.
 - Fallback semantics: one member falling back to its default (provider error for
   that key) does not reject the batch — parity with `executeGateBatch` tests.
+- Entrypoint pins: `useGateBatch` joins the runtime surface in
+  `src/__tests__/entrypoints.test.ts`; `GateBatchValuesOf` and
+  `GateBatchIdentityOf` get type-level assertions in
+  `src/__tests__/entrypoints.types.ts`.
 
 ## Verification
 

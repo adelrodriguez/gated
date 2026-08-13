@@ -33,13 +33,22 @@ export function useGate<TFlag extends AnyGateEvaluator>(
 
 - Per-evaluator state lives in a module-scope
   `WeakMap<evaluator, PerGateState>`, lazily created on first use.
-  `PerGateState` holds the cache namespace and the `changes` attach/detach
-  bookkeeping — the closure contents of today's `createReactGate`, relocated.
+  `PerGateState` extends the per-evaluator namespace map from c03 with the
+  `changes` attach/detach bookkeeping — the closure contents of today's
+  `createReactGate`, relocated.
 - Cache resolution: provider cache from `GateProvider` context, else one shared
   module-scope default cache owned by the integration (replacing today's
-  one-default-cache-per-created-hook). The server-rendering development warning
-  moves here unchanged: structural safety comes from c03's auto-created provider
-  cache, the warning covers unmounted-provider setups.
+  one-default-cache-per-created-hook). Tradeoff, stated in the docs: the shared
+  default drops per-gate cache tuning. Today each `createReactGate` call can
+  set `maxEntries`/`ttlMs`/`pendingTtlMs` for its own cache (`react.tsx:117`);
+  on a shared cache, one identity-heavy gate can evict another gate's entries
+  under `maxEntries`. Bounds are configured subtree-wide through
+  `GateProvider cache={createGateCache(options)}`; a gate that needs dedicated
+  bounds keeps the `createReactGate` escape hatch with its own cache.
+- The server-rendering development warning moves here with its message updated
+  to recommend `GateProvider` — the current text names `GateCacheProvider`
+  (`react.tsx:216`), which c03 deprecates. Structural safety comes from c03's
+  auto-created provider cache; the warning covers unmounted-provider setups.
 - Identity resolution: explicit argument, else `GateProvider` `identity`, else
   none (the evaluator's own `identify` config applies, unchanged core
   semantics). The resolved identity participates in the cache key exactly as the
@@ -92,6 +101,9 @@ Extend `src/integrations/__tests__/react.test.tsx`:
   (existing `evictOnRejection` semantics).
 - Passing a plain async function throws the typed error.
 - `createReactGate` test suite passes unchanged.
+- Entrypoint pins: `useGate` joins the runtime surface in
+  `src/__tests__/entrypoints.test.ts`; `GateValueOf` and `GateIdentityOf` get
+  type-level assertions in `src/__tests__/entrypoints.types.ts`.
 
 ## Verification
 

@@ -37,6 +37,13 @@ export function GateProvider(props: {
   `useState(() => createGateCache())`. A fresh element tree per server request
   yields a fresh cache per request; on the client the cache lives as long as the
   provider. The `cache` prop remains for tests and shared-cache setups.
+- Placement rule: mount `GateProvider` above the Suspense boundaries of its
+  consumers. `useState` is stable only across commits — a provider mounted
+  inside the boundary its own hooks suspend in never commits its initial
+  render, so the initializer can run again on retry, producing a new cache and
+  a new promise on every retry. Document the rule and pin the behavior with a
+  test; the "structural safety" claim (D6) holds under the rule, not without
+  it.
 - `identity` is a default call identity for descendant hooks (consumed in c04):
   an explicit hook argument wins over the provider value. The provider only
   stores it in context; it does not evaluate anything.
@@ -56,6 +63,15 @@ export function GateProvider(props: {
   machinery), deletes the entry, and bumps the matching version store so
   subscribed components re-render and re-evaluate. `clear()` does the same for
   every store attached to that cache.
+- This slice introduces the per-evaluator namespace map that key derivation
+  needs: a module-scope `WeakMap<evaluator, string>` in the integration, filled
+  lazily with `createCacheNamespace()`. Today the namespace is a closure value
+  of one `createReactGate` call (`react.tsx:119`), so nothing maps an evaluator
+  to a namespace; without this map, `invalidate(flag)` cannot land in this
+  slice. c04's per-evaluator hook state extends this map. Scope note: handles
+  reach entries keyed through the shared map (`useGate`, c04 onward);
+  `createReactGate` entries keep their closure namespaces and stay reachable
+  through that hook's own statics.
 - Outside React: export `createGateCacheHandle(cache)` returning the same handle
   shape, for websocket handlers, route loaders, and actions. `useGateCache` is
   sugar over it.
@@ -73,8 +89,8 @@ export function GateProvider(props: {
 ## Changes
 
 - `src/integrations/react.tsx` — `GateProvider`, context shape, `useGateCache`,
-  `createGateCacheHandle`, hoisted store registry, deprecated
-  `GateCacheProvider` wrapper.
+  `createGateCacheHandle`, per-evaluator namespace WeakMap, hoisted store
+  registry, deprecated `GateCacheProvider` wrapper.
 - README — SSR section rewritten around bare `<GateProvider>`; invalidation
   section rewritten around handles.
 - domain.md — add **gate provider** and **cache handle** vocabulary rows.
@@ -92,6 +108,12 @@ Extend `src/integrations/__tests__/react.test.tsx`:
 - `createGateCacheHandle` invalidates from outside a component and subscribed
   components re-render.
 - `clear()` re-renders all subscribers of that cache.
+- Placement rule: a provider mounted inside the Suspense boundary its consumers
+  suspend in — pin the retry behavior the documented rule warns about.
+- Entrypoint pins: `GateProvider`, `useGateCache`, and `createGateCacheHandle`
+  join the runtime surface in `src/__tests__/entrypoints.test.ts`;
+  `GateCacheHandle` gets a type-level assertion in
+  `src/__tests__/entrypoints.types.ts`.
 
 ## Verification
 
