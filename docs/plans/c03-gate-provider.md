@@ -1,13 +1,13 @@
-# c03 — `GateProvider`, `useGateCache`, live invalidation
+# c03 — `GateProvider`, `createGateCache`, `useGateCache`
 
-Fixes: D6, D7. Depends on: —. Additive; `GateCacheProvider` becomes a deprecated
-alias.
+Fixes: D6, D7. Depends on: —. Additive; the existing `GateCacheProvider` is
+untouched until c07 removes it.
 
 ## Goal
 
 Mounting a bare `<GateProvider>` gives every subtree an isolated cache — fresh
-per server request by construction, singleton per browser tab. Components obtain
-the active cache with `useGateCache()` and invalidate through it; invalidation
+per server request by construction, singleton per browser tab. The cache object
+owns invalidation; `useGateCache()` returns the active cache; invalidation
 re-renders subscribers.
 
 ## Problem
@@ -23,7 +23,35 @@ re-renders subscribers.
 
 ## Design
 
-1. Provider:
+1. Cache object. `createGateCache(options?)` returns the one cache concept the
+   React layer has — store and invalidation surface on the same object:
+
+```ts
+type ReactGateCache = {
+  invalidate(flag: AnyGateEvaluator, identity?: Identity): void
+  invalidateBatch(flags: readonly AnyGateEvaluator[], identity?: Identity): void
+  invalidateKey(key: GateCacheKey): void
+  clear(): void
+  // plus the internal store contract the hooks use (get/set/delete on entries)
+}
+```
+
+- Internal structure: per-gate buckets keyed by evaluator object, plus one
+  custom-key bucket for `useGate(fn, { key })` entries (c04). Entry keys inside
+  a gate bucket are serialized identities. This replaces the namespace
+  machinery entirely — buckets cannot collide across gates or factories — and
+  bounds (`maxEntries`, `ttlMs`, `pendingTtlMs`) apply per bucket, so one
+  gate's identity churn cannot evict another gate's entries.
+- Invalidation deletes the entry and bumps the matching version store so
+  subscribed components re-render and re-evaluate. `clear()` does this for
+  every bucket. This changes the old semantics deliberately: the deprecated
+  statics stayed passive; cache invalidation is live. `invalidateKey` targets
+  custom-key entries (c04's fn form).
+- Outside React needs no extra concept: whoever passes `cache` to the provider
+  holds the reference and calls the same methods from websocket handlers, route
+  loaders, or actions.
+
+2. Provider:
 
 ```tsx
 export function GateProvider(props: {
@@ -35,8 +63,9 @@ export function GateProvider(props: {
 
 - When `cache` is omitted, the provider creates one with
   `useState(() => createGateCache())`. A fresh element tree per server request
-  yields a fresh cache per request; on the client the cache lives as long as the
-  provider. The `cache` prop remains for tests and shared-cache setups.
+  yields a fresh cache per request; on the client the cache lives as long as
+  the provider. The `cache` prop connects `createGateCache(options)` for tuned
+  bounds, SSR plumbing that needs to hold the reference, and tests.
 - Placement rule: mount `GateProvider` above the Suspense boundaries of its
   consumers. `useState` is stable only across commits — a provider mounted
   inside the boundary its own hooks suspend in never commits its initial
@@ -44,56 +73,33 @@ export function GateProvider(props: {
   a new promise on every retry. Document the rule and pin the behavior with a
   test; the "structural safety" claim (D6) holds under the rule, not without
   it.
-- `identity` is a default call identity for descendant hooks (consumed in c04):
-  an explicit hook argument wins over the provider value. The provider only
-  stores it in context; it does not evaluate anything.
-- Context value is `{ cache, identity }`. `GateCacheProvider` re-exports as a
-  thin wrapper over `GateProvider` with a required `cache` and no `identity`,
-  marked `@deprecated` in TSDoc. Removal is a later major.
+- `identity` is a value prop: a default call identity for descendant hooks
+  (consumed in c04). An explicit hook option wins over the provider value. The
+  value participates in cache keys at render time and drives context updates
+  when it changes (login/logout re-keys descendant evaluations naturally).
+- Context value is `{ cache, identity }`. `GateCacheProvider` is left as-is
+  until c07 deletes it; the two providers coexist during the series because
+  `createReactGate` hooks read the old context and `useGate` reads the new one.
 
-2. `useGateCache()`:
+3. `useGateCache()` returns the context cache, else the integration's
+   module-scope default cache (a `createGateCache()` instance shared by
+   `useGate` when no provider is mounted — introduced here, consumed by c04).
+   The server-rendering development warning about the module default moves to
+   this resolution path, with its message updated to recommend `GateProvider`.
 
-- Returns a `GateCacheHandle`: `{ invalidate(flag, identity?), clear(), cache }`.
-- Resolution: nearest provider cache, else the shared module default cache the
-  integration owns (see c04 for its introduction; until c04 lands the handle
-  resolves provider-or-throw with a clear error, keeping this slice landable
-  first).
-- `invalidate(flag, identity?)` derives the entry key from the evaluator's
-  namespace plus the serialized identity (the existing `deriveKey`/`serializeKey`
-  machinery), deletes the entry, and bumps the matching version store so
-  subscribed components re-render and re-evaluate. `clear()` does the same for
-  every store attached to that cache.
-- This slice introduces the per-evaluator namespace map that key derivation
-  needs: a module-scope `WeakMap<evaluator, string>` in the integration, filled
-  lazily with `createCacheNamespace()`. Today the namespace is a closure value
-  of one `createReactGate` call (`react.tsx:119`), so nothing maps an evaluator
-  to a namespace; without this map, `invalidate(flag)` cannot land in this
-  slice. c04's per-evaluator hook state extends this map. Scope note: handles
-  reach entries keyed through the shared map (`useGate`, c04 onward);
-  `createReactGate` entries keep their closure namespaces and stay reachable
-  through that hook's own statics.
-- Outside React: export `createGateCacheHandle(cache)` returning the same handle
-  shape, for websocket handlers, route loaders, and actions. `useGateCache` is
-  sugar over it.
-
-3. Version-store bump on invalidation:
-
-- The store registry is keyed by `(cache, key)` (`storesByCache`,
-  `react.tsx:120`). Move it from the `createReactGate` closure to module scope in
-  the integration so handles and hooks share it (c04 completes this move; this
-  slice hoists the registry and keeps `createReactGate` delegating to it).
-- The existing `bump()` already deletes the entry and notifies listeners
-  (`react.tsx:164`); `invalidate` reuses it. Document the behavior change: the
-  old statics stayed passive; handle invalidation re-renders.
+4. Version stores move from the `createReactGate` closure to module scope in
+   the integration, keyed by `(cache, bucket, entryKey)`, so cache methods and
+   hooks share them. `createReactGate` keeps its own closure stores until c07
+   deletes it; this slice only hoists the registry the new surface uses.
 
 ## Changes
 
-- `src/integrations/react.tsx` — `GateProvider`, context shape, `useGateCache`,
-  `createGateCacheHandle`, per-evaluator namespace WeakMap, hoisted store
-  registry, deprecated `GateCacheProvider` wrapper.
+- `src/integrations/react.tsx` — `createGateCache` (bucketed store +
+  invalidation methods), `GateProvider`, context shape, `useGateCache`, hoisted
+  version-store registry, dev warning on the default-cache path.
 - README — SSR section rewritten around bare `<GateProvider>`; invalidation
-  section rewritten around handles.
-- domain.md — add **gate provider** and **cache handle** vocabulary rows.
+  section rewritten around the cache object.
+- domain.md — add **gate provider** and **gate cache** vocabulary rows.
 
 ## Tests
 
@@ -101,18 +107,20 @@ Extend `src/integrations/__tests__/react.test.tsx`:
 
 - Bare provider isolates: two sibling providers do not share entries; two
   renders of the same tree with fresh providers do not share entries.
-- `cache` prop wins over auto-creation; `GateCacheProvider` alias still works.
-- `useGateCache().invalidate(flag)` evicts and re-renders a subscribed
-  component, which re-evaluates (fresh provider call observed).
-- `invalidate(flag, identityA)` does not evict `identityB`'s entry.
-- `createGateCacheHandle` invalidates from outside a component and subscribed
-  components re-render.
-- `clear()` re-renders all subscribers of that cache.
+- `cache` prop wins over auto-creation.
 - Placement rule: a provider mounted inside the Suspense boundary its consumers
   suspend in — pin the retry behavior the documented rule warns about.
-- Entrypoint pins: `GateProvider`, `useGateCache`, and `createGateCacheHandle`
-  join the runtime surface in `src/__tests__/entrypoints.test.ts`;
-  `GateCacheHandle` gets a type-level assertion in
+- `cache.invalidate(flag)` evicts and re-renders a subscribed component, which
+  re-evaluates (fresh provider call observed); `invalidate(flag, identityA)`
+  does not evict `identityB`'s entry.
+- Bucket isolation: filling one gate's bucket past `maxEntries` does not evict
+  another gate's entries.
+- Invalidation from outside a component (direct method call on the cache
+  reference) re-renders subscribers.
+- `clear()` re-renders all subscribers of that cache.
+- Entrypoint pins: `GateProvider`, `useGateCache`, and `createGateCache` join
+  the runtime surface in `src/__tests__/entrypoints.test.ts`; the
+  `ReactGateCache` shape gets a type-level assertion in
   `src/__tests__/entrypoints.types.ts`.
 
 ## Verification
@@ -122,5 +130,5 @@ Extend `src/integrations/__tests__/react.test.tsx`:
 ## Release
 
 - Changeset: minor. "Add `GateProvider` with an auto-created per-mount cache,
-  `useGateCache`, and re-rendering invalidation handles. `GateCacheProvider` is
-  deprecated but unchanged."
+  `createGateCache` with live invalidation methods, and `useGateCache`.
+  Existing APIs unchanged until the removal slice."

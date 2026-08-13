@@ -8,7 +8,7 @@ N gates render as one unit: one cached `batch()` promise, one `decideMany`
 round trip, one suspension, one Suspense reveal.
 
 ```tsx
-const [beta, theme, nav] = useGateBatch([betaAccess, checkoutTheme, newNav], identity?)
+const [beta, theme, nav] = useGateBatch([betaAccess, checkoutTheme, newNav], { identity })
 ```
 
 This is the series' founding requirement: "wait for three gates before
@@ -28,7 +28,7 @@ choreography.
 ```ts
 export function useGateBatch<const TFlags extends readonly AnyGateEvaluator[]>(
   flags: TFlags,
-  identity?: GateBatchIdentityOf<TFlags>
+  options?: { identity?: GateBatchIdentityOf<TFlags>; ttlMs?: number }
 ): GateBatchValuesOf<TFlags>
 ```
 
@@ -42,11 +42,12 @@ export function useGateBatch<const TFlags extends readonly AnyGateEvaluator[]>(
   (`src/lib/evaluation/batch.ts:31-33`), so `gate.batch([])` resolves. Do not
   route `[]` through the foreign-evaluator rule: `flags[0]` being `undefined`
   is not a foreign evaluator.
-- Cache one promise per invocation shape. Entry key: the ordered flag keys plus
-  the serialized resolved identity, through the existing `deriveKey` machinery
-  with a batch namespace. Array identity of the `flags` literal is irrelevant —
-  a new array per render hits the same entry. Same flag set in a different order
-  is a distinct entry; document this, do not sort.
+- Cache one promise per invocation shape, in a batch bucket of the active cache
+  (c03's bucketed structure). Entry key: the ordered flag keys plus the
+  serialized resolved identity. Array identity of the `flags` literal is
+  irrelevant — a new array per render hits the same entry. Same flag set in a
+  different order is a distinct entry; document this, do not sort. `ttlMs` is
+  stamped at entry creation, matching `useGate`.
 - The cached promise is `ref.batch(flags, { identity })`. With c02 the resolved
   value is already the destructurable tuple (plus `get`/`details`); `use()`
   returns it as-is. `get`/`details` are synchronous after the suspension —
@@ -57,16 +58,16 @@ export function useGateBatch<const TFlags extends readonly AnyGateEvaluator[]>(
   batch entry's store (the per-gate filter generalizes to set membership). The
   whole batch re-evaluates; per-member refetch is out of scope — a batch is one
   unit by definition.
-- `useGateCache()` handles treat a batch entry as one invalidation target:
-  `invalidateBatch(flags, identity?)` on the handle. Per-member invalidation of
-  a batch entry is out of scope for the same reason.
+- `cache.invalidateBatch(flags, identity?)` (c03) treats a batch entry as one
+  invalidation target. Per-member invalidation of a batch entry is out of scope
+  for the same reason.
 - Duplicate flags in one batch already throw `DuplicateBatchKeyError` in
   `executeGateBatch`; surface it unchanged.
 
 ## Changes
 
-- `src/integrations/react.tsx` — `useGateBatch`, batch key derivation, batch
-  membership in the changes filter, `invalidateBatch` on the handle,
+- `src/integrations/react.tsx` — `useGateBatch`, batch bucket and key
+  derivation, batch membership in the changes filter, `invalidateBatch` wiring,
   `GateBatchValuesOf`/`GateBatchIdentityOf` types.
 - README — "Batching in React" section: the waterfall problem, the hook, one
   Suspense boundary around the consumer as the "wait for N gates" recipe.
@@ -88,10 +89,11 @@ Extend `src/integrations/__tests__/react.test.tsx`:
   `DuplicateBatchKeyError`.
 - `useGateBatch([])` renders without suspension or provider work and
   destructures to nothing.
-- Identity precedence and per-identity entries (mirror c04).
+- Identity precedence (option > provider `identity` > identify sentinel) and
+  per-identity entries (mirror c04).
 - A `subscribe` emission for one member key re-evaluates the batch; an unrelated
   key does not.
-- `invalidateBatch` evicts and re-renders.
+- `cache.invalidateBatch` evicts and re-renders.
 - Fallback semantics: one member falling back to its default (provider error for
   that key) does not reject the batch — parity with `executeGateBatch` tests.
 - Entrypoint pins: `useGateBatch` joins the runtime surface in

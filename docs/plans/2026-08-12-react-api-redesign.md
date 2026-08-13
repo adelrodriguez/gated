@@ -5,6 +5,11 @@ review of the React integration and the batch surface, not from a codebase revie
 The trigger question was: "how do we wait for three gates before rendering?" The
 answer exposed structural problems in the current React API.
 
+Revision note: the Decisions section was revised after review. The first revision
+kept `createReactGate` as a deprecated escape hatch and configured caches through
+hook factories. The final design removes `createReactGate` entirely and moves all
+per-gate configuration to hook options.
+
 ## Findings
 
 - **D1 — Hook waterfall.** A component that calls three `createReactGate` hooks
@@ -42,30 +47,62 @@ answer exposed structural problems in the current React API.
   legal but fragile under lint rules and the React Compiler, and the `match` type
   must be recovered through `ReturnType` instead of the evaluator's variants.
 
+## The final surface
+
+```tsx
+useGate(flag, { identity, ttlMs, details }?)   // evaluator; key auto-derived
+useGate(fn, { key, ttlMs })                     // arbitrary async fn; key required
+useGateBatch([a, b, c], { identity, ttlMs }?)  // one decideMany, one suspension
+useGateCache()                                  // returns the active cache
+<FeatureGate gate={flag} match? identity? loading? fallback? />
+<GateProvider cache? identity? />               // bare mount auto-creates a cache
+createGateCache(options?)                       // cache object with invalidation methods
+```
+
+Removed: `createReactGate`, `GateCacheProvider`.
+
 ## Decisions
 
-1. Evaluators become the single currency on the server and the client. The server
+1. Evaluators are the single currency on the server and the client. The server
    awaits them; the client passes them to hooks and components.
-2. New client surface: `useGate(evaluator, identity?)`,
-   `useGateBatch([evaluators], identity?)`, `GateProvider`, `useGateCache()`.
+2. Per-gate configuration lives in hook options, per call site (the TanStack
+   Query model). There is no definition step of any kind: no `createReactGate`,
+   no `defineReactGate`. A consumer who wants a named hook writes a plain
+   wrapper function (`const useBetaAccess = () => useGate(betaAccess, {...})`);
+   that is a consumer convention, not a library API.
 3. `useGateBatch` is the answer to "wait for N gates": one cached `batch()`
    promise, one suspension, one `decideMany` round trip, one Suspense reveal.
 4. `gate.batch` results become destructurable tuples; `get()`/`details()` remain.
-5. `GateProvider` creates its own cache when none is passed and accepts an
-   optional default `identity`. `GateCacheProvider` remains as a deprecated alias
-   seam during migration.
-6. Invalidation goes through the cache: `useGateCache()` in components, a handle
-   over the cache object outside React. Invalidation bumps version stores and
-   re-renders subscribers.
-7. `FeatureGate` takes an evaluator. `match` and `identity` types derive from it.
-8. `createReactGate` survives only as the escape hatch for arbitrary async
-   functions with a `cacheKey` projection. The plain-evaluator overload is
-   deprecated in docs.
-9. Rejected: a `GateClient` object and `useGateClient` naming. Gated's currency is
-   evaluators plus a cache; a client object adds a concept without capability.
-10. Deferred: a `FeatureGates` render-prop plural. `useGateBatch` covers the batch
-    case in plain code; add the component only on demonstrated demand.
-11. Deferred: implicit DataLoader-style same-tick batching of single-gate hooks.
-    It cannot fix the intra-component waterfall (D1), adds a tick of latency to
-    every evaluation, and is invisible. Revisit only if cross-component batching
-    without code changes becomes a requirement.
+5. A promise cache is mandatory, not an optimization: `use()` requires the same
+   promise object across render attempts, so an uncached promise created in
+   render suspends forever. The cache is the termination mechanism.
+6. Cache keys: for evaluators, the key derives from the flag key plus the
+   resolved identity (or an identify sentinel when the core `identify` resolves
+   it). The `key` option exists only for the arbitrary-function form, where it
+   is required — the caller computes it from the arguments it already has,
+   which is why no `cacheKey` projection (and no definition step) is needed.
+7. The cache stores per-gate buckets plus a custom-key bucket, eliminating the
+   namespace machinery and cross-gate eviction: one gate's identity churn cannot
+   evict another gate's entries.
+8. `GateProvider` is demoted to two jobs: per-request cache isolation during
+   SSR (auto-created via `useState` when no `cache` prop is passed) and a
+   default `identity` value for descendant hooks. Client-only apps never mount
+   it. Placement rule: mount it above the Suspense boundaries of its consumers.
+9. `identity` on the provider is a value prop, not a function: the value
+   participates in cache keys at render time and drives context updates.
+10. Invalidation methods live on the cache object itself
+    (`invalidate`/`invalidateKey`/`invalidateBatch`/`clear`); `useGateCache()`
+    returns the active cache. There is no separate handle concept. Invalidation
+    bumps version stores and re-renders subscribers.
+11. `useGate(flag, { details: true })` returns evaluation details instead of the
+    value. One cache entry serves both forms: the entry caches the details
+    evaluation and the value form projects `.value` from it.
+12. `FeatureGate` takes an evaluator. `match` and `identity` types derive from it.
+13. Rejected: a `GateClient` object and `useGateClient` naming; `defineReactGate`
+    or any definition step; a per-hook `cache` option (the provider is the only
+    cache seam).
+14. Planned (c08): a preload seam on the cache (`cache.prefetch`) for route
+    loaders and hover warming.
+15. Deferred: a `FeatureGates` render-prop plural (`useGateBatch` covers it in
+    plain code) and implicit DataLoader-style same-tick batching (cannot fix the
+    intra-component waterfall, adds a tick of latency, invisible).

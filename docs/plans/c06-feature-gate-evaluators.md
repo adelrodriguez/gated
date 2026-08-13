@@ -38,10 +38,10 @@ evaluator's variant tuple.
   - Variant evaluator: `match: GateValueOf<TFlag>` (required).
   - Both: `identity?: GateIdentityOf<TFlag>`.
 - Breaking migration: consumers replace `gate={useBetaAccess}` with
-  `gate={betaAccess}` and delete the `createReactGate` wrapper. Consumers who
-  keep a custom `createReactGate` function must call it as a hook in their own
-  component; `FeatureGate` no longer accepts functions that are not registered
-  evaluators (same typed error as `useGate`).
+  `gate={betaAccess}` and delete the `createReactGate` wrapper. `FeatureGate`
+  accepts only registered evaluators — custom-function gates
+  (`useGate(fn, { key })`) render through their own component, not through
+  `FeatureGate` (typed error, same as `useGate` without a `key`).
 - Sibling `FeatureGate` components under one Suspense boundary evaluate in
   parallel (siblings render past a suspended sibling) — document this as the
   component-level "wait for N gates" recipe, with `useGateBatch` (c05) as the
