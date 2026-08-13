@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">🏰 Gated</h1>
+  <h1 align="center">🏰 <code>gated</code></h1>
   <p align="center">
     <strong>Type-safe feature flags for TypeScript applications</strong>
   </p>
@@ -231,10 +231,11 @@ const theme = gate({
 
 export async function DashboardPage() {
   const batch = await gate.batch([betaAccess, theme])
+  const [beta, selectedTheme] = batch
 
   return renderDashboard({
-    betaAccess: batch.get(betaAccess), // boolean
-    theme: batch.get(theme), // "light" | "dark"
+    betaAccess: beta, // boolean
+    theme: selectedTheme, // "light" | "dark"
     themeEvaluation: batch.details(theme), // source, error, and payload
   })
 }
@@ -444,20 +445,19 @@ const unsubscribe = gate.changes.subscribe((keys) => {
 
 React is currently the only framework with dedicated integration. The core library works in any JavaScript environment.
 
-#### React Gates
+#### React gates
 
-Convert evaluators into cached React hooks with `createReactGate()`. Components calling these hooks directly must be wrapped in a Suspense boundary:
+Pass evaluators directly to `useGate()`. Components calling gate hooks must be wrapped in a Suspense boundary:
 
 ```typescript
-import { createReactGate } from "gated/react"
+import { useGate } from "gated/react"
 
 // Using the gate from Quick Start
 const betaFlag = gate({ key: "beta-access", defaultValue: false })
-export const useBetaAccess = createReactGate(betaFlag)
 
 // Use in components (wrapped in Suspense)
 function MyComponent() {
-  const hasBeta = useBetaAccess()
+  const hasBeta = useGate(betaFlag)
   return hasBeta ? <BetaFeature /> : <OldFeature />
 }
 
@@ -470,44 +470,46 @@ function App() {
 }
 ```
 
-Evaluations are cached by gate and identity for five minutes after they settle, with a maximum of 100 settled entries. Pending evaluations stay pinned by default, so the cache can temporarily exceed that bound without causing repeated Suspense retries. Set `pendingTtlMs` to make older pending entries evictable, or configure a core gate `timeoutMs` so evaluations cannot remain pending indefinitely. Eviction only removes the cache reference; it does not cancel the in-flight promise. The default pending behavior is unchanged. Identity cache-key inputs are validated at render. They can contain only strings, numbers, booleans, `null`, `undefined`, arrays, and string-keyed plain records composed recursively from those values. Non-plain objects such as `Date` and `Map`, symbols, functions, bigints, and circular references throw a `TypeError` that names the invalid path. Change `identify` to stringify or project unsupported identity values. Configure the bounds and explicitly invalidate cached decisions when application state changes:
+Evaluations are cached by gate and identity for five minutes after they settle, with a maximum of 100 settled entries per gate. Each evaluator, each batch tuple, and the function form of `useGate` hold their own bucket, so `maxEntries` bounds identities within a bucket rather than the cache as a whole. Pending evaluations stay pinned by default, so the cache can temporarily exceed that bound without causing repeated Suspense retries. Set `pendingTtlMs` to make older pending entries evictable, or configure a core gate `timeoutMs` so evaluations cannot remain pending indefinitely. Eviction only removes the cache reference; it does not cancel the in-flight promise. The default pending behavior is unchanged. Identity cache-key inputs are validated at render. They can contain only strings, numbers, booleans, `null`, `undefined`, arrays, and string-keyed plain records composed recursively from those values. Non-plain objects such as `Date` and `Map`, symbols, functions, bigints, and circular references throw a `TypeError` that names the invalid path. Change `identify` to stringify or project unsupported identity values. Configure the bounds and explicitly invalidate cached decisions when application state changes:
 
-```typescript
-const useBetaAccess = createReactGate(betaFlag, {
-  maxEntries: 250,
-  pendingTtlMs: 30_000,
-  ttlMs: 60_000,
-})
+```tsx
+const cache = createGateCache({ maxEntries: 250, pendingTtlMs: 30_000, ttlMs: 60_000 })
 
-useBetaAccess.invalidate({ distinctId: user.id }) // One identity
-useBetaAccess.invalidate() // The default identity
-useBetaAccess.clear() // Every identity, for example on logout
+function App() {
+  return (
+    <GateProvider cache={cache} identity={{ distinctId: user.id }}>
+      <Routes />
+    </GateProvider>
+  )
+}
 ```
 
-Manual invalidation, clearing, and TTL expiry remain pull-based: they cause re-evaluation on the next render but do not schedule a render themselves. For provider push updates, connect the factory change hub. A matching notification evicts each rendered cache key, schedules a render, and evaluates the gate again. Notifications for other flag keys do not render the component:
+Invalidation and clearing evict entries and re-render subscribed components. Provider change notifications are connected automatically. A matching notification re-evaluates the gate; notifications for other flag keys do not render the component.
 
-```typescript
-const useBetaAccess = createReactGate(betaFlag, { changes: gate.changes })
+```tsx
+function RefreshButton() {
+  const cache = useGateCache()
+  // Defaults to the provider identity, so this evicts the entry the tree is reading.
+  return <button onClick={() => cache.invalidate(betaFlag)}>Refresh</button>
+}
 ```
 
-For server rendering, keep generated hooks at module scope and provide a new cache for each request or isolated app segment. The same request cache can serve multiple hooks because entries are namespaced per hook. Never share that cache across requests because it can retain identities and stale decisions across users. In development, server rendering without an option cache or `GateCacheProvider` logs a one-time warning.
+A cache read through `useGateCache()` applies the provider identity to `invalidate`, `invalidateBatch`, `prefetch`, and `prefetchBatch` when the call omits one. A cache used directly, outside React, has no provider to read, so it always requires an explicit identity: `cache.invalidate(betaFlag, { distinctId: user.id })`.
+
+Every `gated/react` export is client-only; the module carries a `"use client"` directive. Achieve per-request isolation on the server by mounting `GateProvider` inside the client boundary rather than by constructing a cache in a Server Component.
+
+For server rendering, mount `GateProvider` above the Suspense boundaries that contain its consumers. A bare provider creates an isolated cache per mount. Client-only applications do not need a provider.
 
 The change subscription is client-oriented. `useSyncExternalStore` does not attach it during a server render, so a request-scoped server render does not open a provider listener.
 
 ```tsx
-import { GateCacheProvider, createReactGate, createReactGateCache } from "gated/react"
-
-// Module scope
-const useBetaAccess = createReactGate(betaFlag)
-const useInternalTools = createReactGate(internalToolsFlag)
+import { GateProvider } from "gated/react"
 
 function createRequestTree() {
-  const requestCache = createReactGateCache({ pendingTtlMs: 30_000 })
-
   return (
-    <GateCacheProvider cache={requestCache}>
+    <GateProvider>
       <App />
-    </GateCacheProvider>
+    </GateProvider>
   )
 }
 
@@ -515,21 +517,19 @@ function createRequestTree() {
 const requestTree = createRequestTree()
 ```
 
-An explicit `cache` option still wins over the nearest provider. A hook without either uses its own default cache. Generated hook methods such as `invalidate()` and `clear()` are module-level and cannot read React context. When a provider supplies the active cache, clear it through the cache object, for example `requestCache.clear()`. An injected option cache owns its bounds, so `cache` cannot be combined with `maxEntries`, `pendingTtlMs`, or `ttlMs` in `createReactGate` options.
+Use `useGateCache()` inside a component to access the active cache. Pass an explicit cache to `GateProvider` when code outside React also needs the cache reference.
 
-The returned React hook accepts a bare identity (`useBetaAccess(identity)`) even when the core evaluator uses an options object. This is intentional: a cached evaluation can be shared by several components, so attaching a per-consumer `AbortSignal` would let one component cancel work used by the others. Use the core evaluator directly when a caller-owned signal is required.
+Pass identity in the hook options: `useGate(betaFlag, { identity })`. Use the core evaluator directly when a caller-owned signal is required.
 
-Custom async functions retain their own argument tuple and require a `cacheKey` projection so operational arguments do not fragment semantic cache entries. The projection must return a `ReactGateCacheKey`: a scalar, array, or string-keyed plain record composed recursively from strings, numbers, booleans, `null`, and `undefined`. These projected keys are validated at render with the same errors as identity keys. Use `invalidateKey()` when you already have the projected key. The tuple form of `invalidate()` remains available and applies the projection for symmetry with lookup:
+Custom async functions use `useGate(fn, { key })`. The required key is a scalar, array, or string-keyed plain record. Custom functions have no automatic changes feed or identity fallback.
 
 ```typescript
 const customAsyncGate = async (accountId: string, traceId: string) =>
   provider.evaluateAccount(accountId, { traceId })
-const useAccountGate = createReactGate(customAsyncGate, {
-  cacheKey: (accountId) => accountId,
+const enabled = useGate(() => customAsyncGate("account-1", crypto.randomUUID()), {
+  key: "account-1",
 })
-
-useAccountGate("account-1", crypto.randomUUID())
-useAccountGate.invalidateKey("account-1")
+cache.invalidateKey("account-1")
 ```
 
 #### `<FeatureGate>` Component
@@ -542,7 +542,7 @@ import { FeatureGate } from "gated/react"
 function App() {
   return (
     <FeatureGate
-      gate={useBetaAccess}
+      gate={betaFlag}
       loading={<Spinner />}
       fallback={<OldFeature />}
     >
@@ -670,17 +670,21 @@ const auditHook = prefixedHook({ prefix: "audit" })
 
 ### React API
 
-#### `createReactGate(gateFn, options?)`
+#### `useGate(evaluator, options?)`
 
-Converts an evaluator into a React hook using React 19's `use()` primitive and a bounded promise cache. Gated evaluators use their identity automatically. Custom async functions retain their argument tuple and require `cacheKey`. Cache resolution is an explicit option cache, then the nearest `GateCacheProvider`, then the hook's default cache. Configure `maxEntries`, `pendingTtlMs`, and `ttlMs`, or use an injected `cache`; injected caches own their bounds. Pass `changes: gate.changes` to evict and re-render on provider notifications. The returned hook exposes invocation-specific `invalidate(...)` and `clear()`. Custom hooks also expose `invalidateKey(...)` for direct projected-key invalidation. Manual controls take effect on the next render.
+Reads an evaluator through React 19 `use()`. Options are `identity`, `ttlMs`, and `details`. The function form is `useGate(fn, { key, ttlMs? })` and requires a stable key.
 
-#### `createReactGateCache(options?)`
+#### `useGateBatch(flags, options?)`
 
-Creates a bounded TTL/LRU cache for `createReactGate` or `GateCacheProvider`. Settled-entry TTL starts at settlement. Pending evaluations remain pinned unless `pendingTtlMs` makes them eligible for lazy TTL/LRU pruning. One request-scoped cache can safely serve multiple namespaced React gates.
+Evaluates one tuple of gates with one suspension and one provider `decideMany` call when available. Flag order is part of the cache key and result tuple.
 
-#### `<GateCacheProvider>`
+#### `createGateCache(options?)` and `useGateCache()`
 
-Provides a React gate cache to module-scope generated hooks in its subtree. Use a new cache for each server request. An explicit hook option cache takes priority over the provider cache.
+Creates or reads the bounded active cache. It provides `invalidate`, `invalidateBatch`, `invalidateKey`, `clear`, `prefetch`, and `prefetchBatch`. Prefetch uses the same entries as the hooks, so client-side navigation handlers and hover handlers can start work before render. A cache reached through `useGateCache()` falls back to the provider identity; a directly constructed cache has no provider to read and always needs an explicit identity. Both exports are client-only.
+
+#### `<GateProvider>`
+
+Creates an isolated cache per mount or accepts an explicit cache. It can also provide a default identity. Mount it above consumer Suspense boundaries.
 
 #### `<FeatureGate>`
 

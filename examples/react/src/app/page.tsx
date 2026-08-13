@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic"
 const demos = [
   ["/admin", "Provider state", "overrides · latency · failure"],
   ["/server", "Server evaluation", "details() · batch() · decideMany"],
-  ["/client", "React integration", "createReactGate · FeatureGate"],
+  ["/client", "React integration", "useGate · FeatureGate"],
   ["/matrix", "Identity matrix", "identity override · batch()"],
   ["/advanced", "Evaluation lifecycle", "hooks · fallback · cancellation"],
 ] as const

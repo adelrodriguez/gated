@@ -1,7 +1,7 @@
 "use client"
 
 import { buildGate, type Decision } from "gated"
-import { createReactGate } from "gated/react"
+import { useGate } from "gated/react"
 import type { DemoIdentity } from "#shared/flags"
 
 let clientFetches = 0
@@ -41,10 +41,6 @@ export const clientCheckoutTheme = clientGate({
 })
 export const clientFlakyFlag = clientGate({ key: "flaky-flag", defaultValue: false })
 
-export const useNewDashboard = createReactGate(clientNewDashboard)
-export const useBetaBanner = createReactGate(clientBetaBanner)
-export const useCheckoutTheme = createReactGate(clientCheckoutTheme)
-
 async function audienceLabel(
   identity: DemoIdentity,
   prefix: string
@@ -52,6 +48,8 @@ async function audienceLabel(
   const value = await clientNewDashboard({ identity })
   return value ? "enabled" : "disabled"
 }
-export const useAudienceLabel = createReactGate(audienceLabel, {
-  cacheKey: (identity, prefix) => [identity.distinctId, prefix],
-})
+export function useAudienceLabel(identity: DemoIdentity, prefix: string) {
+  return useGate(() => audienceLabel(identity, prefix), {
+    key: [identity.distinctId, prefix],
+  })
+}

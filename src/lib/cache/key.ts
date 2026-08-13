@@ -91,30 +91,3 @@ export function serializeKey(value: unknown, rootPath: "cacheKey" | "identity"):
 
   return encode(value, rootPath)
 }
-
-export function normalizeKey(args: unknown[]): unknown[] {
-  const normalized = [...args]
-  while (normalized.length > 0 && normalized.at(-1) === undefined) {
-    normalized.pop()
-  }
-  return normalized
-}
-
-/**
- * Derives the cache key for a gate invocation. Trailing undefined arguments are dropped so gate()
- * and gate(undefined) share an entry, then the arguments are projected through cacheKey when
- * provided, otherwise the first argument is treated as the identity.
- */
-export function deriveKey(
-  args: unknown[],
-  options: {
-    cacheKey?: (...args: unknown[]) => GateCacheKey
-    namespace: string
-  }
-): string {
-  const normalizedArgs = normalizeKey(args)
-  const semanticKey = options.cacheKey
-    ? options.cacheKey(...normalizedArgs)
-    : (normalizedArgs[0] ?? null)
-  return options.namespace + serializeKey(semanticKey, options.cacheKey ? "cacheKey" : "identity")
-}

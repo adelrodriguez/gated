@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import { GateProvider } from "gated/react"
 import { SiteHeader } from "#features/shell/site-header"
 import { UsersProvider } from "#features/shell/users-provider"
 import { getSelectedUser } from "#shared/server/user"
@@ -14,10 +15,12 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang="en">
       <body>
-        <UsersProvider user={user}>
-          <SiteHeader selected={user} />
-          {children}
-        </UsersProvider>
+        <GateProvider>
+          <UsersProvider user={user}>
+            <SiteHeader selected={user} />
+            {children}
+          </UsersProvider>
+        </GateProvider>
       </body>
     </html>
   )

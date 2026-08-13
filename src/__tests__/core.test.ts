@@ -3,8 +3,23 @@ import type { Decision, EvaluationDetails, Hook, Identity } from "../lib/types"
 import { decision } from "../decision"
 import { buildGate } from "../factory"
 import { IdentityNotFoundError, MalformedDecisionError } from "../lib/errors"
+import { getEvaluatorFactoryRef } from "../lib/evaluation/registry"
 
 describe("buildGate", () => {
+  test("registers one factory reference for its evaluators", async () => {
+    const gate = buildGate({
+      decide: () => decision.boolean(true),
+      identify: () => ({ distinctId: "user" }),
+    })
+    const first = gate({ defaultValue: false, key: "first" })
+    const second = gate({ defaultValue: false, key: "second" })
+    const ref = getEvaluatorFactoryRef(first)
+
+    expect(ref).toBe(getEvaluatorFactoryRef(second))
+    expect(getEvaluatorFactoryRef({})).toBeUndefined()
+    const batch = (await ref?.batch([first])) as readonly [boolean]
+    expect(batch[0]).toBe(true)
+  })
   test.each([Number.NaN, Number.POSITIVE_INFINITY, -1, 0, 2_147_483_648])(
     "rejects an invalid factory timeout of %p",
     (timeoutMs) => {

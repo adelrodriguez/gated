@@ -1,22 +1,22 @@
 "use client"
 
-import { FeatureGate } from "gated/react"
+import { FeatureGate, useGate, useGateCache } from "gated/react"
 import { Suspense, useState, useTransition } from "react"
 import { CodeBlock } from "#features/shell/code-block"
 import { useSelectedUser } from "#features/shell/users-provider"
 import {
   getClientFetches,
+  clientBetaBanner,
+  clientCheckoutTheme,
+  clientNewDashboard,
   useAudienceLabel,
-  useBetaBanner,
-  useCheckoutTheme,
-  useNewDashboard,
 } from "#shared/gates/client"
 
 type Identity = { distinctId: "alice" | "bob" | "carol" }
 
 function Values({ identity }: { identity: Identity }) {
-  const dashboard = useNewDashboard(identity)
-  const theme = useCheckoutTheme(identity)
+  const dashboard = useGate(clientNewDashboard, { identity })
+  const theme = useGate(clientCheckoutTheme, { identity })
   const custom = useAudienceLabel(identity, "dashboard")
   return (
     <div className="stack">
@@ -30,7 +30,7 @@ function Values({ identity }: { identity: Identity }) {
           <p className="metric value">{theme}</p>
         </article>
         <article className="signal">
-          <p>custom cacheKey</p>
+          <p>custom key</p>
           <p className="metric value">{custom}</p>
         </article>
         <article className="signal">
@@ -44,21 +44,19 @@ function Values({ identity }: { identity: Identity }) {
 
 export function ClientShowcase() {
   const selected = useSelectedUser()
+  const cache = useGateCache()
   const identity: Identity = { distinctId: selected === "anonymous" ? "alice" : selected }
   const [revision, setRevision] = useState(0)
   const [pending, startTransition] = useTransition()
   const refresh = () => startTransition(() => setRevision((value) => value + 1))
   const invalidate = () => {
-    useNewDashboard.invalidate(identity)
-    useCheckoutTheme.invalidate(identity)
-    useAudienceLabel.invalidate(identity, "dashboard")
+    cache.invalidate(clientNewDashboard, identity)
+    cache.invalidate(clientCheckoutTheme, identity)
+    cache.invalidateKey([identity.distinctId, "dashboard"])
     refresh()
   }
   const clear = () => {
-    useNewDashboard.clear()
-    useBetaBanner.clear()
-    useCheckoutTheme.clear()
-    useAudienceLabel.clear()
+    cache.clear()
     refresh()
   }
   return (
@@ -101,7 +99,7 @@ const label = useAudienceLabel(identity, "dashboard")`}</CodeBlock>
             <article className="branch-result">
               <span>Boolean gate</span>
               <FeatureGate
-                gate={useBetaBanner}
+                gate={clientBetaBanner}
                 identity={identity}
                 loading={<p>Loading banner gate…</p>}
                 fallback={<p className="muted">Fallback rendered: banner is off.</p>}
@@ -112,7 +110,7 @@ const label = useAudienceLabel(identity, "dashboard")`}</CodeBlock>
             <article className="branch-result">
               <span>Variant match: dark</span>
               <FeatureGate
-                gate={useCheckoutTheme}
+                gate={clientCheckoutTheme}
                 identity={identity}
                 match="dark"
                 loading={<p>Loading theme gate…</p>}
@@ -124,14 +122,14 @@ const label = useAudienceLabel(identity, "dashboard")`}</CodeBlock>
           </div>
         </div>
         <CodeBlock label="Conditional rendering">{`<FeatureGate
-  gate={useBetaBanner}
+  gate={clientBetaBanner}
   identity={identity}
   fallback={<BannerOff />}
 >
   <BetaBanner />
 </FeatureGate>
 
-<FeatureGate gate={useCheckoutTheme} identity={identity} match="dark">
+<FeatureGate gate={clientCheckoutTheme} identity={identity} match="dark">
   <DarkCheckout />
 </FeatureGate>`}</CodeBlock>
       </section>

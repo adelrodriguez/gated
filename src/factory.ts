@@ -12,7 +12,11 @@ import type {
 import { ForeignGateEvaluatorError, BatchFlagNotFoundError } from "./lib/errors"
 import { type BatchEntry, executeGateBatch } from "./lib/evaluation/batch"
 import { executeGate, executeGateDetails } from "./lib/evaluation/engine"
-import { setEvaluatorFlagKey } from "./lib/evaluation/registry"
+import {
+  type EvaluatorFactoryRef,
+  setEvaluatorFactoryRef,
+  setEvaluatorFlagKey,
+} from "./lib/evaluation/registry"
 import { createResolutionState } from "./lib/evaluation/resolve"
 import { reportInBackground } from "./lib/hook"
 
@@ -29,7 +33,9 @@ type GatePayload<TEvaluator> =
     : never
 type GateDetails<TEvaluator> = EvaluationDetails<GateValue<TEvaluator>, GatePayload<TEvaluator>>
 
-export type GateBatch<TFlags extends readonly AnyGateEvaluator[]> = {
+export type GateBatch<TFlags extends readonly AnyGateEvaluator[]> = Readonly<{
+  [K in keyof TFlags]: GateValue<TFlags[K]>
+}> & {
   details<TFlag extends TFlags[number]>(flag: TFlag): GateDetails<TFlag>
   get<TFlag extends TFlags[number]>(flag: TFlag): GateValue<TFlag>
 }
@@ -187,6 +193,39 @@ export function buildGate<TIdentity extends Identity>(
     },
   }
 
+  async function batch(
+    flags: readonly AnyGateEvaluator[],
+    callOptions?: GateCallOptions<TIdentity | null>
+  ): Promise<GateBatch<readonly AnyGateEvaluator[]>> {
+    const entries: BatchEntry[] = flags.map((flag) => {
+      const options = definitions.get(flag)
+      if (!options) {
+        throw new ForeignGateEvaluatorError()
+      }
+      return { flag, options }
+    })
+    const results = await executeGateBatch(config, entries, callOptions, state)
+    const getDetails = <TFlag extends AnyGateEvaluator>(flag: TFlag): GateDetails<TFlag> => {
+      const details = results.get(flag)
+      if (!details) {
+        throw new BatchFlagNotFoundError()
+      }
+      return details as GateDetails<TFlag>
+    }
+    const values = flags.map((flag) => getDetails(flag).value)
+    return Object.assign(values, {
+      details: getDetails,
+      get<TFlag extends AnyGateEvaluator>(flag: TFlag): GateValue<TFlag> {
+        return getDetails(flag).value
+      },
+    })
+  }
+
+  const factoryRef: EvaluatorFactoryRef = {
+    batch: batch as EvaluatorFactoryRef["batch"],
+    changes,
+  }
+
   function gate(options: {
     key: string
     defaultValue: boolean
@@ -216,36 +255,15 @@ export function buildGate<TIdentity extends Identity>(
     })
     definitions.set(assigned, options)
     setEvaluatorFlagKey(assigned, options.key)
+    setEvaluatorFactoryRef(assigned, factoryRef)
     return assigned
   }
 
   return Object.assign(gate, {
-    async batch<const TFlags extends readonly AnyGateEvaluator[]>(
+    batch: batch as <const TFlags extends readonly AnyGateEvaluator[]>(
       flags: TFlags,
       callOptions?: GateCallOptions<TIdentity | null>
-    ): Promise<GateBatch<TFlags>> {
-      const entries: BatchEntry[] = flags.map((flag) => {
-        const options = definitions.get(flag)
-        if (!options) {
-          throw new ForeignGateEvaluatorError()
-        }
-        return { flag, options }
-      })
-      const results = await executeGateBatch(config, entries, callOptions, state)
-      const getDetails = <TFlag extends TFlags[number]>(flag: TFlag): GateDetails<TFlag> => {
-        const details = results.get(flag)
-        if (!details) {
-          throw new BatchFlagNotFoundError()
-        }
-        return details as GateDetails<TFlag>
-      }
-      return {
-        details: getDetails,
-        get<TFlag extends TFlags[number]>(flag: TFlag): GateValue<TFlag> {
-          return getDetails(flag).value
-        },
-      }
-    },
+    ) => Promise<GateBatch<TFlags>>,
     changes,
   })
 }
