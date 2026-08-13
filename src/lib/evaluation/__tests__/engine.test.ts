@@ -1,9 +1,19 @@
 import { describe, expect, mock, test } from "bun:test"
-import type { Decision, Hook, Identity } from "../../types"
+import type { GateCallOptions, Decision, Hook, Identity } from "../../types"
+import type { AnyGatedConfig, GateOptions } from "../shared"
 import { IdentityNotFoundError, MalformedDecisionError } from "../../errors"
 import { extractDecisionValue, validateDecision } from "../decision"
-import { executeGate } from "../engine"
+import { executeGate as executeGateWithRuntime } from "../engine"
 import { identify } from "../identity"
+import { createEvaluationRuntime } from "../runtime"
+
+function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
+  config: AnyGatedConfig<TIdentity>,
+  options: GateOptions<T>,
+  callOptions?: GateCallOptions<TIdentity | null>
+): Promise<boolean | T[number]> {
+  return executeGateWithRuntime(config, options, callOptions, createEvaluationRuntime())
+}
 
 async function expectRejection<T>(promise: Promise<T>, message: string) {
   let caughtError: Error | undefined

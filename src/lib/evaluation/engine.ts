@@ -6,13 +6,13 @@ import type {
   HookContext,
   Identity,
 } from "../types"
+import type { EvaluationRuntime } from "./runtime"
 import { runAfterHooks, runBeforeHooks, runErrorHooks, runFinallyHooks } from "../hook"
 import { normalizeError } from "../utils"
 import { consultCache, writeCacheDecision } from "./cache"
 import { coalesceProviderDecision } from "./coalesce"
 import { extractDecisionValue, validateDecision } from "./decision"
 import { evaluateConfiguredDecision, identify } from "./identity"
-import { createEvaluationRuntime, type EvaluationRuntime } from "./runtime"
 import {
   type AnyGatedConfig,
   type GateConfiguration,
@@ -39,8 +39,8 @@ export type IdentityResult<TIdentity extends Identity> =
 /**
  * Contract between the batch orchestrator and one evaluation.
  *
- * `identityResult` replaces identity resolution. `provider` replaces the configured `decide` and
- * is called only when the evaluation needs provider work — after a cache miss, and never as a
+ * `identityResult` replaces identity resolution. `provider` replaces the configured `decide` and is
+ * called only when the evaluation needs provider work — after a cache miss, and never as a
  * coalesced follower.
  */
 export type ExecutionOverrides<TIdentity extends Identity> = {
@@ -100,9 +100,9 @@ export async function executeGateDetails<
 >(
   config: AnyGatedConfig<TIdentity>,
   options: GateOptions<T>,
-  callOptions?: GateCallOptions<TIdentity | null>,
-  execution?: ExecutionOverrides<TIdentity>,
-  runtime: EvaluationRuntime = createEvaluationRuntime()
+  callOptions: GateCallOptions<TIdentity | null> | undefined,
+  execution: ExecutionOverrides<TIdentity> | undefined,
+  runtime: EvaluationRuntime
 ): Promise<EvaluationDetails<boolean | T[number], TPayload>> {
   const hooks = [...(config.hooks ?? [])]
   const gateConfiguration = getGateConfiguration(options.variants)
@@ -226,8 +226,8 @@ export async function executeGateDetails<
 export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
   config: AnyGatedConfig<TIdentity>,
   options: GateOptions<T>,
-  callOptions?: GateCallOptions<TIdentity | null>,
-  runtime?: EvaluationRuntime
+  callOptions: GateCallOptions<TIdentity | null> | undefined,
+  runtime: EvaluationRuntime
 ): Promise<boolean | T[number]> {
   const details = await executeGateDetails(config, options, callOptions, undefined, runtime)
   return details.value

@@ -1,10 +1,10 @@
 import type { Decision, EvaluationDetails, GateCallOptions, Identity } from "../types"
+import type { EvaluationRuntime } from "./runtime"
 import type { AnyGatedConfig, GateOptions } from "./shared"
 import { DuplicateBatchKeyError } from "../errors"
 import { normalizeError } from "../utils"
 import { executeGateDetails, type IdentityResult } from "./engine"
 import { evaluateConfiguredDecision, evaluateConfiguredMany, identify } from "./identity"
-import { createEvaluationRuntime, type EvaluationRuntime } from "./runtime"
 import { createEvaluationSignal, raceWithSignal } from "./signals"
 
 export type BatchEntry = {
@@ -28,8 +28,8 @@ type FlushRound = {
 export async function executeGateBatch<TIdentity extends Identity>(
   config: AnyGatedConfig<TIdentity>,
   entries: readonly BatchEntry[],
-  callOptions?: GateCallOptions<TIdentity | null>,
-  runtime: EvaluationRuntime = createEvaluationRuntime()
+  callOptions: GateCallOptions<TIdentity | null> | undefined,
+  runtime: EvaluationRuntime
 ): Promise<Map<object, EvaluationDetails<boolean | string>>> {
   if (entries.length === 0) {
     return new Map()

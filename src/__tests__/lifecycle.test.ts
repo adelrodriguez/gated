@@ -552,6 +552,23 @@ describe("request coalescing", () => {
     expect(decide).toHaveBeenCalledTimes(1)
   })
 
+  test("does not share provider work across factories built from one config object", async () => {
+    const decide = mock(async () => {
+      await Bun.sleep(5)
+      return { type: "boolean", value: true } as const
+    })
+    const config = {
+      coalesce: true,
+      decide,
+      identify: () => ({ distinctId: "user123" }),
+    }
+    const first = buildGate(config)({ defaultValue: false, key: "beta-access" })
+    const second = buildGate(config)({ defaultValue: false, key: "beta-access" })
+
+    expect(await Promise.all([first(), second()])).toEqual([true, true])
+    expect(decide).toHaveBeenCalledTimes(2)
+  })
+
   test("does not share provider work across incompatible gate shapes", async () => {
     const decide = mock(async () => {
       await Bun.sleep(5)

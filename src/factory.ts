@@ -212,7 +212,13 @@ export function buildGate<TIdentity extends Identity>(
 
     const assigned = Object.assign(evaluator, {
       details: (callOptions?: GateCallOptions<TIdentity | null>) =>
-        executeGateDetails<TIdentity, T, TPayload>(config, options, callOptions, undefined, runtime),
+        executeGateDetails<TIdentity, T, TPayload>(
+          config,
+          options,
+          callOptions,
+          undefined,
+          runtime
+        ),
     })
     definitions.set(assigned, options)
     setEvaluatorFlagKey(assigned, options.key)
