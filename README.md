@@ -402,6 +402,10 @@ A custom projection fully replaces the default key, including its gate-shape fie
 therefore deliberately share decisions across shapes; the projection must only return the same
 key when the provider decision is compatible with every matching evaluator.
 
+A throwing `evaluationKey` never fails the evaluation: the error is reported through
+`onCacheError` with operation `"key"` — even when only coalescing is configured — and the
+evaluation continues without cache or coalescing.
+
 ### Reactive Updates
 
 Provider adapters can send flag changes through a factory-level change hub. The provider subscription starts when the first `gate.changes` listener attaches and stops when the last listener detaches. Send `keys` to identify changed flags, or omit it when all flags can have changed:
@@ -423,6 +427,8 @@ const gate = buildGate({
 ```
 
 When both `cache.delete` and `subscribe` exist, the engine indexes evaluated cache keys by flag and deletes entries affected by a notification. Other flag entries stay cached. If either function is absent, entries remain until the store expires them.
+
+A notification also drops in-flight coalesced provider work for the changed flags whenever `subscribe` is set, with or without a cache. Evaluations already awaiting the shared call keep its decision; evaluations that start after the notification lead a fresh provider call.
 
 Core evaluation remains pull-based. Subscribe directly to `gate.changes` when another integration or application store needs notifications:
 

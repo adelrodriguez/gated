@@ -94,16 +94,32 @@ function indexCacheKey<TIdentity extends Identity>(
     return
   }
 
-  const { subscription } = state
   const keys = state.keysByFlag.get(context.flagKey) ?? new Map<string, Identity | null>()
   keys.set(key, context.identity)
   state.keysByFlag.set(context.flagKey, keys)
+  attachInvalidationSubscription(config, state)
+}
+
+/**
+ * Attaches the flag-change subscription that invalidates this factory's decision memory. Attached
+ * lazily once there is memory to protect — an indexed cache key or an in-flight coalesced call —
+ * and detached when both are gone.
+ */
+function attachInvalidationSubscription<TIdentity extends Identity>(
+  config: AnyGatedConfig<TIdentity>,
+  state: ResolutionState
+): void {
+  const { subscribe } = config
+  if (!subscribe) {
+    return
+  }
+  const { subscription } = state
   if (subscription.detach || subscription.attaching) {
     return
   }
 
   subscription.attaching = true
-  const detach = config.subscribe(({ keys: changedFlagKeys }) => {
+  const detach = subscribe(({ keys: changedFlagKeys }) => {
     // An invalidated flag's in-flight provider call is stale too: already-attached followers
     // keep the leader's decision, but later evaluations must not join it.
     const changed = changedFlagKeys && new Set(changedFlagKeys)
@@ -112,6 +128,7 @@ function indexCacheKey<TIdentity extends Identity>(
         state.pending.delete(pendingKey)
       }
     }
+    const store = config.cache
     const flagKeys = changedFlagKeys ?? [...state.keysByFlag.keys()]
     for (const flagKey of flagKeys) {
       const cacheKeys = state.keysByFlag.get(flagKey)
@@ -120,6 +137,9 @@ function indexCacheKey<TIdentity extends Identity>(
       }
       state.generationByFlag.set(flagKey, (state.generationByFlag.get(flagKey) ?? 0) + 1)
       state.keysByFlag.delete(flagKey)
+      if (!store) {
+        continue
+      }
       for (const [cacheKey, identity] of cacheKeys) {
         deleteCacheEntry(
           config,
@@ -129,13 +149,13 @@ function indexCacheKey<TIdentity extends Identity>(
         )
       }
     }
-    if (state.keysByFlag.size === 0 && !subscription.attaching) {
+    if (state.keysByFlag.size === 0 && state.pending.size === 0 && !subscription.attaching) {
       subscription.detach?.()
       subscription.detach = undefined
     }
   })
   subscription.attaching = false
-  if (state.keysByFlag.size === 0) {
+  if (state.keysByFlag.size === 0 && state.pending.size === 0) {
     detach()
   } else {
     subscription.detach = detach
@@ -264,6 +284,7 @@ export async function resolveDecision<TIdentity extends Identity, T extends stri
     }
     void lead.promise.catch(() => null)
     state.pending.set(key, lead)
+    attachInvalidationSubscription(config, state)
   }
 
   try {
