@@ -45,10 +45,10 @@ jobs:
 
       - name: Create Release Pull Request or Publish to npm
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@v2
         with:
-          version: bun run version
-          publish: bun run release
-          title: "chore: release"
+          version-script: bun run version
+          publish-script: bun run release
+          pr-title: "chore: release"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
