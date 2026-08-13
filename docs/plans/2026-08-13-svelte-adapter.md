@@ -95,8 +95,10 @@ tuple.
     Svelte use case requires them.
 12. Ship the adapter as an optional entry point. Importing `gated` or
     `gated/react` must not load Svelte.
-13. Server rendering reads a settled resource synchronously: the first
-    subscription publishes `ready` before its initial callback returns. This
+13. Server rendering reads a settled resource synchronously through
+    `GateResource.peek()`: the first subscription publishes `ready` or `error`
+    from `peek()` before its initial callback returns, and falls back to `get()`
+    when `peek()` returns `undefined`. This
     lets loader prefetch affect server HTML. A cache miss publishes `pending`,
     which is the intended server output because Svelte server rendering does not
     await store updates. The pending evaluation continues after the server
@@ -111,6 +113,10 @@ post-Series-C `src/integrations/react.tsx` into `src/lib/integration/`:
 ```ts
 type GateResource<T> = {
   get(): Promise<T>
+  peek():
+    | { status: "ready"; value: T }
+    | { status: "error"; error: Error }
+    | undefined
   invalidate(): void
   subscribe(listener: () => void): () => void
 }
@@ -134,7 +140,8 @@ owns:
 - identity and batch key derivation;
 - same-factory batch validation;
 - per-gate, per-factory-batch, and custom-key buckets;
-- stable promise creation and rejection eviction;
+- stable promise creation, settled value and rejection recording, and rejection
+  eviction;
 - TTL, pending TTL, and per-bucket LRU bounds;
 - invalidation and prefetch;
 - provider-change filtering;
