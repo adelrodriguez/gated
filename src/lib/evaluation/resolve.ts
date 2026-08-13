@@ -104,6 +104,14 @@ function indexCacheKey<TIdentity extends Identity>(
 
   subscription.attaching = true
   const detach = config.subscribe(({ keys: changedFlagKeys }) => {
+    // An invalidated flag's in-flight provider call is stale too: already-attached followers
+    // keep the leader's decision, but later evaluations must not join it.
+    const changed = changedFlagKeys && new Set(changedFlagKeys)
+    for (const [pendingKey, entry] of state.pending) {
+      if (!changed || changed.has(entry.flagKey)) {
+        state.pending.delete(pendingKey)
+      }
+    }
     const flagKeys = changedFlagKeys ?? [...state.keysByFlag.keys()]
     for (const flagKey of flagKeys) {
       const cacheKeys = state.keysByFlag.get(flagKey)

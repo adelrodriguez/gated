@@ -625,6 +625,40 @@ describe("request coalescing", () => {
     expect(followerDetails.error?.message).toBe("follower stopped")
   })
 
+  test("does not coalesce onto in-flight provider work after invalidation", async () => {
+    const first = createDeferred<Decision>()
+    let notifyChange: ((change: { keys?: readonly string[] }) => void) | undefined
+    const decide = mock((): Decision | Promise<Decision> =>
+      decide.mock.calls.length === 1 ? first.promise : { type: "boolean", value: false }
+    )
+    const gate = buildGate({
+      cache: {
+        delete: () => Promise.resolve(true),
+        get: () => Promise.resolve(null),
+        set: () => Promise.resolve(),
+      },
+      coalesce: true,
+      decide,
+      identify: () => ({ distinctId: "user123" }),
+      subscribe: (notify) => {
+        notifyChange = notify
+        return () => null
+      },
+    })
+    const evaluator = gate({ defaultValue: true, key: "beta-access" })
+
+    const leader = evaluator()
+    await Bun.sleep(0)
+    notifyChange?.({ keys: ["beta-access"] })
+    const late = evaluator()
+    await Bun.sleep(0)
+
+    first.resolve({ type: "boolean", value: true })
+    expect(await leader).toBe(true)
+    expect(await late).toBe(false)
+    expect(decide).toHaveBeenCalledTimes(2)
+  })
+
   test("rejects every follower with the normalized leader failure and permits a retry", async () => {
     const provider = createDeferred<Decision>()
     const decide = mock(() => provider.promise)
