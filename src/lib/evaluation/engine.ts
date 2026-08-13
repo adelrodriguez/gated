@@ -6,6 +6,7 @@ import type {
   HookContext,
   Identity,
 } from "../types"
+import type { EvaluationRuntime } from "./runtime"
 import { runAfterHooks, runBeforeHooks, runErrorHooks, runFinallyHooks } from "../hook"
 import { normalizeError } from "../utils"
 import { consultCache, writeCacheDecision } from "./cache"
@@ -38,14 +39,12 @@ export type IdentityResult<TIdentity extends Identity> =
 /**
  * Contract between the batch orchestrator and one evaluation.
  *
- * `identityResult` replaces identity resolution. `onPrepared` fires exactly once, before provider
- * work: `true` only when this evaluation owns provider work, and `false` after a cache hit, a
- * pre-provider failure, or when it follows coalesced provider work. `provider` replaces configured
- * `decide` and is not called before `onPrepared(true)`.
+ * `identityResult` replaces identity resolution. `provider` replaces the configured `decide` and is
+ * called only when the evaluation needs provider work — after a cache miss, and never as a
+ * coalesced follower.
  */
 export type ExecutionOverrides<TIdentity extends Identity> = {
   identityResult: IdentityResult<TIdentity>
-  onPrepared: (providerRequired: boolean) => void
   provider: () => Promise<Decision>
 }
 
@@ -101,8 +100,9 @@ export async function executeGateDetails<
 >(
   config: AnyGatedConfig<TIdentity>,
   options: GateOptions<T>,
-  callOptions?: GateCallOptions<TIdentity | null>,
-  execution?: ExecutionOverrides<TIdentity>
+  callOptions: GateCallOptions<TIdentity | null> | undefined,
+  execution: ExecutionOverrides<TIdentity> | undefined,
+  runtime: EvaluationRuntime
 ): Promise<EvaluationDetails<boolean | T[number], TPayload>> {
   const hooks = [...(config.hooks ?? [])]
   const gateConfiguration = getGateConfiguration(options.variants)
@@ -123,14 +123,7 @@ export async function executeGateDetails<
   let result: boolean | T[number] | undefined
   let failure: Error | undefined
   let postCommitHooks: Promise<void> | undefined
-  const preparation = { providerRequired: false, reported: false }
-  const reportPreparation = (providerRequired: boolean): void => {
-    if (preparation.reported) {
-      throw new Error("Evaluation preparation was reported more than once")
-    }
-    preparation.reported = true
-    execution?.onPrepared(providerRequired)
-  }
+  let providerOwned = false
 
   try {
     const identity = await raceWithSignal(async () => {
@@ -147,31 +140,25 @@ export async function executeGateDetails<
     await raceWithSignal(() => runBeforeHooks(hooks, hookContext, config.onHookError), signal)
 
     const cacheConsultation = await raceWithSignal(
-      () => consultCache(config, hookContext, options),
+      () => consultCache(config, runtime.cache, hookContext, options),
       signal
     )
     let decision: Decision
     if (cacheConsultation?.decision) {
-      reportPreparation(false)
       decision = cacheConsultation.decision
       evaluation.source = "cache"
     } else {
-      decision = await raceWithSignal(
+      const coalesced = await coalesceProviderDecision(
+        config,
+        runtime.coalescing,
+        hookContext,
         () =>
-          coalesceProviderDecision(
-            config,
-            hookContext,
-            (required) => {
-              preparation.providerRequired = required
-              reportPreparation(required)
-            },
-            () =>
-              execution?.provider() ??
-              evaluateConfiguredDecision(config, evaluation.key, identity, signal),
-            signal
-          ),
+          execution?.provider() ??
+          evaluateConfiguredDecision(config, evaluation.key, identity, signal),
         signal
       )
+      decision = coalesced.decision
+      providerOwned = coalesced.owned
       evaluation.source = "provider"
       validateDecision(decision, options)
     }
@@ -179,8 +166,8 @@ export async function executeGateDetails<
     const afterMeta = { source: evaluation.source }
 
     result = extractDecisionValue(decision)
-    if (preparation.providerRequired && cacheConsultation) {
-      writeCacheDecision(config, hookContext, cacheConsultation, decision)
+    if (providerOwned && cacheConsultation) {
+      writeCacheDecision(config, runtime.cache, hookContext, cacheConsultation, decision)
     }
     postCommitHooks = runAfterHooks(
       hooks,
@@ -192,9 +179,6 @@ export async function executeGateDetails<
     consumeCleanup(postCommitHooks)
   } catch (error) {
     const gateError = normalizeError(error)
-    if (!preparation.reported) {
-      reportPreparation(false)
-    }
     failure = gateError
     evaluation.source = "default"
     const errorHooks = runErrorHooks(hooks, hookContext, gateError, config.onHookError)
@@ -242,8 +226,9 @@ export async function executeGateDetails<
 export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
   config: AnyGatedConfig<TIdentity>,
   options: GateOptions<T>,
-  callOptions?: GateCallOptions<TIdentity | null>
+  callOptions: GateCallOptions<TIdentity | null> | undefined,
+  runtime: EvaluationRuntime
 ): Promise<boolean | T[number]> {
-  const details = await executeGateDetails(config, options, callOptions)
+  const details = await executeGateDetails(config, options, callOptions, undefined, runtime)
   return details.value
 }

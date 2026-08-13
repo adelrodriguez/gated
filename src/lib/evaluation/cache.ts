@@ -11,14 +11,15 @@ import { normalizeError } from "../utils"
 import { validateDecision } from "./decision"
 import { type AnyGatedConfig, type GateOptions, getEvaluationKey } from "./shared"
 
-type CacheRuntime = {
-  attaching: boolean
-  detach?: () => void
+export type CacheState = {
   generationByFlag: Map<string, number>
   keysByFlag: Map<string, Map<string, Identity | null>>
+  subscription: { attaching: boolean; detach?: () => void }
 }
 
-const cacheRuntimeByConfig = new WeakMap<object, CacheRuntime>()
+export function createCacheState(): CacheState {
+  return { generationByFlag: new Map(), keysByFlag: new Map(), subscription: { attaching: false } }
+}
 
 export type CacheConsultation = {
   decision?: Decision
@@ -73,21 +74,13 @@ function deleteCacheEntry<TIdentity extends Identity>(
     })
 }
 
-function getCacheRuntime(config: object): CacheRuntime {
-  let runtime = cacheRuntimeByConfig.get(config)
-  if (!runtime) {
-    runtime = { attaching: false, generationByFlag: new Map(), keysByFlag: new Map() }
-    cacheRuntimeByConfig.set(config, runtime)
-  }
-  return runtime
-}
-
-function getInvalidationGeneration(config: object, flagKey: string): number {
-  return getCacheRuntime(config).generationByFlag.get(flagKey) ?? 0
+function getInvalidationGeneration(runtime: CacheState, flagKey: string): number {
+  return runtime.generationByFlag.get(flagKey) ?? 0
 }
 
 function indexCacheKey<TIdentity extends Identity>(
   config: AnyGatedConfig<TIdentity>,
+  runtime: CacheState,
   context: HookContext<TIdentity>,
   store: DecisionCache,
   key: string
@@ -96,15 +89,15 @@ function indexCacheKey<TIdentity extends Identity>(
     return
   }
 
-  const runtime = getCacheRuntime(config)
+  const { subscription } = runtime
   const keys = runtime.keysByFlag.get(context.flagKey) ?? new Map<string, Identity | null>()
   keys.set(key, context.identity)
   runtime.keysByFlag.set(context.flagKey, keys)
-  if (runtime.detach || runtime.attaching) {
+  if (subscription.detach || subscription.attaching) {
     return
   }
 
-  runtime.attaching = true
+  subscription.attaching = true
   const detach = config.subscribe(({ keys: changedFlagKeys }) => {
     const flagKeys = changedFlagKeys ?? [...runtime.keysByFlag.keys()]
     for (const flagKey of flagKeys) {
@@ -123,21 +116,22 @@ function indexCacheKey<TIdentity extends Identity>(
         )
       }
     }
-    if (runtime.keysByFlag.size === 0 && !runtime.attaching) {
-      runtime.detach?.()
-      runtime.detach = undefined
+    if (runtime.keysByFlag.size === 0 && !subscription.attaching) {
+      subscription.detach?.()
+      subscription.detach = undefined
     }
   })
-  runtime.attaching = false
+  subscription.attaching = false
   if (runtime.keysByFlag.size === 0) {
     detach()
   } else {
-    runtime.detach = detach
+    subscription.detach = detach
   }
 }
 
 export async function consultCache<TIdentity extends Identity, T extends string[]>(
   config: AnyGatedConfig<TIdentity>,
+  runtime: CacheState,
   context: HookContext<TIdentity>,
   options: GateOptions<T>
 ): Promise<CacheConsultation | undefined> {
@@ -157,8 +151,8 @@ export async function consultCache<TIdentity extends Identity, T extends string[
     reportCacheError(config, context, "key", context.flagKey, error)
     return undefined
   }
-  indexCacheKey(config, context, cacheOptions.store, key)
-  const generationBeforeRead = getInvalidationGeneration(config, context.flagKey)
+  indexCacheKey(config, runtime, context, cacheOptions.store, key)
+  const generationBeforeRead = getInvalidationGeneration(runtime, context.flagKey)
 
   let cached: Decision | null | undefined
   try {
@@ -166,12 +160,12 @@ export async function consultCache<TIdentity extends Identity, T extends string[
   } catch (error) {
     reportCacheError(config, context, "get", key, error)
     return {
-      generation: getInvalidationGeneration(config, context.flagKey),
+      generation: getInvalidationGeneration(runtime, context.flagKey),
       key,
       store: cacheOptions.store,
     }
   }
-  const generation = getInvalidationGeneration(config, context.flagKey)
+  const generation = getInvalidationGeneration(runtime, context.flagKey)
   if (generation !== generationBeforeRead) {
     return { generation, key, store: cacheOptions.store }
   }
@@ -191,13 +185,14 @@ export async function consultCache<TIdentity extends Identity, T extends string[
 
 export function writeCacheDecision<TIdentity extends Identity>(
   config: AnyGatedConfig<TIdentity>,
+  runtime: CacheState,
   context: HookContext<TIdentity>,
   consultation: CacheConsultation,
   decision: Decision
 ): void {
   void Promise.resolve()
     .then(() => {
-      if (getInvalidationGeneration(config, context.flagKey) !== consultation.generation) {
+      if (getInvalidationGeneration(runtime, context.flagKey) !== consultation.generation) {
         return
       }
       return consultation.store.set(consultation.key, decision)

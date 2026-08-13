@@ -9,7 +9,11 @@ type PendingDecision = {
   resolve: (decision: Decision) => void
 }
 
-const pendingByConfig = new WeakMap<object, Map<string, PendingDecision>>()
+export type CoalescingState = Map<string, PendingDecision>
+
+export function createCoalescingState(): CoalescingState {
+  return new Map()
+}
 
 function getCoalescingOptions<TIdentity extends Identity>(
   config: Pick<AnyGatedConfig<TIdentity>, "coalesce">
@@ -24,34 +28,36 @@ function getCoalescingOptions<TIdentity extends Identity>(
   return option
 }
 
+/**
+ * The provider decision plus whether this evaluation owned the provider call. Followers of a
+ * coalesced call share the leader's decision but must not act as if they produced it (e.g. by
+ * writing it back to a cache).
+ */
+export type CoalescedDecision = {
+  decision: Decision
+  owned: boolean
+}
+
 export async function coalesceProviderDecision<TIdentity extends Identity>(
   config: AnyGatedConfig<TIdentity>,
+  pending: CoalescingState,
   context: HookContext<TIdentity>,
-  onPrepared: (providerRequired: boolean) => void,
   provider: () => Decision | Promise<Decision>,
   signal: AbortSignal
-): Promise<Decision> {
+): Promise<CoalescedDecision> {
   const options = getCoalescingOptions(config)
   if (!options) {
-    onPrepared(true)
-    return await provider()
+    return { decision: await raceWithSignal(provider, signal), owned: true }
   }
 
   const key = getEvaluationKey(context, options.key)
   if (key === undefined) {
-    onPrepared(true)
-    return await provider()
+    return { decision: await raceWithSignal(provider, signal), owned: true }
   }
 
-  let pending = pendingByConfig.get(config)
-  if (!pending) {
-    pending = new Map()
-    pendingByConfig.set(config, pending)
-  }
   const existing = pending.get(key)
   if (existing) {
-    onPrepared(false)
-    return await raceWithSignal(() => existing.promise, signal)
+    return { decision: await raceWithSignal(() => existing.promise, signal), owned: false }
   }
 
   const request = Promise.withResolvers<Decision>()
@@ -62,12 +68,11 @@ export async function coalesceProviderDecision<TIdentity extends Identity>(
   }
   void leader.promise.catch(() => null)
   pending.set(key, leader)
-  onPrepared(true)
 
   try {
     const decision = await raceWithSignal(provider, signal)
     leader.resolve(decision)
-    return decision
+    return { decision, owned: true }
   } catch (error) {
     const providerError = normalizeError(error)
     leader.reject(providerError)

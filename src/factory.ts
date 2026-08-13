@@ -13,6 +13,7 @@ import { ForeignGateEvaluatorError, BatchFlagNotFoundError } from "./lib/errors"
 import { type BatchEntry, executeGateBatch } from "./lib/evaluation/batch"
 import { executeGate, executeGateDetails } from "./lib/evaluation/engine"
 import { setEvaluatorFlagKey } from "./lib/evaluation/registry"
+import { createEvaluationRuntime } from "./lib/evaluation/runtime"
 import { reportInBackground } from "./lib/hook"
 
 type AnyGateEvaluator =
@@ -156,6 +157,7 @@ export function buildGate<TIdentity extends Identity>(
     | CallerIdentityGatedConfig<TIdentity>
 ): GateFactory<TIdentity, TIdentity | null> | GateFactory<TIdentity, TIdentity, true> {
   assertTimeoutMs(config.timeoutMs)
+  const runtime = createEvaluationRuntime()
   const definitions = new WeakMap<object, GateOptions<string[]>>()
   const changeListeners = new Set<(keys?: readonly string[]) => void>()
   let detachProvider: (() => void) | undefined
@@ -206,11 +208,17 @@ export function buildGate<TIdentity extends Identity>(
     assertTimeoutMs(options.timeoutMs)
 
     const evaluator = async (callOptions?: GateCallOptions<TIdentity | null>) =>
-      executeGate(config, options, callOptions)
+      executeGate(config, options, callOptions, runtime)
 
     const assigned = Object.assign(evaluator, {
       details: (callOptions?: GateCallOptions<TIdentity | null>) =>
-        executeGateDetails<TIdentity, T, TPayload>(config, options, callOptions),
+        executeGateDetails<TIdentity, T, TPayload>(
+          config,
+          options,
+          callOptions,
+          undefined,
+          runtime
+        ),
     })
     definitions.set(assigned, options)
     setEvaluatorFlagKey(assigned, options.key)
@@ -229,7 +237,7 @@ export function buildGate<TIdentity extends Identity>(
         }
         return { flag, options }
       })
-      const results = await executeGateBatch(config, entries, callOptions)
+      const results = await executeGateBatch(config, entries, callOptions, runtime)
       const getDetails = <TFlag extends TFlags[number]>(flag: TFlag): GateDetails<TFlag> => {
         const details = results.get(flag)
         if (!details) {
