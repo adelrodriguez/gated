@@ -123,7 +123,7 @@ export type HookErrorReport<TIdentity extends Identity = Identity> = {
 }
 
 export type DecisionCacheErrorReport<TIdentity extends Identity = Identity> = {
-  operation: "key" | "get" | "set" | "delete" | "validate"
+  operation: "key" | "get" | "set" | "delete" | "validate" | "subscribe"
   key: string
   flagKey: string
   identity: TIdentity | null

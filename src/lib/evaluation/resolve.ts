@@ -29,7 +29,9 @@ export type ResolutionState = {
   generations: { all: number; byFlag: Map<string, number> }
   keysByFlag: Map<string, Map<string, Identity | null>>
   pending: Map<string, PendingResolution>
-  subscription: { attaching: boolean; detach?: () => void }
+  // The invalidation subscription lives for the factory's lifetime, so the provider's detach
+  // function is intentionally not retained.
+  subscription: { attached: boolean; attaching: boolean }
 }
 
 export function createResolutionState(): ResolutionState {
@@ -37,7 +39,7 @@ export function createResolutionState(): ResolutionState {
     generations: { all: 0, byFlag: new Map() },
     keysByFlag: new Map(),
     pending: new Map(),
-    subscription: { attaching: false },
+    subscription: { attached: false, attaching: false },
   }
 }
 
@@ -104,24 +106,27 @@ function indexCacheKey<TIdentity extends Identity>(
  * Attaches the flag-change subscription that invalidates this factory's decision memory: it drops
  * in-flight coalesced calls, invalidates pending cache writes, and deletes indexed store entries
  * for the changed flags. Attached on the first evaluation that touches cache or coalescing and kept
- * for the factory's lifetime.
+ * for the factory's lifetime. A throwing `subscribe` never fails the evaluation: it is reported
+ * through `onCacheError` and the evaluation continues without invalidation.
  */
 function attachInvalidationSubscription<TIdentity extends Identity>(
   config: AnyGatedConfig<TIdentity>,
-  state: ResolutionState
+  state: ResolutionState,
+  context: HookContext<TIdentity>,
+  key: string
 ): void {
   const { subscribe } = config
   if (!subscribe) {
     return
   }
   const { subscription } = state
-  if (subscription.detach || subscription.attaching) {
+  if (subscription.attached || subscription.attaching) {
     return
   }
 
   subscription.attaching = true
   try {
-    subscription.detach = subscribe(({ keys: changedFlagKeys }) => {
+    subscribe(({ keys: changedFlagKeys }) => {
       // An invalidated flag's in-flight provider call is stale too: already-attached followers
       // keep the leader's decision, but later evaluations must not join it.
       const changed = changedFlagKeys && new Set(changedFlagKeys)
@@ -161,6 +166,9 @@ function attachInvalidationSubscription<TIdentity extends Identity>(
         }
       }
     })
+    subscription.attached = true
+  } catch (error) {
+    reportCacheError(config, context, "subscribe", key, error)
   } finally {
     subscription.attaching = false
   }
@@ -259,7 +267,7 @@ export async function resolveDecision<TIdentity extends Identity, T extends stri
   let write: { generation: number; store: DecisionCache } | undefined
   if (store) {
     indexCacheKey(config, state, context, store, key)
-    attachInvalidationSubscription(config, state)
+    attachInvalidationSubscription(config, state, context, key)
     const consultation = await raceWithSignal(
       () => consultStore(config, state, context, options, store, key),
       signal
@@ -288,8 +296,10 @@ export async function resolveDecision<TIdentity extends Identity, T extends stri
       resolve: request.resolve,
     }
     void lead.promise.catch(() => null)
+    // Attach before registering leadership: nothing may throw between the pending registration
+    // and the provider try/finally, or the entry orphans and later evaluations join it forever.
+    attachInvalidationSubscription(config, state, context, key)
     state.pending.set(key, lead)
-    attachInvalidationSubscription(config, state)
   }
 
   try {

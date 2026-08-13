@@ -774,6 +774,29 @@ describe("request coalescing", () => {
     expect(await evaluator()).toBe(false)
   })
 
+  test("degrades softly when subscribe throws instead of poisoning coalescing", async () => {
+    const reports: DecisionCacheErrorReport[] = []
+    const gate = buildGate({
+      decide: () => ({ type: "boolean", value: true }),
+      identify: () => ({ distinctId: "user123" }),
+      onCacheError: (report) => void reports.push(report),
+      subscribe: () => {
+        throw new Error("subscribe failed")
+      },
+    })
+    const evaluator = gate({ defaultValue: false, key: "beta-access" })
+
+    expect(await evaluator()).toBe(true)
+    expect(await evaluator()).toBe(true)
+    await flushBackground()
+    expect(reports.length).toBeGreaterThanOrEqual(1)
+    expect(reports[0]).toMatchObject({
+      error: new Error("subscribe failed"),
+      flagKey: "beta-access",
+      operation: "subscribe",
+    })
+  })
+
   test("rejects every follower with the normalized leader failure and permits a retry", async () => {
     const provider = createDeferred<Decision>()
     const decide = mock(() => provider.promise)
