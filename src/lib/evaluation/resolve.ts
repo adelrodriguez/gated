@@ -102,10 +102,11 @@ function indexCacheKey<TIdentity extends Identity>(
 
 /**
  * Attaches the flag-change subscription that invalidates this factory's decision memory: it drops
- * in-flight coalesced calls, invalidates pending cache writes, and deletes indexed store entries
- * for the changed flags. Attached on the first evaluation that touches cache or coalescing and kept
- * for the factory's lifetime. A throwing `subscribe` never fails the evaluation: it is reported
- * through `onCacheError` and the evaluation continues without invalidation.
+ * in-flight coalesced calls and deletes indexed store entries for the changed flags, and invalidates
+ * every pending cache write regardless of which flags changed. Attached on the first evaluation that
+ * touches cache or coalescing and kept for the factory's lifetime. A throwing `subscribe` never
+ * fails the evaluation: it is reported through `onCacheError` and the evaluation continues without
+ * invalidation.
  */
 function attachInvalidationSubscription<TIdentity extends Identity>(
   config: AnyGatedConfig<TIdentity>,
