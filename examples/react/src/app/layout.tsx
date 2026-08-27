@@ -6,8 +6,8 @@ import { getSelectedUser } from "#shared/server/user"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "Gated React Showcase",
-  description: "An interactive showcase of the gated feature-flag library.",
+  title: "Gated React Example",
+  description: "An interactive example of the gated feature-flag library.",
 }
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

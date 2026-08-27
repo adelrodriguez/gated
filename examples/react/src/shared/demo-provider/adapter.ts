@@ -64,7 +64,7 @@ async function decideMany(
 }
 
 /**
- * Fake provider adapter used only by this showcase. Consumer gate configuration depends on this
+ * Fake provider adapter used only by this example. Consumer gate configuration depends on this
  * small interface and does not need to know how the in-memory store or simulation knobs work.
  */
 export const demoProvider = { decide, decideMany }
