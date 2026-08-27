@@ -1,4 +1,5 @@
-import { describe, expect, mock, test } from "bun:test"
+import { setTimeout as sleep } from "node:timers/promises"
+import { describe, expect, test, vi } from "vitest"
 import type { Decision, EvaluationDetails, Hook, Identity } from "../lib/types"
 import { decision } from "../decision"
 import { buildGate } from "../factory"
@@ -83,8 +84,10 @@ describe("buildGate", () => {
       identify: () => ({ distinctId: "user123" }),
     })
 
-    expect(gate({ defaultValue: false, key: "beta-access" })).toBeFunction()
-    expect(gate({ defaultValue: "light", key: "theme", variants: ["light"] })).toBeFunction()
+    expect(gate({ defaultValue: false, key: "beta-access" })).toBeTypeOf("function")
+    expect(gate({ defaultValue: "light", key: "theme", variants: ["light"] })).toBeTypeOf(
+      "function"
+    )
   })
 
   test("creates a gate factory function", () => {
@@ -109,7 +112,7 @@ describe("buildGate", () => {
 
   test("supports a factory that requires an identity from every caller", async () => {
     type RequestIdentity = Identity & { plan: "free" | "pro" }
-    const decide = mock((_key: string, identity: RequestIdentity) =>
+    const decide = vi.fn((_key: string, identity: RequestIdentity) =>
       decision.boolean(identity.plan === "pro")
     )
     const gate = buildGate<RequestIdentity>({ decide })
@@ -132,8 +135,8 @@ describe("buildGate", () => {
 
   test("fans out provider changes through a lazy factory subscription", async () => {
     let notify!: (change: { keys?: readonly string[] }) => void
-    const detachProvider = mock(() => null)
-    const subscribe = mock((listener: typeof notify) => {
+    const detachProvider = vi.fn(() => null)
+    const subscribe = vi.fn((listener: typeof notify) => {
       notify = listener
       return detachProvider
     })
@@ -143,7 +146,7 @@ describe("buildGate", () => {
       subscribe,
     })
     const observed: Array<readonly string[] | undefined> = []
-    const throwingListener = mock(() => {
+    const throwingListener = vi.fn(() => {
       throw new Error("listener failed")
     })
 
@@ -171,8 +174,8 @@ describe("buildGate", () => {
     const decision: Decision = { type: "boolean", value: true }
 
     const gate = buildGate({
-      decide: mock(() => Promise.resolve(decision)),
-      identify: mock(() => Promise.resolve(identity)),
+      decide: vi.fn(() => Promise.resolve(decision)),
+      identify: vi.fn(() => Promise.resolve(identity)),
     })
 
     const betaFlag = gate({ defaultValue: false, key: "beta-access" })
@@ -291,7 +294,7 @@ describe("buildGate", () => {
   })
 
   test("details accepts an override identity", async () => {
-    const identify = mock(() => ({ distinctId: "default" }))
+    const identify = vi.fn(() => ({ distinctId: "default" }))
     const overrideIdentity = { distinctId: "override" }
     const gate = buildGate({
       decide: (_key, identity) => ({ type: "boolean", value: identity.distinctId === "override" }),
@@ -423,8 +426,8 @@ describe("buildGate", () => {
     const decision: Decision = { type: "boolean", value: false }
 
     const gate = buildGate({
-      decide: mock(() => Promise.resolve(decision)),
-      identify: mock(() => Promise.resolve(identity)),
+      decide: vi.fn(() => Promise.resolve(decision)),
+      identify: vi.fn(() => Promise.resolve(identity)),
     })
 
     const betaFlag = gate({ defaultValue: true, key: "beta-access" })
@@ -438,8 +441,8 @@ describe("buildGate", () => {
     const decision: Decision = { type: "variant", variant: "dark" }
 
     const gate = buildGate({
-      decide: mock(() => Promise.resolve(decision)),
-      identify: mock(() => Promise.resolve(identity)),
+      decide: vi.fn(() => Promise.resolve(decision)),
+      identify: vi.fn(() => Promise.resolve(identity)),
     })
 
     const themeFlag = gate({
@@ -481,8 +484,8 @@ describe("buildGate", () => {
     const defaultIdentity: Identity = { distinctId: "default" }
     const overrideIdentity: Identity = { distinctId: "override" }
 
-    const identifyFn = mock(() => Promise.resolve(defaultIdentity))
-    const decideFn = mock((_key: string, identity: Identity) =>
+    const identifyFn = vi.fn(() => Promise.resolve(defaultIdentity))
+    const decideFn = vi.fn((_key: string, identity: Identity) =>
       Promise.resolve({ type: "boolean", value: identity.distinctId === "override" } as const)
     )
 
@@ -504,8 +507,8 @@ describe("buildGate", () => {
   })
 
   test("passes hooks to gate execution", async () => {
-    const beforeFn = mock(() => Promise.resolve())
-    const afterFn = mock(() => Promise.resolve())
+    const beforeFn = vi.fn(() => Promise.resolve())
+    const afterFn = vi.fn(() => Promise.resolve())
 
     const hooks: Hook[] = [{ after: afterFn, before: beforeFn }]
 
@@ -524,7 +527,7 @@ describe("buildGate", () => {
 
   test("cache can short-circuit evaluation", async () => {
     const cachedDecision: Decision = { type: "boolean", value: true }
-    const decideFn = mock(() => Promise.resolve({ type: "boolean", value: false } as const))
+    const decideFn = vi.fn(() => Promise.resolve({ type: "boolean", value: false } as const))
 
     const gate = buildGate({
       cache: {
@@ -619,7 +622,7 @@ describe("buildGate", () => {
 
   test("error hooks are called on failure", async () => {
     const error = new Error("Test error")
-    const errorFn = mock(() => Promise.resolve())
+    const errorFn = vi.fn(() => Promise.resolve())
 
     const hooks: Hook[] = [{ error: errorFn }]
 
@@ -646,7 +649,7 @@ describe("buildGate", () => {
   })
 
   test("finally hooks always run", async () => {
-    const finallyFn = mock(() => Promise.resolve())
+    const finallyFn = vi.fn(() => Promise.resolve())
 
     const hooks: Hook[] = [{ finally: finallyFn }]
 
@@ -658,13 +661,13 @@ describe("buildGate", () => {
 
     const betaFlag = gate({ defaultValue: false, key: "beta-access" })
     await betaFlag()
-    await Bun.sleep(0)
+    await sleep(0)
 
     expect(finallyFn).toHaveBeenCalled()
   })
 
   test("finally hooks run even on error", async () => {
-    const finallyFn = mock(() => Promise.resolve())
+    const finallyFn = vi.fn(() => Promise.resolve())
 
     const hooks: Hook[] = [{ finally: finallyFn }]
 
@@ -725,8 +728,8 @@ describe("buildGate", () => {
   })
 
   test("different flags are independent", async () => {
-    const identifyFn = mock(() => Promise.resolve({ distinctId: "user123" }))
-    const decideFn = mock((_key: string) =>
+    const identifyFn = vi.fn(() => Promise.resolve({ distinctId: "user123" }))
+    const decideFn = vi.fn((_key: string) =>
       Promise.resolve({ type: "boolean", value: true } as const)
     )
 
@@ -771,7 +774,7 @@ describe("buildGate", () => {
       role: "admin",
     }
 
-    const decideFn = mock((_key: string, identity: CustomIdentity) =>
+    const decideFn = vi.fn((_key: string, identity: CustomIdentity) =>
       Promise.resolve({ type: "boolean", value: identity.role === "admin" } as const)
     )
 

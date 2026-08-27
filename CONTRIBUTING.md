@@ -4,7 +4,8 @@ Thank you for contributing to Gated.
 
 ## Requirements
 
-- [Bun](https://bun.sh) 1.3.14 or later.
+- [Node.js](https://nodejs.org) 26.
+- [pnpm](https://pnpm.io) 12.
 - [Git](https://git-scm.com).
 
 ## Set up the repository
@@ -13,7 +14,7 @@ Thank you for contributing to Gated.
 2. Install dependencies:
 
    ```sh
-   bun install
+   pnpm install
    ```
 
 3. Create a branch for the change.
@@ -32,7 +33,7 @@ src/
   hooks/                  Hook factory
   integrations/react.tsx  React integration, published as gated/react
   **/__tests__/           Colocated tests
-test/setup.ts             Test setup
+vitest.config.ts          Test and coverage configuration
 ```
 
 The public package entry points are `gated`, `gated/hooks`, and `gated/react`. `dist/` is build output.
@@ -40,15 +41,16 @@ The public package entry points are `gated`, `gated/hooks`, and `gated/react`. `
 ## Development commands
 
 ```sh
-bun run build          # Build the published package into dist.
-bun run dev            # Rebuild when source files change.
-bun run test           # Run the Bun test suite.
-bun run test:watch     # Run tests when files change.
-bun run test:coverage  # Run tests and collect coverage.
-bun run check          # Check lint rules and TypeScript types.
-bun run fix            # Apply safe lint fixes.
-bun run format         # Format repository files.
-bun run analyze        # Find unused files, exports, and dependencies.
+pnpm run build          # Build the published package into dist.
+pnpm run build:verify   # Build and test the packed package.
+pnpm run dev            # Rebuild when source files change.
+pnpm run test           # Run the Vitest suite.
+pnpm run test:watch     # Run tests when files change.
+pnpm run test:coverage  # Run tests and collect coverage.
+pnpm run check          # Check lint rules and TypeScript types.
+pnpm run fix            # Apply safe lint fixes.
+pnpm run format         # Format repository files.
+pnpm run analyze        # Find unused files, exports, and dependencies.
 ```
 
 `check`, `fix`, `format`, and `analyze` use Adamantite. There is no separate `typecheck`
@@ -70,14 +72,14 @@ script.
 Run the full repository workflow before you open a pull request:
 
 ```sh
-bun run test
-bun run build
-bun run check
-bun run fix
-bun run format
+pnpm run test
+pnpm run build:verify
+pnpm run check
+pnpm run fix
+pnpm run format
 ```
 
-Run `bun run analyze` after you add or remove dependencies or change imports and exports.
+Run `pnpm run analyze` after you add or remove dependencies or change imports and exports.
 Review all automatic fixes before you commit them.
 
 ## Changesets
@@ -87,7 +89,7 @@ public API changes, bug fixes, runtime dependency changes, and documentation shi
 the package.
 
 ```sh
-bunx changeset
+pnpm exec changeset
 ```
 
 Commit the generated `.changeset/*.md` file with the pull request. Do not add a changeset

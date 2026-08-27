@@ -9,11 +9,12 @@ and the gate cache.
 
 ## Run the example
 
-From this directory:
+From the repository root:
 
 ```sh
-bun install
-bun dev
+pnpm install
+pnpm --dir examples/react install
+pnpm --dir examples/react dev
 ```
 
 The example does not need a root build. The demo provider stores its state in `globalThis`,
@@ -67,4 +68,4 @@ app uses the Node runtime and standalone output.
 The flag store is per-process memory. Vercel does not guarantee that requests reach the
 same instance, so a request after an admin mutation may reach an instance with older state.
 For one shared store, deploy a single container to Railway, Fly.io, or Render and run
-`bun start` after `bun run build`.
+`pnpm start` after `pnpm run build`.

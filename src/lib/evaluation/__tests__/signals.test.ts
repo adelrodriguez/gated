@@ -1,4 +1,4 @@
-import { describe, expect, spyOn, test } from "bun:test"
+import { describe, expect, test, vi } from "vitest"
 import { createEvaluationSignal } from "../signals"
 
 describe("createEvaluationSignal", () => {
@@ -16,7 +16,7 @@ describe("createEvaluationSignal", () => {
 
   test("removes the caller abort listener during cleanup", () => {
     const caller = new AbortController()
-    const removeEventListener = spyOn(caller.signal, "removeEventListener")
+    const removeEventListener = vi.spyOn(caller.signal, "removeEventListener")
     const evaluation = createEvaluationSignal(caller.signal, 100)
 
     evaluation.cleanup()

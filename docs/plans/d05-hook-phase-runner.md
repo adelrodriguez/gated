@@ -70,7 +70,7 @@ Either way: the phase discriminant drives both dispatch and the `HookErrorReport
 
 ## Verification
 
-- `bun test`, `bun run build`, `bun run check`, `bun run analyze`
+- `pnpm run test`, `pnpm run build`, `pnpm run check`, `pnpm run analyze`
 
 ## Release
 

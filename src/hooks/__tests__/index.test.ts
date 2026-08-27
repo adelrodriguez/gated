@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, test } from "vitest"
 import type { Hook, HookContext, Identity } from "../../lib/types"
 import { decision } from "../../decision"
 import { buildGate } from "../../factory"

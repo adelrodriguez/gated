@@ -1,4 +1,5 @@
-import { describe, expect, mock, test } from "bun:test"
+import { setTimeout as sleep } from "node:timers/promises"
+import { describe, expect, test, vi } from "vitest"
 import type { GateCallOptions, Decision, Hook, Identity } from "../../types"
 import type { AnyGatedConfig, GateOptions } from "../shared"
 import { MalformedDecisionError } from "../../errors"
@@ -151,9 +152,9 @@ describe("executeGate", () => {
     const decision: Decision = { type: "boolean", value: true }
 
     const config = {
-      decide: mock(() => Promise.resolve(decision)),
+      decide: vi.fn(() => Promise.resolve(decision)),
       hooks: [],
-      identify: mock(() => Promise.resolve(identity)),
+      identify: vi.fn(() => Promise.resolve(identity)),
     }
 
     const options = {
@@ -173,9 +174,9 @@ describe("executeGate", () => {
     const decision: Decision = { type: "variant", variant: "dark" }
 
     const config = {
-      decide: mock(() => Promise.resolve(decision)),
+      decide: vi.fn(() => Promise.resolve(decision)),
       hooks: [],
-      identify: mock(() => Promise.resolve(identity)),
+      identify: vi.fn(() => Promise.resolve(identity)),
     }
 
     const options = {
@@ -195,8 +196,8 @@ describe("executeGate", () => {
     const decision: Decision = { type: "boolean", value: true }
 
     const config = {
-      decide: mock(() => Promise.resolve(decision)),
-      identify: mock(() => Promise.resolve(defaultIdentity)),
+      decide: vi.fn(() => Promise.resolve(decision)),
+      identify: vi.fn(() => Promise.resolve(defaultIdentity)),
     }
 
     const options = {
@@ -213,8 +214,8 @@ describe("executeGate", () => {
 
   test("returns default value on error", async () => {
     const config = {
-      decide: mock(() => Promise.resolve({ type: "boolean", value: true } as const)),
-      identify: mock(() => Promise.reject(new Error("Identity error"))),
+      decide: vi.fn(() => Promise.resolve({ type: "boolean", value: true } as const)),
+      identify: vi.fn(() => Promise.reject(new Error("Identity error"))),
     }
 
     const options = {
@@ -231,9 +232,9 @@ describe("executeGate", () => {
     const identity: Identity = { distinctId: "user123" }
     const decision: Decision = { type: "boolean", value: true }
 
-    const beforeFn = mock(() => Promise.resolve())
-    const afterFn = mock(() => Promise.resolve())
-    const finallyFn = mock(() => Promise.resolve())
+    const beforeFn = vi.fn(() => Promise.resolve())
+    const afterFn = vi.fn(() => Promise.resolve())
+    const finallyFn = vi.fn(() => Promise.resolve())
 
     const hooks: Hook[] = [
       {
@@ -244,9 +245,9 @@ describe("executeGate", () => {
     ]
 
     const config = {
-      decide: mock(() => Promise.resolve(decision)),
+      decide: vi.fn(() => Promise.resolve(decision)),
       hooks,
-      identify: mock(() => Promise.resolve(identity)),
+      identify: vi.fn(() => Promise.resolve(identity)),
     }
 
     const options = {
@@ -255,7 +256,7 @@ describe("executeGate", () => {
     }
 
     await executeGate(config, options)
-    await Bun.sleep(0)
+    await sleep(0)
 
     expect(beforeFn).toHaveBeenCalled()
     expect(afterFn).toHaveBeenCalled()
@@ -268,11 +269,11 @@ describe("executeGate", () => {
 
     const config = {
       cache: {
-        get: mock(() => Promise.resolve(cachedDecision)),
-        set: mock(() => Promise.resolve()),
+        get: vi.fn(() => Promise.resolve(cachedDecision)),
+        set: vi.fn(() => Promise.resolve()),
       },
-      decide: mock(() => Promise.resolve({ type: "boolean", value: false } as const)),
-      identify: mock(() => Promise.resolve(identity)),
+      decide: vi.fn(() => Promise.resolve({ type: "boolean", value: false } as const)),
+      identify: vi.fn(() => Promise.resolve(identity)),
     }
 
     const options = {
@@ -289,15 +290,15 @@ describe("executeGate", () => {
   test("runs error hooks when error occurs", async () => {
     const error = new Error("Decision error")
 
-    const errorFn = mock(() => Promise.resolve())
-    const finallyFn = mock(() => Promise.resolve())
+    const errorFn = vi.fn(() => Promise.resolve())
+    const finallyFn = vi.fn(() => Promise.resolve())
 
     const hooks: Hook[] = [{ error: errorFn, finally: finallyFn }]
 
     const config = {
-      decide: mock(() => Promise.reject(error)),
+      decide: vi.fn(() => Promise.reject(error)),
       hooks,
-      identify: mock(() => Promise.resolve({ distinctId: "user123" })),
+      identify: vi.fn(() => Promise.resolve({ distinctId: "user123" })),
     }
 
     const options = {
@@ -315,7 +316,6 @@ describe("executeGate", () => {
         identity: { distinctId: "user123" },
         kind: "boolean",
         signal: expect.any(AbortSignal),
-        state: expect.any(Map),
         variants: undefined,
       },
       error
@@ -328,8 +328,8 @@ describe("executeGate", () => {
     const decision: Decision = { type: "variant", variant: "invalid" }
 
     const config = {
-      decide: mock(() => Promise.resolve(decision)),
-      identify: mock(() => Promise.resolve(identity)),
+      decide: vi.fn(() => Promise.resolve(decision)),
+      identify: vi.fn(() => Promise.resolve(identity)),
     }
 
     const options = {
@@ -385,8 +385,8 @@ describe("executeGate", () => {
     const decision: Decision = { type: "boolean", value: true }
 
     const config = {
-      decide: mock(() => Promise.resolve(decision)),
-      identify: mock(() => Promise.resolve(identity)),
+      decide: vi.fn(() => Promise.resolve(decision)),
+      identify: vi.fn(() => Promise.resolve(identity)),
     }
 
     const options = {
@@ -400,14 +400,14 @@ describe("executeGate", () => {
   })
 
   test("handles null identity in hook context on error", async () => {
-    const errorFn = mock(() => Promise.resolve())
+    const errorFn = vi.fn(() => Promise.resolve())
 
     const hooks: Hook[] = [{ error: errorFn }]
 
     const config = {
-      decide: mock(() => Promise.resolve({ type: "boolean", value: true } as const)),
+      decide: vi.fn(() => Promise.resolve({ type: "boolean", value: true } as const)),
       hooks,
-      identify: mock(() => Promise.reject(new Error("Identity error"))),
+      identify: vi.fn(() => Promise.reject(new Error("Identity error"))),
     }
 
     const options = {
@@ -424,7 +424,6 @@ describe("executeGate", () => {
         identity: null,
         kind: "boolean",
         signal: expect.any(AbortSignal),
-        state: expect.any(Map),
         variants: undefined,
       },
       expect.any(Error)

@@ -1,5 +1,0 @@
-[test]
-preload = ["./test/setup.ts"]
-coverageSkipTestFiles = true
-# Bun enforces this floor for every covered source file, not only the aggregate.
-coverageThreshold = 0.9

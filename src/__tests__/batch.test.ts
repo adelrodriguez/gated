@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test"
+import { describe, expect, test, vi } from "vitest"
 import type { Decision, Hook, Identity, IdentityValue } from "../lib/types"
 import { buildGate } from "../factory"
 import { BatchFlagNotFoundError } from "../lib/errors"
@@ -63,7 +63,7 @@ describe("gate batches", () => {
   })
 
   test("returns an empty batch without resolving identity", async () => {
-    const identify = mock(() => ({ distinctId: "user123" }))
+    const identify = vi.fn(() => ({ distinctId: "user123" }))
     const gate = buildGate({
       decide: () => ({ type: "boolean", value: true }),
       identify,
@@ -79,8 +79,8 @@ describe("gate batches", () => {
 
   test("returns partial fallback results when identity resolution fails", async () => {
     const identityError = new Error("identity unavailable")
-    const decide = mock(() => ({ type: "boolean", value: true }) as const)
-    const decideMany = mock(() => ({ first: { type: "boolean", value: true } as const }))
+    const decide = vi.fn(() => ({ type: "boolean", value: true }) as const)
+    const decideMany = vi.fn(() => ({ first: { type: "boolean", value: true } as const }))
     const gate = buildGate({
       decide,
       decideMany,
@@ -104,7 +104,7 @@ describe("gate batches", () => {
     const afterWork = new Promise<void>((resolve) => {
       releaseAfter = resolve
     })
-    const after = mock(async () => {
+    const after = vi.fn(async () => {
       await afterWork
     })
     const gate = buildGate({
@@ -129,11 +129,11 @@ describe("gate batches", () => {
 
   test("resolves identity once and batches unresolved flags", async () => {
     const identity = { distinctId: "user123" }
-    const identify = mock(() => identity)
-    const decide = mock(() => {
+    const identify = vi.fn(() => identity)
+    const decide = vi.fn(() => {
       throw new Error("single decision should not run")
     })
-    const decideMany = mock(() => ({
+    const decideMany = vi.fn(() => ({
       "beta-access": { type: "boolean", value: true } as const,
       theme: { type: "variant", variant: "dark" } as const,
     }))
@@ -203,7 +203,7 @@ describe("gate batches", () => {
     const stored = new Map<string, Decision>([
       ['["beta-access","boolean",null,"string","user123"]', { type: "boolean", value: true }],
     ])
-    const decideMany = mock(() => ({
+    const decideMany = vi.fn(() => ({
       theme: { type: "variant", variant: "dark" } as const,
     }))
     const gate = buildGate({
@@ -288,7 +288,7 @@ describe("gate batches", () => {
   })
 
   test("falls back to one single decision for a missing batch key", async () => {
-    const decide = mock((key: string) =>
+    const decide = vi.fn((key: string) =>
       key === "theme"
         ? ({ type: "variant", variant: "dark" } as const)
         : ({ type: "boolean", value: false } as const)
@@ -314,7 +314,7 @@ describe("gate batches", () => {
   })
 
   test("does not treat inherited record properties as batch decisions", async () => {
-    const decide = mock(() => ({ type: "boolean", value: true }) as const)
+    const decide = vi.fn(() => ({ type: "boolean", value: true }) as const)
     const gate = buildGate({
       decide,
       decideMany: () => ({}),
@@ -329,7 +329,7 @@ describe("gate batches", () => {
   })
 
   test("uses parallel single decisions when decideMany is absent", async () => {
-    const decide = mock((key: string): Decision =>
+    const decide = vi.fn((key: string): Decision =>
       key === "theme" ? { type: "variant", variant: "dark" } : { type: "boolean", value: true }
     )
     const gate = buildGate({
@@ -361,14 +361,14 @@ describe("gate batches", () => {
       ],
     ])
     const cache = {
-      get: mock((key: string) => Promise.resolve(stored.get(key))),
-      set: mock((key: string, value: Decision) => {
+      get: vi.fn((key: string) => Promise.resolve(stored.get(key))),
+      set: vi.fn((key: string, value: Decision) => {
         stored.set(key, value)
         return Promise.resolve()
       }),
     }
-    const decide = mock(() => ({ type: "variant", variant: "dark" }) as const)
-    const decideMany = mock(() => ({
+    const decide = vi.fn(() => ({ type: "variant", variant: "dark" }) as const)
+    const decideMany = vi.fn(() => ({
       theme: { type: "variant", variant: "dark" } as const,
     }))
     const gate = buildGate({
@@ -418,7 +418,7 @@ describe("gate batches", () => {
         }
       },
     }
-    const decideMany = mock(async (keys: readonly string[]) => {
+    const decideMany = vi.fn(async (keys: readonly string[]) => {
       for (const key of keys) {
         dispatchedKeys.add(key)
       }
@@ -555,7 +555,7 @@ describe("gate batches", () => {
   })
 
   test("passes null identity to anonymous batches without deduplicating batches", async () => {
-    const decideMany = mock((keys: readonly string[], identity: Identity | null) => {
+    const decideMany = vi.fn((keys: readonly string[], identity: Identity | null) => {
       expect(identity).toBeNull()
       return Object.fromEntries(keys.map((key) => [key, { type: "boolean", value: true } as const]))
     })
@@ -576,8 +576,8 @@ describe("gate batches", () => {
   })
 
   test("forces an anonymous identity for one batch", async () => {
-    const identify = mock(() => ({ distinctId: "identified" }))
-    const decideMany = mock((keys: readonly string[], identity: Identity | null) => {
+    const identify = vi.fn(() => ({ distinctId: "identified" }))
+    const decideMany = vi.fn((keys: readonly string[], identity: Identity | null) => {
       expect(identity).toBeNull()
       return Object.fromEntries(keys.map((key) => [key, { type: "boolean", value: true } as const]))
     })
@@ -597,8 +597,8 @@ describe("gate batches", () => {
   })
 
   test("rejects duplicate keys before identity or provider work", async () => {
-    const identify = mock(() => ({ distinctId: "user123" }))
-    const decide = mock(() => ({ type: "boolean", value: true }) as const)
+    const identify = vi.fn(() => ({ distinctId: "user123" }))
+    const decide = vi.fn(() => ({ type: "boolean", value: true }) as const)
     const gate = buildGate({ decide, identify })
     const first = gate({ defaultValue: false, key: "duplicate" })
     const second = gate({ defaultValue: true, key: "duplicate" })
