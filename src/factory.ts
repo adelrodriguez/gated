@@ -1,4 +1,3 @@
-import type { GateOptions } from "./lib/evaluation/shared"
 import type {
   AnonymousGatedConfig,
   CallerIdentityGatedConfig,
@@ -14,8 +13,8 @@ import { type BatchEntry, executeGateBatch } from "./lib/evaluation/batch"
 import { executeGate, executeGateDetails } from "./lib/evaluation/engine"
 import {
   type EvaluatorFactoryRef,
-  setEvaluatorFactoryRef,
-  setEvaluatorFlagKey,
+  getEvaluatorRecord,
+  registerEvaluator,
 } from "./lib/evaluation/registry"
 import { createResolutionState } from "./lib/evaluation/resolve"
 import { reportInBackground } from "./lib/hook"
@@ -164,7 +163,6 @@ export function buildGate<TIdentity extends Identity>(
 ): GateFactory<TIdentity, TIdentity | null> | GateFactory<TIdentity, TIdentity, true> {
   assertTimeoutMs(config.timeoutMs)
   const state = createResolutionState()
-  const definitions = new WeakMap<object, GateOptions<string[]>>()
   const changeListeners = new Set<(keys?: readonly string[]) => void>()
   let detachProvider: (() => void) | undefined
   const changes: GateChanges = {
@@ -198,11 +196,11 @@ export function buildGate<TIdentity extends Identity>(
     callOptions?: GateCallOptions<TIdentity | null>
   ): Promise<GateBatch<readonly AnyGateEvaluator[]>> {
     const entries: BatchEntry[] = flags.map((flag) => {
-      const options = definitions.get(flag)
-      if (!options) {
+      const record = getEvaluatorRecord(flag)
+      if (!record || record.factoryRef !== factoryRef) {
         throw new ForeignGateEvaluatorError()
       }
-      return { flag, options }
+      return { flag, options: record.options }
     })
     const results = await executeGateBatch(config, entries, callOptions, state)
     const getDetails = <TFlag extends AnyGateEvaluator>(flag: TFlag): GateDetails<TFlag> => {
@@ -253,9 +251,7 @@ export function buildGate<TIdentity extends Identity>(
       details: (callOptions?: GateCallOptions<TIdentity | null>) =>
         executeGateDetails<TIdentity, T, TPayload>(config, options, callOptions, undefined, state),
     })
-    definitions.set(assigned, options)
-    setEvaluatorFlagKey(assigned, options.key)
-    setEvaluatorFactoryRef(assigned, factoryRef)
+    registerEvaluator(assigned, { factoryRef, options })
     return assigned
   }
 

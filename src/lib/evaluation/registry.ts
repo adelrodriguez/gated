@@ -1,25 +1,22 @@
 import type { GateCallOptions, GateChanges } from "../types"
+import type { GateOptions } from "./shared"
 
 export type EvaluatorFactoryRef = {
   batch: (flags: readonly object[], callOptions?: GateCallOptions<never>) => Promise<unknown>
   changes: GateChanges
 }
 
-const flagKeysByEvaluator = new WeakMap<object, string>()
-const factoryRefsByEvaluator = new WeakMap<object, EvaluatorFactoryRef>()
-
-export function getEvaluatorFactoryRef(evaluator: object): EvaluatorFactoryRef | undefined {
-  return factoryRefsByEvaluator.get(evaluator)
+export type EvaluatorRecord = {
+  factoryRef: EvaluatorFactoryRef
+  options: GateOptions<string[]>
 }
 
-export function getEvaluatorFlagKey(evaluator: object): string | undefined {
-  return flagKeysByEvaluator.get(evaluator)
+const recordsByEvaluator = new WeakMap<object, EvaluatorRecord>()
+
+export function getEvaluatorRecord(evaluator: object): EvaluatorRecord | undefined {
+  return recordsByEvaluator.get(evaluator)
 }
 
-export function setEvaluatorFlagKey(evaluator: object, flagKey: string): void {
-  flagKeysByEvaluator.set(evaluator, flagKey)
-}
-
-export function setEvaluatorFactoryRef(evaluator: object, ref: EvaluatorFactoryRef): void {
-  factoryRefsByEvaluator.set(evaluator, ref)
+export function registerEvaluator(evaluator: object, record: EvaluatorRecord): void {
+  recordsByEvaluator.set(evaluator, record)
 }

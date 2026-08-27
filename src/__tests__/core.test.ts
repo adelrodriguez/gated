@@ -3,20 +3,21 @@ import type { Decision, EvaluationDetails, Hook, Identity } from "../lib/types"
 import { decision } from "../decision"
 import { buildGate } from "../factory"
 import { IdentityNotFoundError, MalformedDecisionError } from "../lib/errors"
-import { getEvaluatorFactoryRef } from "../lib/evaluation/registry"
+import { getEvaluatorRecord } from "../lib/evaluation/registry"
 
 describe("buildGate", () => {
-  test("registers one factory reference for its evaluators", async () => {
+  test("registers one record for its evaluators", async () => {
     const gate = buildGate({
       decide: () => decision.boolean(true),
       identify: () => ({ distinctId: "user" }),
     })
     const first = gate({ defaultValue: false, key: "first" })
     const second = gate({ defaultValue: false, key: "second" })
-    const ref = getEvaluatorFactoryRef(first)
+    const ref = getEvaluatorRecord(first)?.factoryRef
 
-    expect(ref).toBe(getEvaluatorFactoryRef(second))
-    expect(getEvaluatorFactoryRef({})).toBeUndefined()
+    expect(ref).toBe(getEvaluatorRecord(second)?.factoryRef)
+    expect(getEvaluatorRecord(first)?.options.key).toBe("first")
+    expect(getEvaluatorRecord({})).toBeUndefined()
     const batch = (await ref?.batch([first])) as readonly [boolean]
     expect(batch[0]).toBe(true)
   })

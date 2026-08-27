@@ -13,7 +13,7 @@ import type { EvaluationDetails, GateEvaluator, Identity } from "../lib/types"
 import { evictOnRejection, type GateCacheOptions } from "../lib/cache"
 import { type GateCacheKey, serializeKey } from "../lib/cache/key"
 import { ForeignGateEvaluatorError } from "../lib/errors"
-import { getEvaluatorFactoryRef, getEvaluatorFlagKey } from "../lib/evaluation/registry"
+import { getEvaluatorRecord } from "../lib/evaluation/registry"
 import { isDevelopmentEnvironment } from "../lib/utils"
 
 type AnyGateEvaluator =
@@ -127,7 +127,7 @@ function identityKey(identity: Identity | undefined): string {
 }
 
 function batchKey(flags: readonly AnyGateEvaluator[], identity?: Identity): string {
-  const keys = flags.map((flag) => getEvaluatorFlagKey(flag) ?? "")
+  const keys = flags.map((flag) => getEvaluatorRecord(flag)?.options.key ?? "")
   return serializeKey([keys, identityKey(identity)], "cacheKey")
 }
 
@@ -236,8 +236,8 @@ function evaluateFlag(flag: AnyGateEvaluator, identity?: Identity): Promise<unkn
 }
 
 function validateBatch(flags: readonly AnyGateEvaluator[]) {
-  const ref = flags[0] ? getEvaluatorFactoryRef(flags[0]) : undefined
-  if (!ref || flags.some((flag) => getEvaluatorFactoryRef(flag) !== ref)) {
+  const ref = flags[0] ? getEvaluatorRecord(flags[0])?.factoryRef : undefined
+  if (!ref || flags.some((flag) => getEvaluatorRecord(flag)?.factoryRef !== ref)) {
     throw new ForeignGateEvaluatorError()
   }
   return ref
@@ -444,8 +444,8 @@ function getVersionStore(
 }
 
 function changesSubscriber(flags: readonly AnyGateEvaluator[]) {
-  const ref = flags[0] ? getEvaluatorFactoryRef(flags[0]) : undefined
-  const keys = new Set(flags.map((flag) => getEvaluatorFlagKey(flag)))
+  const ref = flags[0] ? getEvaluatorRecord(flags[0])?.factoryRef : undefined
+  const keys = new Set(flags.map((flag) => getEvaluatorRecord(flag)?.options.key))
   return (bump: () => void): (() => void) =>
     ref?.changes.subscribe((changedKeys) => {
       if (changedKeys === undefined || changedKeys.some((key) => keys.has(key))) bump()
@@ -475,7 +475,7 @@ export function useGate(
 ): unknown {
   const context = useGateContext()
   const cache = context.cache as InternalGateCache
-  const evaluator = getEvaluatorFlagKey(input) !== undefined
+  const evaluator = getEvaluatorRecord(input) !== undefined
   if (!evaluator && !("key" in options)) {
     throw new TypeError("useGate(fn, options) requires a key option")
   }
