@@ -611,19 +611,18 @@ describe("gate batches", () => {
     expect(decide).not.toHaveBeenCalled()
   })
 
-  test("rejects evaluators from another factory", async () => {
-    const firstGate = buildGate({
-      decide: () => ({ type: "boolean", value: true }),
+  test("rejects evaluators from another factory built on the same config", async () => {
+    const config = {
+      decide: () => ({ type: "boolean", value: true }) as const,
       identify: () => ({ distinctId: "user123" }),
-    })
-    const secondGate = buildGate({
-      decide: () => ({ type: "boolean", value: true }),
-      identify: () => ({ distinctId: "user123" }),
-    })
+    }
+    const firstGate = buildGate(config)
+    const secondGate = buildGate(config)
+    const own = firstGate({ defaultValue: false, key: "own" })
     const foreign = secondGate({ defaultValue: false, key: "foreign" })
 
     await expectRejection(
-      firstGate.batch([foreign]),
+      firstGate.batch([own, foreign]),
       "Batch flags must be created by this gate factory"
     )
   })
