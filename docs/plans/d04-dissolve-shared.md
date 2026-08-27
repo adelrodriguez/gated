@@ -19,7 +19,7 @@ Deletion test: deleting `shared.ts` concentrates — the gate shape folds togeth
 
 - `src/lib/evaluation/gate-shape.ts` (name open) — `GateOptions`, `GateConfiguration`, `getGateConfiguration` (or inline it), plus the validation moved out of factory.ts. One module to edit per new gate option; factory.ts shrinks by a quarter.
 - `getEvaluationKey` — either its own `evaluation-key.ts` (the domain term earns a module) or a move into resolve.ts, its only remaining caller. Leaning to `evaluation-key.ts`: resolve.ts is about the resolution protocol, not the key encoding, and the key is also the domain doc's vocabulary entry.
-- `AnyGatedConfig` — survived d01 with exactly two readers: `resolveConfig`'s parameter (src/lib/evaluation/resolved-config.ts) and the `engine.test.ts` fixture helper. It is the config union at the `buildGate` boundary, not part of the gate shape, so it moves next to `ResolvedConfig` in resolved-config.ts rather than into either new module.
+- `AnyGatedConfig` — survived d01 with exactly three readers: `resolveConfig`'s parameter (src/lib/evaluation/resolved-config.ts) and the fixture helpers in `engine.test.ts` and `resolve.test.ts`. It is the config union at the `buildGate` boundary, not part of the gate shape, so it moves next to `ResolvedConfig` in resolved-config.ts rather than into either new module.
 
 ## Open questions (must close before implementation)
 
