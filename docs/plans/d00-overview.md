@@ -20,7 +20,7 @@ Candidate numbers below refer to the 2026-08-10 review's ordering, not to the me
 | ---- | ----------------------------------------------- | ----------- | ---------- | ----------------------- |
 | d02  | Finish the decision-source seam                 | ready       | d01 (done) | candidate 2 (remainder) |
 | d03  | One broadcaster for provider change signals     | exploration | —          | candidate 4             |
-| d04  | Dissolve `shared.ts` into a gate-shape module   | exploration | d01 (done) | candidate 5 (remainder) |
+| d04  | Dissolve `shared.ts` into a gate-shape module   | exploration | —          | candidate 5 (remainder) |
 | d05  | One hook-phase runner, detached by construction | exploration | —          | candidate 6             |
 
 **ready** — design settled enough to hand off; open decisions are listed and small.
