@@ -1,6 +1,6 @@
 # d04 — Dissolve `shared.ts` into a gate-shape module
 
-Status: **exploration** — the split direction is settled, but naming and the destination of `getEvaluationKey` should be decided in review; see the open questions. From the 2026-08-10 architecture review (revised 2026-08-14 — #84 already resolved the original candidate's hardest part: the evaluation key is now derived once, from one `config.evaluationKey` projection, so this plan is down to module placement). Depends on: — (d01 landed first; it narrowed `AnyGatedConfig` to two readers but did not remove it, so d04 owns the type's destination). Behavioral change: none.
+Status: **exploration** — the split direction is settled, but naming and the destination of `getEvaluationKey` should be decided in review; see the open questions. From the 2026-08-10 architecture review (revised 2026-08-14 — #84 already resolved the original candidate's hardest part: the evaluation key is now derived once, from one `config.evaluationKey` projection, so this plan is down to module placement). Depends on: — (d01 landed first; it narrowed `AnyGatedConfig` to three readers but did not remove it, so d04 owns the type's destination). Behavioral change: none.
 
 ## Goal
 
