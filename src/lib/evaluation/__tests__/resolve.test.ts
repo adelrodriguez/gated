@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from "bun:test"
 import type { Decision, HookContext, Identity } from "../../types"
 import type { AnyGatedConfig } from "../shared"
-import { createResolutionState, resolveDecision } from "../resolve"
+import { resolveDecision } from "../resolve"
+import { resolveConfig, type ResolvedConfig } from "../resolved-config"
 
 const trueDecision: Decision = { type: "boolean", value: true }
 const falseDecision: Decision = { type: "boolean", value: false }
@@ -19,12 +20,12 @@ function createContext(): HookContext {
   }
 }
 
-function createConfig(overrides: Partial<AnyGatedConfig<Identity>> = {}): AnyGatedConfig<Identity> {
-  return {
+function createConfig(overrides: Partial<AnyGatedConfig<Identity>> = {}): ResolvedConfig<Identity> {
+  return resolveConfig({
     decide: () => trueDecision,
     identify: () => ({ distinctId: "user123" }),
     ...overrides,
-  }
+  })
 }
 
 async function expectRejection(promise: Promise<unknown>, message: string): Promise<void> {
@@ -39,15 +40,15 @@ async function expectRejection(promise: Promise<unknown>, message: string): Prom
 
 describe("resolveDecision", () => {
   test("shares the leader decision with followers and empties pending after settle", async () => {
-    const state = createResolutionState()
     const config = createConfig()
+    const { state } = config
     const context = createContext()
     const request = Promise.withResolvers<Decision>()
     const provider = mock(() => request.promise)
     const signal = new AbortController().signal
 
-    const leader = resolveDecision(config, state, context, options, provider, signal)
-    const follower = resolveDecision(config, state, context, options, provider, signal)
+    const leader = resolveDecision(config, context, options, provider, signal)
+    const follower = resolveDecision(config, context, options, provider, signal)
     expect(state.pending.size).toBe(1)
     request.resolve(trueDecision)
 
@@ -58,19 +59,19 @@ describe("resolveDecision", () => {
   })
 
   test("rejects followers with the leader error and empties pending", async () => {
-    const state = createResolutionState()
     const config = createConfig()
+    const { state } = config
     const context = createContext()
     const request = Promise.withResolvers<Decision>()
     const provider = mock(() => request.promise)
     const signal = new AbortController().signal
 
     const leader = expectRejection(
-      resolveDecision(config, state, context, options, provider, signal),
+      resolveDecision(config, context, options, provider, signal),
       "Provider failed"
     )
     const follower = expectRejection(
-      resolveDecision(config, state, context, options, provider, signal),
+      resolveDecision(config, context, options, provider, signal),
       "Provider failed"
     )
     await Bun.sleep(0)
@@ -82,30 +83,16 @@ describe("resolveDecision", () => {
   })
 
   test("keeps a follower abort independent from the leader", async () => {
-    const state = createResolutionState()
     const config = createConfig()
+    const { state } = config
     const context = createContext()
     const request = Promise.withResolvers<Decision>()
     const provider = mock(() => request.promise)
     const abortedController = new AbortController()
     abortedController.abort(new Error("Follower aborted"))
 
-    const leader = resolveDecision(
-      config,
-      state,
-      context,
-      options,
-      provider,
-      new AbortController().signal
-    )
-    const follower = resolveDecision(
-      config,
-      state,
-      context,
-      options,
-      provider,
-      abortedController.signal
-    )
+    const leader = resolveDecision(config, context, options, provider, new AbortController().signal)
+    const follower = resolveDecision(config, context, options, provider, abortedController.signal)
 
     await expectRejection(follower, "Follower aborted")
     request.resolve(trueDecision)
@@ -116,7 +103,6 @@ describe("resolveDecision", () => {
   })
 
   test("does not remove a newer leader when a replaced leader settles", async () => {
-    const state = createResolutionState()
     let notify: ((change: { keys?: readonly string[] }) => void) | undefined
     const config = createConfig({
       subscribe: (listener) => {
@@ -124,13 +110,13 @@ describe("resolveDecision", () => {
         return () => null
       },
     })
+    const { state } = config
     const context = createContext()
     const firstRequest = Promise.withResolvers<Decision>()
     const secondRequest = Promise.withResolvers<Decision>()
 
     const firstLeader = resolveDecision(
       config,
-      state,
       context,
       options,
       () => firstRequest.promise,
@@ -141,7 +127,6 @@ describe("resolveDecision", () => {
 
     const secondLeader = resolveDecision(
       config,
-      state,
       context,
       options,
       () => secondRequest.promise,
@@ -160,7 +145,6 @@ describe("resolveDecision", () => {
   })
 
   test("skips a cache write when invalidation advances after the read", async () => {
-    const state = createResolutionState()
     const set = mock(() => Promise.resolve())
     let notify: ((change: { keys?: readonly string[] }) => void) | undefined
     const config = createConfig({
@@ -179,7 +163,6 @@ describe("resolveDecision", () => {
 
     const resolution = resolveDecision(
       config,
-      state,
       context,
       options,
       () => request.promise,

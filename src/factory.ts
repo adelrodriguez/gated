@@ -16,7 +16,7 @@ import {
   getEvaluatorRecord,
   registerEvaluator,
 } from "./lib/evaluation/registry"
-import { createResolutionState } from "./lib/evaluation/resolve"
+import { resolveConfig } from "./lib/evaluation/resolved-config"
 import { reportInBackground } from "./lib/hook"
 
 type AnyGateEvaluator =
@@ -162,14 +162,14 @@ export function buildGate<TIdentity extends Identity>(
     | CallerIdentityGatedConfig<TIdentity>
 ): GateFactory<TIdentity, TIdentity | null> | GateFactory<TIdentity, TIdentity, true> {
   assertTimeoutMs(config.timeoutMs)
-  const state = createResolutionState()
+  const resolved = resolveConfig(config)
   const changeListeners = new Set<(keys?: readonly string[]) => void>()
   let detachProvider: (() => void) | undefined
   const changes: GateChanges = {
     subscribe(listener) {
       changeListeners.add(listener)
-      if (changeListeners.size === 1 && config.subscribe) {
-        detachProvider = config.subscribe(({ keys }) => {
+      if (changeListeners.size === 1 && resolved.subscribe) {
+        detachProvider = resolved.subscribe(({ keys }) => {
           for (const changeListener of changeListeners) {
             reportInBackground(changeListener, keys)
           }
@@ -202,7 +202,7 @@ export function buildGate<TIdentity extends Identity>(
       }
       return { flag, options: record.options }
     })
-    const results = await executeGateBatch(config, entries, callOptions, state)
+    const results = await executeGateBatch(resolved, entries, callOptions)
     const getDetails = <TFlag extends AnyGateEvaluator>(flag: TFlag): GateDetails<TFlag> => {
       const details = results.get(flag)
       if (!details) {
@@ -245,11 +245,11 @@ export function buildGate<TIdentity extends Identity>(
     assertTimeoutMs(options.timeoutMs)
 
     const evaluator = async (callOptions?: GateCallOptions<TIdentity | null>) =>
-      executeGate(config, options, callOptions, state)
+      executeGate(resolved, options, callOptions)
 
     const assigned = Object.assign(evaluator, {
       details: (callOptions?: GateCallOptions<TIdentity | null>) =>
-        executeGateDetails<TIdentity, T, TPayload>(config, options, callOptions, undefined, state),
+        executeGateDetails<TIdentity, T, TPayload>(resolved, options, callOptions),
     })
     registerEvaluator(assigned, { factoryRef, options })
     return assigned

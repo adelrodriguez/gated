@@ -1,10 +1,9 @@
 import type { Decision, EvaluationDetails, GateCallOptions, Identity } from "../types"
-import type { ResolutionState } from "./resolve"
-import type { AnyGatedConfig, GateOptions } from "./shared"
+import type { ResolvedConfig } from "./resolved-config"
+import type { GateOptions } from "./shared"
 import { DuplicateBatchKeyError } from "../errors"
 import { normalizeError } from "../utils"
 import { executeGateDetails, type IdentityResult } from "./engine"
-import { evaluateConfiguredDecision, evaluateConfiguredMany, identify } from "./identity"
 import { createEvaluationSignal, raceWithSignal } from "./signals"
 
 export type BatchEntry = {
@@ -26,10 +25,9 @@ type FlushRound = {
 }
 
 export async function executeGateBatch<TIdentity extends Identity>(
-  config: AnyGatedConfig<TIdentity>,
+  config: ResolvedConfig<TIdentity>,
   entries: readonly BatchEntry[],
-  callOptions: GateCallOptions<TIdentity | null> | undefined,
-  state: ResolutionState
+  callOptions?: GateCallOptions<TIdentity | null>
 ): Promise<Map<object, EvaluationDetails<boolean | string>>> {
   if (entries.length === 0) {
     return new Map()
@@ -58,7 +56,7 @@ export async function executeGateBatch<TIdentity extends Identity>(
   let identityResult: IdentityResult<TIdentity>
   try {
     const identity = await raceWithSignal(
-      () => identify(config.identify, callOptions?.identity, config.anonymous === "allow"),
+      () => config.resolveIdentity(callOptions?.identity),
       signal
     )
     identityResult = { value: identity }
@@ -78,7 +76,7 @@ export async function executeGateBatch<TIdentity extends Identity>(
     try {
       current.resolve(
         await raceWithSignal(
-          () => evaluateConfiguredMany(config, current.keys, identity, signal),
+          () => config.decideMany?.(current.keys, identity, { signal }) ?? {},
           signal
         )
       )
@@ -119,20 +117,16 @@ export async function executeGateBatch<TIdentity extends Identity>(
       if (batched) {
         return batched
       }
-      return await evaluateConfiguredDecision(
-        config,
-        entry.options.key,
-        identityResult.value,
-        entrySignal?.signal ?? signal
-      )
+      return await config.decide(entry.options.key, identityResult.value, {
+        signal: entrySignal?.signal ?? signal,
+      })
     }
     return {
       evaluation: executeGateDetails(
         config,
         entry.options,
         { ...callOptions, signal: entrySignal?.signal },
-        { identityResult, provider },
-        state
+        { identityResult, provider }
       ).finally(() => {
         entrySignal?.cleanup()
       }),

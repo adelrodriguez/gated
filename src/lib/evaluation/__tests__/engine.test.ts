@@ -1,18 +1,17 @@
 import { describe, expect, mock, test } from "bun:test"
 import type { GateCallOptions, Decision, Hook, Identity } from "../../types"
 import type { AnyGatedConfig, GateOptions } from "../shared"
-import { IdentityNotFoundError, MalformedDecisionError } from "../../errors"
+import { MalformedDecisionError } from "../../errors"
 import { extractDecisionValue, validateDecision } from "../decision"
-import { executeGate as executeGateWithState } from "../engine"
-import { identify } from "../identity"
-import { createResolutionState } from "../resolve"
+import { executeGate as executeResolvedGate } from "../engine"
+import { resolveConfig } from "../resolved-config"
 
 function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
   config: AnyGatedConfig<TIdentity>,
   options: GateOptions<T>,
   callOptions?: GateCallOptions<TIdentity | null>
 ): Promise<boolean | T[number]> {
-  return executeGateWithState(config, options, callOptions, createResolutionState())
+  return executeResolvedGate(resolveConfig(config), options, callOptions)
 }
 
 async function expectRejection<T>(promise: Promise<T>, message: string) {
@@ -28,84 +27,6 @@ async function expectRejection<T>(promise: Promise<T>, message: string) {
   expect(caughtError).toMatchObject({ message })
   return caughtError
 }
-
-describe("identify", () => {
-  test("returns override identity when provided", async () => {
-    const identifyFn = mock(() =>
-      Promise.resolve<Identity>({
-        distinctId: "default",
-      })
-    )
-    const override: Identity = { distinctId: "override" }
-
-    const result = await identify(identifyFn, override)
-
-    expect(result).toEqual(override)
-    expect(identifyFn).not.toHaveBeenCalled()
-  })
-
-  test("calls identify function when no override provided", async () => {
-    const identity: Identity = { distinctId: "user123" }
-    const identifyFn = mock(() => Promise.resolve(identity))
-
-    const result = await identify(identifyFn)
-
-    expect(result).toEqual(identity)
-    expect(identifyFn).toHaveBeenCalledTimes(1)
-  })
-
-  test("rejects a null override in strict mode without identifying", async () => {
-    const identifyFn = mock(() => Promise.resolve<Identity>({ distinctId: "user123" }))
-
-    const error = await expectRejection(identify(identifyFn, null), "Identity not found")
-
-    expect(error).toBeInstanceOf(IdentityNotFoundError)
-    expect(identifyFn).not.toHaveBeenCalled()
-  })
-
-  test("throws error when identify function returns null", async () => {
-    const identifyFn = mock(() => Promise.resolve(null))
-
-    const error = await expectRejection(identify(identifyFn), "Identity not found")
-
-    expect(error).toBeInstanceOf(IdentityNotFoundError)
-  })
-
-  test("normalizes an undefined anonymous identity to null", async () => {
-    const identifyFn = mock(() => void 0)
-
-    const result = await identify(identifyFn as unknown as () => Identity | null, null, true)
-
-    expect(result).toBeNull()
-  })
-
-  test("handles synchronous identify function", async () => {
-    const identity: Identity = { distinctId: "user123" }
-    const identifyFn = mock(() => identity)
-
-    const result = await identify(identifyFn)
-
-    expect(result).toEqual(identity)
-  })
-
-  test("handles custom identity properties", async () => {
-    interface CustomIdentity extends Identity {
-      email: string
-      plan: "free" | "pro"
-    }
-
-    const identity: CustomIdentity = {
-      distinctId: "user123",
-      email: "user@example.com",
-      plan: "pro",
-    }
-    const identifyFn = mock(() => Promise.resolve(identity))
-
-    const result = await identify(identifyFn)
-
-    expect(result).toEqual(identity)
-  })
-})
 
 describe("extractDecisionValue", () => {
   test("extracts boolean value from boolean decision", () => {

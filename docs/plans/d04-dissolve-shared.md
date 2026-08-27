@@ -1,6 +1,6 @@
 # d04 — Dissolve `shared.ts` into a gate-shape module
 
-Status: **exploration** — the split direction is settled, but naming and the destination of `getEvaluationKey` should be decided in review; see the open questions. From the 2026-08-10 architecture review (revised 2026-08-14 — #84 already resolved the original candidate's hardest part: the evaluation key is now derived once, from one `config.evaluationKey` projection, so this plan is down to module placement). Depends on: d01 preferred (it removes `AnyGatedConfig`, shared.ts's broadest export, on its own). Behavioral change: none.
+Status: **exploration** — the split direction is settled, but naming and the destination of `getEvaluationKey` should be decided in review; see the open questions. From the 2026-08-10 architecture review (revised 2026-08-14 — #84 already resolved the original candidate's hardest part: the evaluation key is now derived once, from one `config.evaluationKey` projection, so this plan is down to module placement). Depends on: — (d01 landed first; it narrowed `AnyGatedConfig` to three readers but did not remove it, so d04 owns the type's destination). Behavioral change: none.
 
 ## Goal
 
@@ -19,7 +19,7 @@ Deletion test: deleting `shared.ts` concentrates — the gate shape folds togeth
 
 - `src/lib/evaluation/gate-shape.ts` (name open) — `GateOptions`, `GateConfiguration`, `getGateConfiguration` (or inline it), plus the validation moved out of factory.ts. One module to edit per new gate option; factory.ts shrinks by a quarter.
 - `getEvaluationKey` — either its own `evaluation-key.ts` (the domain term earns a module) or a move into resolve.ts, its only remaining caller. Leaning to `evaluation-key.ts`: resolve.ts is about the resolution protocol, not the key encoding, and the key is also the domain doc's vocabulary entry.
-- `AnyGatedConfig` — dies with d01; if d04 lands first, it moves to a temporary `config.ts`, not into either new module.
+- `AnyGatedConfig` — survived d01 with exactly three readers: `resolveConfig`'s parameter (src/lib/evaluation/resolved-config.ts) and the fixture helpers in `engine.test.ts` and `resolve.test.ts`. It is the config union at the `buildGate` boundary, not part of the gate shape, so it moves next to `ResolvedConfig` in resolved-config.ts rather than into either new module.
 
 ## Open questions (must close before implementation)
 

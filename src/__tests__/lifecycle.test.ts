@@ -52,6 +52,25 @@ describe("observer hook lifecycle", () => {
     expect(contexts.every((context) => context === contexts[0])).toBe(true)
   })
 
+  test("snapshots hooks at build time so later config mutation does not affect evaluations", async () => {
+    const snapshottedHook = mock(() => Promise.resolve())
+    const lateHook = mock(() => Promise.resolve())
+    const hooks = [{ before: snapshottedHook }]
+    const gate = buildGate({
+      decide: () => ({ type: "boolean", value: true }),
+      hooks,
+      identify: () => ({ distinctId: "user123" }),
+    })
+
+    hooks.push({ before: lateHook })
+
+    expect(await gate({ defaultValue: false, key: "beta-access" })()).toBe(true)
+    await flushBackground()
+
+    expect(snapshottedHook).toHaveBeenCalledTimes(1)
+    expect(lateHook).not.toHaveBeenCalled()
+  })
+
   test("reports cache and provider decision sources to after hooks", async () => {
     const sources: string[] = []
     const cache = new Map<string, Decision>()
