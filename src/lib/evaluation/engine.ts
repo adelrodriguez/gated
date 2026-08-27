@@ -6,17 +6,12 @@ import type {
   HookContext,
   Identity,
 } from "../types"
+import type { ResolvedConfig } from "./resolved-config"
 import { runAfterHooks, runBeforeHooks, runErrorHooks, runFinallyHooks } from "../hook"
 import { normalizeError } from "../utils"
 import { extractDecisionValue } from "./decision"
-import { evaluateConfiguredDecision, identify } from "./identity"
-import { resolveDecision, type ResolutionState } from "./resolve"
-import {
-  type AnyGatedConfig,
-  type GateConfiguration,
-  type GateOptions,
-  getGateConfiguration,
-} from "./shared"
+import { resolveDecision } from "./resolve"
+import { type GateConfiguration, type GateOptions, getGateConfiguration } from "./shared"
 import { consumeCleanup, createEvaluationSignal, raceWithSignal } from "./signals"
 
 type Evaluation<TIdentity extends Identity> = {
@@ -96,13 +91,12 @@ export async function executeGateDetails<
   T extends string[] = string[],
   TPayload = unknown,
 >(
-  config: AnyGatedConfig<TIdentity>,
+  config: ResolvedConfig<TIdentity>,
   options: GateOptions<T>,
-  callOptions: GateCallOptions<TIdentity | null> | undefined,
-  execution: ExecutionOverrides<TIdentity> | undefined,
-  state: ResolutionState
+  callOptions?: GateCallOptions<TIdentity | null>,
+  execution?: ExecutionOverrides<TIdentity>
 ): Promise<EvaluationDetails<boolean | T[number], TPayload>> {
-  const hooks = [...(config.hooks ?? [])]
+  const { hooks } = config
   const gateConfiguration = getGateConfiguration(options.variants)
   const { cleanup, signal } = createEvaluationSignal(
     callOptions?.signal,
@@ -130,7 +124,7 @@ export async function executeGateDetails<
       if (execution?.identityResult && "value" in execution.identityResult) {
         return execution.identityResult.value
       }
-      return await identify(config.identify, callOptions?.identity, config.anonymous === "allow")
+      return await config.resolveIdentity(callOptions?.identity)
     }, signal)
     evaluation.identity = identity
 
@@ -138,12 +132,9 @@ export async function executeGateDetails<
 
     const resolution = await resolveDecision(
       config,
-      state,
       hookContext,
       options,
-      () =>
-        execution?.provider() ??
-        evaluateConfiguredDecision(config, evaluation.key, identity, signal),
+      () => execution?.provider() ?? config.decide(evaluation.key, identity, { signal }),
       signal
     )
     const { decision } = resolution
@@ -207,11 +198,10 @@ export async function executeGateDetails<
 }
 
 export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
-  config: AnyGatedConfig<TIdentity>,
+  config: ResolvedConfig<TIdentity>,
   options: GateOptions<T>,
-  callOptions: GateCallOptions<TIdentity | null> | undefined,
-  state: ResolutionState
+  callOptions?: GateCallOptions<TIdentity | null>
 ): Promise<boolean | T[number]> {
-  const details = await executeGateDetails(config, options, callOptions, undefined, state)
+  const details = await executeGateDetails(config, options, callOptions)
   return details.value
 }

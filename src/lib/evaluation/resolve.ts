@@ -7,10 +7,11 @@ import type {
   Identity,
   MaybePromise,
 } from "../types"
+import type { ResolvedConfig } from "./resolved-config"
 import { reportInBackground } from "../hook"
 import { normalizeError } from "../utils"
 import { validateDecision } from "./decision"
-import { type AnyGatedConfig, type GateOptions, getEvaluationKey } from "./shared"
+import { type GateOptions, getEvaluationKey } from "./shared"
 import { raceWithSignal } from "./signals"
 
 type PendingResolution = {
@@ -52,7 +53,7 @@ export type DecisionResolution = {
 }
 
 function reportCacheError<TIdentity extends Identity>(
-  config: AnyGatedConfig<TIdentity>,
+  config: ResolvedConfig<TIdentity>,
   context: Pick<HookContext<TIdentity>, "flagKey" | "identity">,
   operation: DecisionCacheErrorReport["operation"],
   key: string,
@@ -68,7 +69,7 @@ function reportCacheError<TIdentity extends Identity>(
 }
 
 function deleteCacheEntry<TIdentity extends Identity>(
-  config: AnyGatedConfig<TIdentity>,
+  config: ResolvedConfig<TIdentity>,
   context: Pick<HookContext<TIdentity>, "flagKey" | "identity">,
   store: DecisionCache,
   key: string
@@ -85,8 +86,7 @@ function deleteCacheEntry<TIdentity extends Identity>(
 }
 
 function indexCacheKey<TIdentity extends Identity>(
-  config: AnyGatedConfig<TIdentity>,
-  state: ResolutionState,
+  config: ResolvedConfig<TIdentity>,
   context: HookContext<TIdentity>,
   store: DecisionCache,
   key: string
@@ -95,6 +95,7 @@ function indexCacheKey<TIdentity extends Identity>(
     return
   }
 
+  const { state } = config
   const keys = state.keysByFlag.get(context.flagKey) ?? new Map<string, Identity | null>()
   keys.set(key, context.identity)
   state.keysByFlag.set(context.flagKey, keys)
@@ -109,12 +110,11 @@ function indexCacheKey<TIdentity extends Identity>(
  * continues without invalidation.
  */
 function attachInvalidationSubscription<TIdentity extends Identity>(
-  config: AnyGatedConfig<TIdentity>,
-  state: ResolutionState,
+  config: ResolvedConfig<TIdentity>,
   context: HookContext<TIdentity>,
   key: string
 ): void {
-  const { subscribe } = config
+  const { state, subscribe } = config
   if (!subscribe) {
     return
   }
@@ -173,13 +173,13 @@ type StoreConsultation = {
 }
 
 async function consultStore<TIdentity extends Identity, T extends string[]>(
-  config: AnyGatedConfig<TIdentity>,
-  state: ResolutionState,
+  config: ResolvedConfig<TIdentity>,
   context: HookContext<TIdentity>,
   options: GateOptions<T>,
   store: DecisionCache,
   key: string
 ): Promise<StoreConsultation> {
+  const { state } = config
   const generationBeforeRead = state.writes.generation
 
   let cached: Decision | null | undefined
@@ -205,8 +205,7 @@ async function consultStore<TIdentity extends Identity, T extends string[]>(
 }
 
 function writeThrough<TIdentity extends Identity>(
-  config: AnyGatedConfig<TIdentity>,
-  state: ResolutionState,
+  config: ResolvedConfig<TIdentity>,
   context: HookContext<TIdentity>,
   store: DecisionCache,
   generation: number,
@@ -215,7 +214,7 @@ function writeThrough<TIdentity extends Identity>(
 ): void {
   void Promise.resolve()
     .then(() => {
-      if (state.writes.generation !== generation) {
+      if (config.state.writes.generation !== generation) {
         return
       }
       return store.set(key, decision)
@@ -233,15 +232,14 @@ function writeThrough<TIdentity extends Identity>(
  * leaves this function satisfies the evaluation's gate shape.
  */
 export async function resolveDecision<TIdentity extends Identity, T extends string[]>(
-  config: AnyGatedConfig<TIdentity>,
-  state: ResolutionState,
+  config: ResolvedConfig<TIdentity>,
   context: HookContext<TIdentity>,
   options: GateOptions<T>,
   provider: () => MaybePromise<Decision>,
   signal: AbortSignal
 ): Promise<DecisionResolution> {
+  const { coalesce, state } = config
   const store = config.cache
-  const coalesce = config.coalesce !== false
 
   let key: string | undefined
   try {
@@ -259,10 +257,10 @@ export async function resolveDecision<TIdentity extends Identity, T extends stri
 
   let write: { generation: number; store: DecisionCache } | undefined
   if (store) {
-    indexCacheKey(config, state, context, store, key)
-    attachInvalidationSubscription(config, state, context, key)
+    indexCacheKey(config, context, store, key)
+    attachInvalidationSubscription(config, context, key)
     const consultation = await raceWithSignal(
-      () => consultStore(config, state, context, options, store, key),
+      () => consultStore(config, context, options, store, key),
       signal
     )
     if (consultation.decision) {
@@ -291,7 +289,7 @@ export async function resolveDecision<TIdentity extends Identity, T extends stri
     void lead.promise.catch(() => null)
     // Attach before registering leadership: nothing may throw between the pending registration
     // and the provider try/finally, or the entry orphans and later evaluations join it forever.
-    attachInvalidationSubscription(config, state, context, key)
+    attachInvalidationSubscription(config, context, key)
     state.pending.set(key, lead)
   }
 
@@ -300,7 +298,7 @@ export async function resolveDecision<TIdentity extends Identity, T extends stri
     lead?.resolve(decision)
     validateDecision(decision, options)
     if (write) {
-      writeThrough(config, state, context, write.store, write.generation, key, decision)
+      writeThrough(config, context, write.store, write.generation, key, decision)
     }
     return { decision, source: "provider" }
   } catch (error) {
