@@ -1,5 +1,42 @@
 # gated
 
+## 0.3.0
+
+### Minor Changes
+
+- ad3867b: Redesign the React integration around evaluators. Add destructurable server batch results, `useGate`, `useGateBatch`, `GateProvider`, `createGateCache`, `useGateCache`, live invalidation, and cache prefetch methods. `FeatureGate` now accepts an evaluator. Remove `createReactGate` and `GateCacheProvider`.
+
+  Migration:
+
+  - Replace `const useX = createReactGate(flag)` and `useX()` with `useGate(flag)`.
+  - Replace `useX(identity)` with `useGate(flag, { identity })`.
+  - Replace generated-hook invalidation methods with methods on `useGateCache()` or an explicit cache. A cache read through `useGateCache()` defaults to the provider identity; a directly constructed cache always needs an explicit identity.
+  - Replace `GateCacheProvider` with `GateProvider`.
+  - Replace custom `cacheKey` hooks with `useGate(() => fn(...args), { key })`.
+
+- c5ea17d: **Breaking:** cache and request coalescing are now one read-through resolver keyed by a single evaluation key, and coalescing is enabled by default.
+
+  Migration:
+
+  - `cache: { store, key }` → `cache: store` plus the new top-level `evaluationKey` option
+  - `coalesce: { key }` → `coalesce: true` (or omit it — coalescing is now the default) plus `evaluationKey`
+  - The `CoalescingOptions` and `DecisionCacheOptions` types are removed
+  - Set `coalesce: false` to opt out of the new default, for example when `decide` has per-call side effects such as exposure logging; `after` hooks run once per evaluation (including coalesced followers), so hook-based exposure tracking is unaffected
+
+  Behavior changes:
+
+  - A throwing `evaluationKey` now degrades softly for coalescing too: it is reported through `onCacheError` (operation `"key"`) and the evaluation continues without cache or coalescing, instead of failing the evaluation
+  - A flag-change notification now drops in-flight coalesced provider work for the changed flags whenever `subscribe` is configured — with or without a cache — so evaluations that start after the notification lead a fresh provider call instead of receiving the pre-change decision
+  - A flag-change notification now invalidates every pending cache write — regardless of which flags changed, and even when the store cannot delete — so a decision fetched before the change is never written after it
+  - The invalidation subscription attaches on the first evaluation that touches cache or coalescing and stays attached for the factory's lifetime, instead of detaching when the cache key index empties
+  - A throwing `subscribe` never fails an evaluation: it is reported through `onCacheError` with the new `"subscribe"` operation and the evaluation continues without invalidation
+
+### Patch Changes
+
+- ed06cf2: Evaluation state (request coalescing and cache invalidation tracking) is now owned by each gate factory instead of module-level maps keyed by config identity. Two factories built from the same config object no longer share coalesced provider work or cache invalidation bookkeeping.
+- f9db196: `buildGate` now reads the whole config once when the factory is built. Mutating any config field after `buildGate` — reassigning `decide`, attaching a `cache`, or pushing to the `hooks` array — no longer affects evaluations; pass the final configuration at build time.
+- edec161: Clarify the README: the React gate cache section now explains the per-evaluator buckets and the shared bucket for custom `useGate` functions, conditions come before the statements they guard, and passive sentences name their actor.
+
 ## 0.2.0
 
 ### Minor Changes
