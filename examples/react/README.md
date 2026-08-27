@@ -1,10 +1,13 @@
-# Gated React showcase
+# Gated React example
 
-An interactive Next.js App Router application that demonstrates every public capability of `gated` with a local in-memory flag provider. It includes boolean and typed variant decisions, evaluation details and payloads, server batching, identity overrides, anonymous evaluation, React Suspense gates, cache invalidation, `FeatureGate`, observer hooks, built-in cache and request coalescing, timeout and abort behavior, and typed fallback errors.
+A Next.js App Router application that exercises every public capability of `gated` against
+a local in-memory flag provider. It covers the core API: boolean and variant gates,
+evaluation details and payloads, batches, identity overrides, anonymous evaluation, hooks,
+the built-in cache, request coalescing, timeouts, cancellation, and typed fallback errors.
+It also covers the React integration: `useGate`, `useGateBatch`, `FeatureGate`, Suspense,
+and the gate cache.
 
-The example is the executable reference for its acceptance criteria and design decisions.
-
-## Run locally
+## Run the example
 
 From this directory:
 
@@ -13,11 +16,13 @@ bun install
 bun dev
 ```
 
-No root build is required. State is held in `globalThis`, survives development HMR, and resets when the process restarts.
+The example does not need a root build. The demo provider stores its state in `globalThis`,
+so the state survives development HMR and resets when the process restarts.
 
-## Consumer code vs. demo provider
+## Consumer code and the demo provider
 
-The example keeps the code a package consumer would write separate from the fake provider used to make the showcase interactive:
+The example separates the code a package consumer would write from the fake provider that
+makes the demo interactive:
 
 ```text
 src/shared/gates/
@@ -32,22 +37,34 @@ src/shared/demo-provider/
 src/app/api/decide*/     HTTP transport from the client factory to the demo provider
 ```
 
-Start in `shared/gates/` for copyable `gated` usage. Everything under `shared/demo-provider/` is showcase infrastructure and would be replaced by an SDK or adapter for a real flag provider.
+Start in `shared/gates/` for `gated` usage you can copy. Everything under
+`shared/demo-provider/` exists to make the demo interactive. A real application replaces it
+with a provider SDK or adapter.
 
 ## Source aliases
 
-Example code imports the real public paths (`gated`, `gated/hooks`, and `gated/react`), while TypeScript and Next map those paths directly to `../../src`. This keeps consumer snippets realistic and gives live HMR without adding the root package as a workspace or copied `file:` dependency. Both Turbopack and webpack aliases are configured in `next.config.mjs`.
+Example code imports the real public paths: `gated`, `gated/hooks`, and `gated/react`.
+TypeScript and Next map those paths to `../../src`. The snippets stay realistic, and edits
+to the library source reload live without a workspace link or a copied `file:` dependency.
+`next.config.mjs` configures the aliases for both Turbopack and webpack.
 
 ## Guided tour
 
 1. Switch the header identity to Bob.
-2. Open **Admin**, change Bob’s `new-dashboard` override, and submit it.
+2. Open **Admin**, change Bob's `new-dashboard` override, and submit it.
 3. Open **Server** to see the new decision and full details immediately.
-4. Open **Client**, return to Admin to flip the value again, then come back. The client gate remains cached until **Invalidate this identity** is pressed.
-5. Open **Advanced** to run request coalescing, server cache, timeout, and abort experiments and inspect every hook phase in the event log.
+4. Open **Client**, return to **Admin** to flip the value again, then come back. The client
+   gate stays cached until you press **Invalidate this identity**.
+5. Open **Advanced** to run the request coalescing, server cache, timeout, and abort
+   experiments and to inspect every hook phase in the event log.
 
 ## Deploy
 
-For Vercel, set the project root directory to `examples/react` and enable **Include source files outside of the Root Directory** so the `../../src` aliases are bundled. The app uses the Node runtime and standalone output.
+For Vercel, set the project root directory to `examples/react` and enable **Include source
+files outside of the Root Directory** so the build can follow the `../../src` aliases. The
+app uses the Node runtime and standalone output.
 
-The flag store is per-process memory. Vercel does not guarantee that requests use the same instance, so an admin mutation may occasionally be read by another instance with different state. For strict single-store demo behavior, deploy one container to Railway, Fly.io, or Render and run `bun start` after `bun run build`.
+The flag store is per-process memory. Vercel does not guarantee that requests reach the
+same instance, so a request after an admin mutation may reach an instance with older state.
+For one shared store, deploy a single container to Railway, Fly.io, or Render and run
+`bun start` after `bun run build`.
