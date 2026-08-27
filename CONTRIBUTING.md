@@ -56,7 +56,8 @@ script.
 
 ## Make a change
 
-- Keep the gate factory in `src/factory.ts` and the core implementation in `src/lib/`.
+- Keep the gate factory in `src/factory.ts`, the decision helpers in `src/decision.ts`,
+  and the core implementation in `src/lib/`.
 - Keep hooks in `src/hooks/`.
 - Keep the React integration in `src/integrations/react.tsx`.
 - Add or update colocated tests for behavior changes.
