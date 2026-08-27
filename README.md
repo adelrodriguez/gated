@@ -13,8 +13,7 @@ Gated adds a type-safe evaluation layer to your feature flag provider. You suppl
 identity and provider decision. Gated manages validation, fallback values, hooks,
 caching, request coalescing, batches, and timeouts.
 
-Gated works in browsers and servers. React support is available as an optional entry
-point.
+Gated works in browsers and servers. React support is an optional entry point.
 
 ## Contents
 
@@ -319,8 +318,8 @@ controller.abort()
 const result = await pendingResult
 ```
 
-A timeout or cancellation returns the configured default if no decision has committed.
-The signal is available to hooks and provider functions.
+If no decision has committed, a timeout or cancellation returns the configured default.
+Hooks and provider functions receive the signal.
 
 Timeouts cover identity resolution, `before` hooks, cache reads, provider work, and
 decision validation. The `after` and `finally` hooks run after a successful commit and do
@@ -412,9 +411,9 @@ const gate = buildGate({
 ```
 
 Call `notify({ keys })` to invalidate the named flags, or `notify({})` to invalidate every
-flag. Gated drops the cached decisions and the in-flight provider calls for those flags. A
-`subscribe` function that throws is reported through `onCacheError` and does not fail the
-evaluation.
+flag. Gated drops the cached decisions and the in-flight provider calls for those flags.
+If the `subscribe` function throws, Gated reports the error through `onCacheError` and
+does not fail the evaluation.
 
 ### Share concurrent provider work
 
@@ -511,9 +510,10 @@ Boolean gates match `true` by default. Variant gates require a `match` prop.
 
 ### Control the React gate cache
 
-React evaluations use a bounded promise cache. The default cache keeps at most 100 settled
-entries for each evaluator and each batch tuple. All custom functions share one budget. The
-limit applies to identities in each bucket, not to the full cache.
+React evaluations use a bounded promise cache. Each evaluator and each batch tuple gets its
+own bucket, and a bucket keeps at most 100 settled entries by default. Custom async
+functions passed to `useGate` share one bucket. The limit applies to each bucket, not to
+the full cache.
 
 Pending evaluations stay in the cache by default. Set `pendingTtlMs` to let the cache remove
 old pending evaluations. Cache removal does not cancel the evaluation.
@@ -570,8 +570,8 @@ A cache that you use directly cannot read a provider identity. Supply an explici
 to its gate operations.
 
 Identity cache keys can contain strings, numbers, booleans, `null`, `undefined`, arrays,
-and plain records with string keys. Other values cause a `TypeError`. This includes `Date`,
-`Map`, symbols, functions, bigints, and circular references.
+and plain records with string keys. Other values, including `Date`, `Map`, symbols,
+functions, bigints, and circular references, cause a `TypeError`.
 
 All exports from `gated/react` are client-only. The module has a `"use client"` directive.
 For server rendering, mount `GateProvider` inside the client boundary and above the Suspense

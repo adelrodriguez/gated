@@ -26,8 +26,9 @@ change behavior or terminology. Use the project's domain language.
 ```text
 src/
   index.ts                Root public API
-  core.ts                 Gate construction
-  lib/                    Evaluation and shared types
+  factory.ts              Gate factory and batch construction
+  decision.ts             Decision helpers
+  lib/                    Evaluation engine, cache, and shared types
   hooks/                  Hook factory
   integrations/react.tsx  React integration, published as gated/react
   **/__tests__/           Colocated tests
@@ -55,12 +56,13 @@ script.
 
 ## Make a change
 
-- Keep core implementation in `src/core.ts` and `src/lib/`.
+- Keep the gate factory in `src/factory.ts`, the decision helpers in `src/decision.ts`,
+  and the core implementation in `src/lib/`.
 - Keep hooks in `src/hooks/`.
 - Keep the React integration in `src/integrations/react.tsx`.
 - Add or update colocated tests for behavior changes.
 - Update user documentation when public behavior, types, or entry points change.
-- Consider package consumers before you change `gated`, `gated/hooks`,
+- Consider package consumers before you change `gated`, `gated/hooks`, or
   `gated/react`.
 
 ## Validate a change
@@ -94,14 +96,14 @@ Do not create a major changeset unless the breaking change is intentional and ap
 
 ## Pull requests
 
-A pull request should explain:
+In the pull request description, explain:
 
 - What changed.
 - Why the change is needed.
-- How the change was validated.
-- Whether it changes public behavior or requires migration.
+- How you validated the change.
+- Whether the change affects public behavior or requires migration.
 
-All CI checks must pass before merge. Link related GitHub issues when applicable.
+All CI checks must pass before merge. Link related GitHub issues.
 
 ## Security
 

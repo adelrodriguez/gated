@@ -18,9 +18,9 @@ operations.
 
 Infer the repository from the Git remote when possible.
 
-## Pull requests as a request surface
+## Pull requests
 
-PRs are not a triage request surface.
+Do not use pull requests to request triage.
 
 ## Skill operations
 

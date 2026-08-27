@@ -1,7 +1,7 @@
-# Security Policy
+# Security policy
 
-## Reporting a Vulnerability
+## Report a vulnerability
 
-Please report suspected vulnerabilities privately through [GitHub Security Advisories](https://github.com/adelrodriguez/gated/security/advisories/new). Do not open a public issue or include exploit details in a public discussion.
+Report suspected vulnerabilities privately through [GitHub Security Advisories](https://github.com/adelrodriguez/gated/security/advisories/new). Do not open a public issue or include exploit details in a public discussion.
 
-Include a clear description, affected versions or commit, reproduction steps or proof of concept, impact, and any suggested mitigation. Maintainers will assess the report and coordinate disclosure through the advisory.
+Include a description of the problem, the affected versions or commit, reproduction steps or a proof of concept, the impact, and any suggested mitigation. A maintainer assesses the report and coordinates disclosure through the advisory.

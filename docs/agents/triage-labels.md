@@ -1,4 +1,4 @@
-# Triage Labels
+# Triage labels
 
 The skills use five canonical triage roles. This file maps those roles to the labels in
 this repository's issue tracker.
