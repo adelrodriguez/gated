@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test"
+import { describe, expect, it } from "vitest"
 import * as hooks from "../hooks"
 import * as gated from "../index"
 import * as react from "../integrations/react"
@@ -13,7 +13,7 @@ describe("public entry points", () => {
   })
 
   it("exposes hook helpers without the core factory", () => {
-    expect(hooks.defineHook({})).toBeObject()
+    expect(hooks.defineHook({})).toBeTypeOf("object")
     expect("buildGate" in hooks).toBe(false)
   })
 

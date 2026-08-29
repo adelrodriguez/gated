@@ -1,4 +1,5 @@
-import { describe, expect, mock, test } from "bun:test"
+import { setTimeout as sleep } from "node:timers/promises"
+import { describe, expect, test, vi } from "vitest"
 import type { DecisionCacheErrorReport, Decision, HookContext, HookErrorReport } from "../lib/types"
 import { buildGate } from "../factory"
 import { GateTimeoutError, InvalidVariantError } from "../lib/errors"
@@ -14,8 +15,8 @@ function createDeferred<T>() {
 }
 
 async function flushBackground(): Promise<void> {
-  await Bun.sleep(0)
-  await Bun.sleep(0)
+  await sleep(0)
+  await sleep(0)
 }
 
 describe("observer hook lifecycle", () => {
@@ -53,8 +54,8 @@ describe("observer hook lifecycle", () => {
   })
 
   test("snapshots hooks at build time so later config mutation does not affect evaluations", async () => {
-    const snapshottedHook = mock(() => Promise.resolve())
-    const lateHook = mock(() => Promise.resolve())
+    const snapshottedHook = vi.fn(() => Promise.resolve())
+    const lateHook = vi.fn(() => Promise.resolve())
     const hooks = [{ before: snapshottedHook }]
     const gate = buildGate({
       decide: () => ({ type: "boolean", value: true }),
@@ -100,7 +101,7 @@ describe("observer hook lifecycle", () => {
   test("returns after an abort while error hooks continue to completion", async () => {
     const errorHookStarted = createDeferred<null>()
     const releaseErrorHook = createDeferred<null>()
-    const finallyHook = mock(() => Promise.resolve())
+    const finallyHook = vi.fn(() => Promise.resolve())
     const controller = new AbortController()
     const gate = buildGate({
       decide: () => {
@@ -192,12 +193,12 @@ describe("observer hook lifecycle", () => {
 describe("first-class cache", () => {
   test("uses the default evaluation key for a miss, write, and hit", async () => {
     const stored = new Map<string, Decision>()
-    const get = mock((key: string) => Promise.resolve(stored.get(key)))
-    const set = mock((key: string, decision: Decision) => {
+    const get = vi.fn((key: string) => Promise.resolve(stored.get(key)))
+    const set = vi.fn((key: string, decision: Decision) => {
       stored.set(key, decision)
       return Promise.resolve()
     })
-    const decide = mock(() => ({ type: "variant", variant: "dark" }) as const)
+    const decide = vi.fn(() => ({ type: "variant", variant: "dark" }) as const)
     const gate = buildGate({
       cache: { get, set },
       decide,
@@ -239,7 +240,7 @@ describe("first-class cache", () => {
   test("reports custom cache key failures without reading the store", async () => {
     const reports: DecisionCacheErrorReport[] = []
     const error = new Error("key failed")
-    const get = mock(() => Promise.resolve(null))
+    const get = vi.fn(() => Promise.resolve(null))
     const gate = buildGate({
       cache: {
         get,
@@ -268,7 +269,7 @@ describe("first-class cache", () => {
 
   test("keeps numeric and string identity keys separate", async () => {
     const stored = new Map<string, Decision>()
-    const decide = mock((_key: string, identity: { distinctId: number | string }) => ({
+    const decide = vi.fn((_key: string, identity: { distinctId: number | string }) => ({
       type: "boolean" as const,
       value: typeof identity.distinctId === "number",
     }))
@@ -295,9 +296,9 @@ describe("first-class cache", () => {
 
   test("treats an invalid cached decision as a miss, reports it, and evicts it", async () => {
     const reports: DecisionCacheErrorReport[] = []
-    const remove = mock(() => Promise.resolve(true))
-    const set = mock(() => Promise.resolve())
-    const decide = mock(() => ({ type: "variant", variant: "dark" }) as const)
+    const remove = vi.fn(() => Promise.resolve(true))
+    const set = vi.fn(() => Promise.resolve())
+    const decide = vi.fn(() => ({ type: "variant", variant: "dark" }) as const)
     const gate = buildGate({
       cache: {
         delete: remove,
@@ -360,11 +361,11 @@ describe("first-class cache", () => {
   })
 
   test("attaches one invalidation subscription for the factory's lifetime", async () => {
-    const subscribe = mock((listener: (change: { keys?: readonly string[] }) => void) => {
+    const subscribe = vi.fn((listener: (change: { keys?: readonly string[] }) => void) => {
       listener({ keys: ["beta-access"] })
       return detach
     })
-    const detach = mock(() => null)
+    const detach = vi.fn(() => null)
     const gate = buildGate({
       cache: {
         delete: () => Promise.resolve(true),
@@ -446,8 +447,8 @@ describe("first-class cache", () => {
   test("does not write a provider decision after its flag is invalidated", async () => {
     const provider = createDeferred<Decision>()
     const providerStarted = createDeferred<boolean>()
-    const set = mock(() => Promise.resolve())
-    const decide = mock(() => {
+    const set = vi.fn(() => Promise.resolve())
+    const decide = vi.fn(() => {
       providerStarted.resolve(true)
       return provider.promise
     })
@@ -483,8 +484,8 @@ describe("first-class cache", () => {
   })
 
   test("does not read or write the cache for an anonymous identity", async () => {
-    const get = mock(() => Promise.resolve<Decision | null>(null))
-    const set = mock(() => Promise.resolve())
+    const get = vi.fn(() => Promise.resolve<Decision | null>(null))
+    const set = vi.fn(() => Promise.resolve())
     const gate = buildGate({
       anonymous: "allow",
       cache: { get, set },
@@ -511,7 +512,7 @@ describe("first-class cache", () => {
       signal: controller.signal,
     })
 
-    await Bun.sleep(0)
+    await sleep(0)
     controller.abort(reason)
     expect(await evaluation).toEqual({
       error: reason,
@@ -522,9 +523,9 @@ describe("first-class cache", () => {
   })
 
   test("writes only once for a coalesced provider leader", async () => {
-    const set = mock(() => Promise.resolve())
-    const decide = mock(async () => {
-      await Bun.sleep(5)
+    const set = vi.fn(() => Promise.resolve())
+    const decide = vi.fn(async () => {
+      await sleep(5)
       return { type: "boolean", value: true } as const
     })
     const gate = buildGate({
@@ -556,8 +557,8 @@ describe("first-class cache", () => {
 
 describe("request coalescing", () => {
   test("shares concurrent provider work for one evaluation key by default", async () => {
-    const decide = mock(async () => {
-      await Bun.sleep(5)
+    const decide = vi.fn(async () => {
+      await sleep(5)
       return { type: "boolean", value: true } as const
     })
     const gate = buildGate({
@@ -571,8 +572,8 @@ describe("request coalescing", () => {
   })
 
   test("gives every evaluation its own provider call when coalescing is disabled", async () => {
-    const decide = mock(async () => {
-      await Bun.sleep(5)
+    const decide = vi.fn(async () => {
+      await sleep(5)
       return { type: "boolean", value: true } as const
     })
     const gate = buildGate({
@@ -587,8 +588,8 @@ describe("request coalescing", () => {
   })
 
   test("does not share provider work across factories built from one config object", async () => {
-    const decide = mock(async () => {
-      await Bun.sleep(5)
+    const decide = vi.fn(async () => {
+      await sleep(5)
       return { type: "boolean", value: true } as const
     })
     const config = {
@@ -603,8 +604,8 @@ describe("request coalescing", () => {
   })
 
   test("does not share provider work across incompatible gate shapes", async () => {
-    const decide = mock(async () => {
-      await Bun.sleep(5)
+    const decide = vi.fn(async () => {
+      await sleep(5)
       return { type: "boolean", value: true } as const
     })
     const gate = buildGate({
@@ -620,8 +621,8 @@ describe("request coalescing", () => {
   })
 
   test("supports an identity-sensitive coalescing key", async () => {
-    const decide = mock(async () => {
-      await Bun.sleep(5)
+    const decide = vi.fn(async () => {
+      await sleep(5)
       return { type: "boolean", value: true } as const
     })
     const gate = buildGate<{ distinctId: string; tenant: string }>({
@@ -649,9 +650,9 @@ describe("request coalescing", () => {
     })
     const evaluator = gate({ defaultValue: false, key: "beta-access" })
     const leader = evaluator()
-    await Bun.sleep(0)
+    await sleep(0)
     const follower = evaluator.details({ signal: controller.signal })
-    await Bun.sleep(0)
+    await sleep(0)
 
     controller.abort(new Error("follower stopped"))
     provider.resolve({ type: "boolean", value: true })
@@ -665,7 +666,7 @@ describe("request coalescing", () => {
   test("does not coalesce onto in-flight provider work after invalidation", async () => {
     const first = createDeferred<Decision>()
     let notifyChange: ((change: { keys?: readonly string[] }) => void) | undefined
-    const decide = mock((): Decision | Promise<Decision> =>
+    const decide = vi.fn((): Decision | Promise<Decision> =>
       decide.mock.calls.length === 1 ? first.promise : { type: "boolean", value: false }
     )
     const gate = buildGate({
@@ -685,10 +686,10 @@ describe("request coalescing", () => {
     const evaluator = gate({ defaultValue: true, key: "beta-access" })
 
     const leader = evaluator()
-    await Bun.sleep(0)
+    await sleep(0)
     notifyChange?.({ keys: ["beta-access"] })
     const late = evaluator()
-    await Bun.sleep(0)
+    await sleep(0)
 
     first.resolve({ type: "boolean", value: true })
     expect(await leader).toBe(true)
@@ -699,7 +700,7 @@ describe("request coalescing", () => {
   test("drops in-flight provider work on invalidation without a cache store", async () => {
     const first = createDeferred<Decision>()
     let notifyChange: ((change: { keys?: readonly string[] }) => void) | undefined
-    const decide = mock((): Decision | Promise<Decision> =>
+    const decide = vi.fn((): Decision | Promise<Decision> =>
       decide.mock.calls.length === 1 ? first.promise : { type: "boolean", value: false }
     )
     const gate = buildGate({
@@ -713,10 +714,10 @@ describe("request coalescing", () => {
     const evaluator = gate({ defaultValue: true, key: "beta-access" })
 
     const leader = evaluator()
-    await Bun.sleep(0)
+    await sleep(0)
     notifyChange?.({ keys: ["beta-access"] })
     const late = evaluator()
-    await Bun.sleep(0)
+    await sleep(0)
 
     first.resolve({ type: "boolean", value: true })
     expect(await leader).toBe(true)
@@ -727,7 +728,7 @@ describe("request coalescing", () => {
   test("drops in-flight provider work on invalidation when the cache store cannot delete", async () => {
     const first = createDeferred<Decision>()
     let notifyChange: ((change: { keys?: readonly string[] }) => void) | undefined
-    const decide = mock((): Decision | Promise<Decision> =>
+    const decide = vi.fn((): Decision | Promise<Decision> =>
       decide.mock.calls.length === 1 ? first.promise : { type: "boolean", value: false }
     )
     const gate = buildGate({
@@ -745,10 +746,10 @@ describe("request coalescing", () => {
     const evaluator = gate({ defaultValue: true, key: "beta-access" })
 
     const leader = evaluator()
-    await Bun.sleep(0)
+    await sleep(0)
     notifyChange?.({ keys: ["beta-access"] })
     const late = evaluator()
-    await Bun.sleep(0)
+    await sleep(0)
 
     first.resolve({ type: "boolean", value: true })
     expect(await leader).toBe(true)
@@ -760,7 +761,7 @@ describe("request coalescing", () => {
     const first = createDeferred<Decision>()
     const store = new Map<string, Decision>()
     let notifyChange: ((change: { keys?: readonly string[] }) => void) | undefined
-    const decide = mock((): Decision | Promise<Decision> =>
+    const decide = vi.fn((): Decision | Promise<Decision> =>
       decide.mock.calls.length === 1 ? first.promise : { type: "boolean", value: false }
     )
     const gate = buildGate({
@@ -781,10 +782,10 @@ describe("request coalescing", () => {
     const evaluator = gate({ defaultValue: true, key: "beta-access" })
 
     const leader = evaluator()
-    await Bun.sleep(0)
+    await sleep(0)
     notifyChange?.({ keys: ["beta-access"] })
     const late = evaluator()
-    await Bun.sleep(0)
+    await sleep(0)
 
     first.resolve({ type: "boolean", value: true })
     expect(await leader).toBe(true)
@@ -818,7 +819,7 @@ describe("request coalescing", () => {
 
   test("rejects every follower with the normalized leader failure and permits a retry", async () => {
     const provider = createDeferred<Decision>()
-    const decide = mock(() => provider.promise)
+    const decide = vi.fn(() => provider.promise)
     const gate = buildGate({
       coalesce: true,
       decide,
@@ -826,7 +827,7 @@ describe("request coalescing", () => {
     })
     const evaluator = gate({ defaultValue: false, key: "beta-access" })
     const evaluations = [evaluator.details(), evaluator.details(), evaluator.details()]
-    await Bun.sleep(0)
+    await sleep(0)
 
     provider.reject({ code: "unavailable" } as never)
 

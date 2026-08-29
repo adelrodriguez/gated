@@ -180,8 +180,8 @@ Depends on: S01. Additive.
 
 - Add `src/integrations/svelte.ts`.
 - Add Svelte as a development dependency and add a Svelte-aware test build that
-  compiles fixture `.svelte` files before Bun runs them. Keep plain store tests
-  in Bun; use compiled components only for context, rendering, and teardown.
+  compiles fixture `.svelte` files before Vitest runs them. Keep plain store tests
+  in Vitest; use compiled components only for context, rendering, and teardown.
 - Implement `createGateStore` overloads for values and details.
 - Implement `createGateBatchStore` with tuple inference and empty-batch parity.
 - Implement first-subscriber evaluation and last-unsubscriber cleanup with a
@@ -192,9 +192,9 @@ Depends on: S01. Additive.
 - Test boolean gates, variant gates, details payloads, batches, rejection,
   invalidation, provider changes, duplicate flags, foreign evaluators, and
   subscription disposal.
-- Keep the new Svelte source and shared integration source above Bun's per-file
-  `coverageThreshold = 0.9`; run `bun run test:coverage` because normal CI
-  `bun test --parallel` does not enforce the coverage gate.
+- Keep the new Svelte source and shared integration source above Vitest's 90%
+  per-file coverage thresholds; run `pnpm run test:coverage` because the normal
+  test command does not collect coverage.
 
 ### S03 — Add context and SSR isolation
 
@@ -219,7 +219,7 @@ Depends on: S02. Additive.
 
 Depends on: S01–S03. Additive minor release.
 
-- Add `gated/svelte` to `package.json` exports and `bunup.config.ts`.
+- Add `gated/svelte` to `package.json` exports and `tsdown.config.ts`.
 - Add `src/integrations/svelte.ts` to `knip.config.ts` entry points so dependency
   analysis treats its public exports as intentional.
 - Add optional `svelte` peer dependency with the selected supported Svelte 5
@@ -230,7 +230,7 @@ Depends on: S01–S03. Additive minor release.
 - Add a minimal SvelteKit example that covers SSR context isolation, a boolean
   store, a variant store, a batch store, invalidation, and prefetch.
 - Run SvelteKit development and production build checks through this example,
-  not through the root Bun test loader.
+  not through the root Vitest configuration.
 - Add README sections for Svelte setup, state rendering, batching, SSR,
   invalidation, and error handling.
 - Update `CONTEXT.md` and the domain vocabulary with the Svelte adapter and the
@@ -241,8 +241,8 @@ Depends on: S01–S03. Additive minor release.
 ## Test matrix
 
 - Svelte client rendering and teardown.
-- Svelte server rendering with two isolated requests in a separate DOM-free test
-  process that does not load the root `bunfig.toml` Happy DOM preload.
+- Svelte server rendering with two isolated requests in a DOM-free Vitest
+  project that does not use the Happy DOM environment.
 - SvelteKit development and production builds through the S04 example.
 - Lowest supported Svelte 5 version and current Svelte 5 version.
 - TypeScript inference for boolean, variant, payload, identity, and batch tuple
@@ -252,13 +252,13 @@ Depends on: S01–S03. Additive minor release.
 
 ## Verification
 
-- `bun run test`
-- `bun run test:coverage` with the 90% per-file floor
-- `bun run build`
-- `bun run check`
-- `bun run fix`
-- `bun run format`
-- `bun run analyze`
+- `pnpm run test`
+- `pnpm run test:coverage` with the 90% per-file floor
+- `pnpm run build`
+- `pnpm run check`
+- `pnpm run fix`
+- `pnpm run format`
+- `pnpm run analyze`
 - Svelte example typecheck, test, and production build
 - React example typecheck and production build
 

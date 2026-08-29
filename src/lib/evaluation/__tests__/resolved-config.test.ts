@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test"
+import { describe, expect, test, vi } from "vitest"
 import type { Decision, Hook, Identity } from "../../types"
 import { IdentityNotFoundError } from "../../errors"
 import { resolveConfig } from "../resolved-config"
@@ -22,7 +22,7 @@ async function expectIdentityNotFound<T>(promise: Promise<T>) {
 describe("resolveIdentity", () => {
   describe("strict config", () => {
     test("returns the override without identifying", async () => {
-      const identify = mock(() => Promise.resolve<Identity>({ distinctId: "default" }))
+      const identify = vi.fn(() => Promise.resolve<Identity>({ distinctId: "default" }))
       const resolved = resolveConfig({ decide: () => decision, identify })
       const override: Identity = { distinctId: "override" }
 
@@ -31,7 +31,7 @@ describe("resolveIdentity", () => {
     })
 
     test("rejects a null override without identifying", async () => {
-      const identify = mock(() => Promise.resolve<Identity>({ distinctId: "default" }))
+      const identify = vi.fn(() => Promise.resolve<Identity>({ distinctId: "default" }))
       const resolved = resolveConfig({ decide: () => decision, identify })
 
       await expectIdentityNotFound(resolved.resolveIdentity(null))
@@ -40,7 +40,7 @@ describe("resolveIdentity", () => {
 
     test("identifies when no override is provided", async () => {
       const identity: Identity = { distinctId: "user123" }
-      const identify = mock(() => Promise.resolve(identity))
+      const identify = vi.fn(() => Promise.resolve(identity))
       const resolved = resolveConfig({ decide: () => decision, identify })
 
       expect(await resolved.resolveIdentity()).toEqual(identity)
@@ -92,7 +92,7 @@ describe("resolveIdentity", () => {
 
   describe("anonymous config", () => {
     test("returns the override without identifying", async () => {
-      const identify = mock(() => Promise.resolve<Identity>({ distinctId: "default" }))
+      const identify = vi.fn(() => Promise.resolve<Identity>({ distinctId: "default" }))
       const resolved = resolveConfig({ anonymous: "allow", decide: () => decision, identify })
       const override: Identity = { distinctId: "override" }
 
@@ -101,7 +101,7 @@ describe("resolveIdentity", () => {
     })
 
     test("accepts a null override", async () => {
-      const identify = mock(() => Promise.resolve<Identity>({ distinctId: "default" }))
+      const identify = vi.fn(() => Promise.resolve<Identity>({ distinctId: "default" }))
       const resolved = resolveConfig({ anonymous: "allow", decide: () => decision, identify })
 
       expect(await resolved.resolveIdentity(null)).toBeNull()
@@ -130,7 +130,7 @@ describe("resolveIdentity", () => {
     })
 
     test("normalizes an undefined identify result to null", async () => {
-      const identify = mock(() => void 0)
+      const identify = vi.fn(() => void 0)
       const resolved = resolveConfig({
         anonymous: "allow",
         decide: () => decision,
@@ -177,7 +177,7 @@ describe("resolveIdentity", () => {
 describe("decide", () => {
   test("forwards the identity and signal to the configured decide", async () => {
     const identity: Identity = { distinctId: "user123" }
-    const decide = mock(() => Promise.resolve(decision))
+    const decide = vi.fn(() => Promise.resolve(decision))
     const resolved = resolveConfig({ decide, identify: () => identity })
 
     expect(await resolved.decide("beta-access", identity, { signal })).toEqual(decision)
@@ -185,7 +185,7 @@ describe("decide", () => {
   })
 
   test("rejects a null identity for a strict config without calling decide", async () => {
-    const decide = mock(() => Promise.resolve(decision))
+    const decide = vi.fn(() => Promise.resolve(decision))
     const resolved = resolveConfig({ decide, identify: () => ({ distinctId: "user123" }) })
 
     await expectIdentityNotFound(resolved.decide("beta-access", null, { signal }))
@@ -193,7 +193,7 @@ describe("decide", () => {
   })
 
   test("passes a null identity through for an anonymous config", async () => {
-    const decide = mock(() => Promise.resolve(decision))
+    const decide = vi.fn(() => Promise.resolve(decision))
     const resolved = resolveConfig({
       anonymous: "allow",
       decide,
@@ -218,7 +218,7 @@ describe("decideMany", () => {
   test("forwards the keys and identity to the configured decideMany", async () => {
     const identity: Identity = { distinctId: "user123" }
     const decisions = { "beta-access": decision }
-    const decideMany = mock(() => Promise.resolve(decisions))
+    const decideMany = vi.fn(() => Promise.resolve(decisions))
     const resolved = resolveConfig({
       decide: () => decision,
       decideMany,
@@ -230,7 +230,7 @@ describe("decideMany", () => {
   })
 
   test("rejects a null identity for a strict config without calling decideMany", async () => {
-    const decideMany = mock(() => Promise.resolve({}))
+    const decideMany = vi.fn(() => Promise.resolve({}))
     const resolved = resolveConfig({
       decide: () => decision,
       decideMany,
@@ -245,7 +245,7 @@ describe("decideMany", () => {
 
   test("passes a null identity through for an anonymous config", async () => {
     const decisions = { "beta-access": decision }
-    const decideMany = mock(() => Promise.resolve(decisions))
+    const decideMany = vi.fn(() => Promise.resolve(decisions))
     const resolved = resolveConfig({
       anonymous: "allow",
       decide: () => decision,

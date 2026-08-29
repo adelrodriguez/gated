@@ -1,27 +1,7 @@
 version: 2
 updates:
-  # Enable version updates for Bun dependencies
-  - package-ecosystem: "bun"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "09:00"
-      timezone: "America/New_York"
-    open-pull-requests-limit: 10
-    assignees:
-      - "adelrodriguez"
-    commit-message:
-      prefix: "deps"
-      include: "scope"
-    labels:
-      - "dependencies"
-      - "automated"
-    groups:
-      all-bun-dependencies:
-        patterns:
-          - "*"
-
+  # Dependabot does not support pnpm 12. Update package dependencies with
+  # `pnpm run bump:deps` until support is available.
   # Enable version updates for GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
