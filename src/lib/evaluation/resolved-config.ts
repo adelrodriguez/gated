@@ -57,8 +57,8 @@ export function resolveConfig<TIdentity extends Identity>(
       ...base,
       decide: async (key, identity, options) => await decide(key, identity, options),
       decideMany:
-        decideMany &&
-        (async (keys, identity, options) => await decideMany(keys, identity, options)),
+        decideMany
+        && (async (keys, identity, options) => await decideMany(keys, identity, options)),
       resolveIdentity: async (override) => {
         if (override !== undefined) {
           return override
@@ -78,8 +78,8 @@ export function resolveConfig<TIdentity extends Identity>(
       return await decide(key, identity, options)
     },
     decideMany:
-      decideMany &&
-      (async (keys, identity, options) => {
+      decideMany
+      && (async (keys, identity, options) => {
         if (identity === null) {
           throw new IdentityNotFoundError()
         }

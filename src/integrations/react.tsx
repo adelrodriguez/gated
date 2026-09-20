@@ -90,8 +90,8 @@ type InternalGateCache = ReactGateCache & {
   batchBuckets: WeakMap<object, Bucket>
   customBucket: Bucket
   gateBuckets: WeakMap<object, Bucket>
-  options: Required<Pick<GateCacheOptions, "maxEntries" | "ttlMs">> &
-    Pick<GateCacheOptions, "pendingTtlMs">
+  options: Required<Pick<GateCacheOptions, "maxEntries" | "ttlMs">>
+    & Pick<GateCacheOptions, "pendingTtlMs">
 }
 
 const IDENTIFY_SENTINEL = "identify:core"
@@ -162,8 +162,8 @@ function readEntry(bucket: Bucket, key: string): Promise<unknown> | undefined {
   if (!entry) return undefined
   const now = Date.now()
   if (
-    (!entry.settled && entry.pendingExpiresAt !== undefined && now >= entry.pendingExpiresAt) ||
-    (entry.settled && entry.expiresAt !== undefined && now >= entry.expiresAt)
+    (!entry.settled && entry.pendingExpiresAt !== undefined && now >= entry.pendingExpiresAt)
+    || (entry.settled && entry.expiresAt !== undefined && now >= entry.expiresAt)
   ) {
     bucket.entries.delete(key)
     return undefined
@@ -217,8 +217,8 @@ function prune(cache: InternalGateCache, bucket: Bucket): void {
   const now = Date.now()
   for (const [key, entry] of bucket.entries) {
     if (
-      (!entry.settled && entry.pendingExpiresAt !== undefined && now >= entry.pendingExpiresAt) ||
-      (entry.settled && entry.expiresAt !== undefined && now >= entry.expiresAt)
+      (!entry.settled && entry.pendingExpiresAt !== undefined && now >= entry.pendingExpiresAt)
+      || (entry.settled && entry.expiresAt !== undefined && now >= entry.expiresAt)
     ) {
       bucket.entries.delete(key)
     }
@@ -355,10 +355,10 @@ function useGateContext(): GateContextValue {
   const context = use(GateContext)
   if (!context) {
     if (
-      !didWarnAboutServerDefaultCache &&
-      isDevelopmentEnvironment() &&
+      !didWarnAboutServerDefaultCache
+      && isDevelopmentEnvironment()
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- Server runtimes do not define window.
-      globalThis.window === undefined
+      && globalThis.window === undefined
     ) {
       didWarnAboutServerDefaultCache = true
       // oxlint-disable-next-line no-console -- Development-only SSR safety warning.

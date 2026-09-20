@@ -43,8 +43,8 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647
 
 function assertTimeoutMs(timeoutMs: number | undefined): void {
   if (
-    timeoutMs !== undefined &&
-    (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMER_DELAY_MS)
+    timeoutMs !== undefined
+    && (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMER_DELAY_MS)
   ) {
     throw new RangeError(
       `timeoutMs must be a positive finite number no greater than ${MAX_TIMER_DELAY_MS}`

@@ -411,8 +411,8 @@ describe("gate batches", () => {
         const count = (invocationCount.get(context.flagKey) ?? 0) + 1
         invocationCount.set(context.flagKey, count)
         if (
-          (context.flagKey === "first" && count === 2) ||
-          (context.flagKey === "second" && count === 1)
+          (context.flagKey === "first" && count === 2)
+          || (context.flagKey === "second" && count === 1)
         ) {
           await delay(20)
         }

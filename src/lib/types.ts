@@ -35,9 +35,9 @@ type EvaluationDetailsPayload<TValue, TPayload> = [Extract<TValue, string>] exte
       payload?: TPayload
     }
 
-export type EvaluationDetails<TValue, TPayload = unknown> = EvaluationDetailsBase<TValue> &
-  EvaluationDetailsPayload<TValue, TPayload> &
-  (
+export type EvaluationDetails<TValue, TPayload = unknown> = EvaluationDetailsBase<TValue>
+  & EvaluationDetailsPayload<TValue, TPayload>
+  & (
     | { source: DecisionSource; error?: never }
     | {
         source: "default"
@@ -87,8 +87,8 @@ type HookContextBase<TIdentity extends Identity> = {
   readonly signal: AbortSignal
 }
 
-export type HookContext<TIdentity extends Identity = Identity> = HookContextBase<TIdentity> &
-  (
+export type HookContext<TIdentity extends Identity = Identity> = HookContextBase<TIdentity>
+  & (
     | {
         readonly defaultValue: boolean
         readonly kind: "boolean"

@@ -34,8 +34,8 @@ Use Changesets for versioning and changelog management. See
 ## Repository rules
 
 - Use pnpm for package management and scripts.
-- Run `pnpm run test`, `pnpm run build`, `pnpm run check`, `pnpm run fix`, and
-  `pnpm run format` after edits.
+- Run `pnpm run test`, `pnpm run build`, `pnpm run check`, and `pnpm run fix` after
+  edits.
 - Run `pnpm run analyze` after dependency, import, or export changes.
 
 - Keep tests colocated in `src/**/__tests__/`.
@@ -53,9 +53,8 @@ Use Changesets for versioning and changelog management. See
 This project uses Adamantite for its managed formatting, linting, type checking, and dependency-analysis setup.
 
 - Prefer the package scripts Adamantite added for this workspace.
-- Run `pnpm run format` after editing files. Direct command: `adamantite format`.
-- Run `pnpm run check` to catch lint and type issues. Direct command: `adamantite check`.
-- Run `pnpm run fix` to apply safe lint fixes. Direct command: `adamantite fix`.
+- Run `pnpm run check` to catch formatting, lint, and type issues. Direct command: `adamantite check`.
+- Run `pnpm run fix` to apply formatting and safe lint fixes. Direct command: `adamantite fix`.
 - Run `pnpm run analyze` after changing dependencies, imports, or exports. Direct command: `adamantite analyze`.
 - Use `adamantite doctor` to inspect managed setup and `adamantite doctor --fix` for safe local fixes.
 

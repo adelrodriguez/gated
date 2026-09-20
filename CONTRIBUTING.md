@@ -47,13 +47,12 @@ pnpm run dev            # Rebuild when source files change.
 pnpm run test           # Run the Vitest suite.
 pnpm run test:watch     # Run tests when files change.
 pnpm run test:coverage  # Run tests and collect coverage.
-pnpm run check          # Check lint rules and TypeScript types.
-pnpm run fix            # Apply safe lint fixes.
-pnpm run format         # Format repository files.
+pnpm run check          # Check formatting, lint rules, and TypeScript types.
+pnpm run fix            # Apply formatting and safe lint fixes.
 pnpm run analyze        # Find unused files, exports, and dependencies.
 ```
 
-`check`, `fix`, `format`, and `analyze` use Adamantite. There is no separate `typecheck`
+`check`, `fix`, and `analyze` use Adamantite. There is no separate `typecheck`
 script.
 
 ## Make a change
@@ -76,7 +75,6 @@ pnpm run test
 pnpm run build:verify
 pnpm run check
 pnpm run fix
-pnpm run format
 ```
 
 Run `pnpm run analyze` after you add or remove dependencies or change imports and exports.

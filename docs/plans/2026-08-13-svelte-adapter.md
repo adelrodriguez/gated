@@ -257,7 +257,6 @@ Depends on: S01–S03. Additive minor release.
 - `pnpm run build`
 - `pnpm run check`
 - `pnpm run fix`
-- `pnpm run format`
 - `pnpm run analyze`
 - Svelte example typecheck, test, and production build
 - React example typecheck and production build
