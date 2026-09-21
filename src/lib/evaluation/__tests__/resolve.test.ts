@@ -1,4 +1,5 @@
-import { describe, expect, mock, test } from "bun:test"
+import { setTimeout as sleep } from "node:timers/promises"
+import { describe, expect, test, vi } from "vitest"
 import type { Decision, HookContext, Identity } from "../../types"
 import type { AnyGatedConfig } from "../shared"
 import { resolveDecision } from "../resolve"
@@ -44,7 +45,7 @@ describe("resolveDecision", () => {
     const { state } = config
     const context = createContext()
     const request = Promise.withResolvers<Decision>()
-    const provider = mock(() => request.promise)
+    const provider = vi.fn(() => request.promise)
     const signal = new AbortController().signal
 
     const leader = resolveDecision(config, context, options, provider, signal)
@@ -63,7 +64,7 @@ describe("resolveDecision", () => {
     const { state } = config
     const context = createContext()
     const request = Promise.withResolvers<Decision>()
-    const provider = mock(() => request.promise)
+    const provider = vi.fn(() => request.promise)
     const signal = new AbortController().signal
 
     const leader = expectRejection(
@@ -74,7 +75,7 @@ describe("resolveDecision", () => {
       resolveDecision(config, context, options, provider, signal),
       "Provider failed"
     )
-    await Bun.sleep(0)
+    await sleep(0)
     request.reject(new Error("Provider failed"))
 
     await Promise.all([leader, follower])
@@ -87,7 +88,7 @@ describe("resolveDecision", () => {
     const { state } = config
     const context = createContext()
     const request = Promise.withResolvers<Decision>()
-    const provider = mock(() => request.promise)
+    const provider = vi.fn(() => request.promise)
     const abortedController = new AbortController()
     abortedController.abort(new Error("Follower aborted"))
 
@@ -145,7 +146,7 @@ describe("resolveDecision", () => {
   })
 
   test("skips a cache write when invalidation advances after the read", async () => {
-    const set = mock(() => Promise.resolve())
+    const set = vi.fn(() => Promise.resolve())
     let notify: ((change: { keys?: readonly string[] }) => void) | undefined
     const config = createConfig({
       cache: {
@@ -168,13 +169,13 @@ describe("resolveDecision", () => {
       () => request.promise,
       new AbortController().signal
     )
-    await Bun.sleep(0)
+    await sleep(0)
     notify?.({ keys: ["beta-access"] })
     request.resolve(trueDecision)
 
     const settled = await resolution
     expect(settled.source).toBe("provider")
-    await Bun.sleep(0)
+    await sleep(0)
     expect(set).not.toHaveBeenCalled()
   })
 })

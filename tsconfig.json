@@ -10,9 +10,9 @@
     "moduleResolution": "bundler",
     "noEmit": true,
     "target": "ESNext",
-    "types": ["bun"],
+    "types": ["node"],
     "verbatimModuleSyntax": true
   },
   "exclude": ["node_modules", "dist", ".packref"],
-  "include": ["src", "*.config.ts"]
+  "include": ["src", "scripts", "*.config.ts"]
 }

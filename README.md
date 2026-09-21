@@ -63,10 +63,10 @@ Gated works in browsers and servers. React support is an optional entry point.
 ## Install Gated
 
 ```sh
-bun add gated
+pnpm add gated
 ```
 
-You can also use npm, pnpm, or Yarn.
+You can also use Bun, npm, or Yarn.
 
 ## Create your first gate
 

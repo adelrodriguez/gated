@@ -1,6 +1,9 @@
-import { afterEach, describe, expect, it, mock, spyOn } from "bun:test"
+// @vitest-environment happy-dom
+
+import { setTimeout as sleep } from "node:timers/promises"
 import { act, cleanup, render, screen } from "@testing-library/react"
 import { Component, type ReactNode, Suspense } from "react"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { buildGate, decision } from "../../index"
 import {
   createGateCache,
@@ -14,10 +17,10 @@ import {
 afterEach(cleanup)
 
 function makeFactory() {
-  const decide = mock((key: string) =>
+  const decide = vi.fn((key: string) =>
     key === "theme" ? decision.variant("dark", { experiment: "A" }) : decision.boolean(true)
   )
-  const decideMany = mock((keys: readonly string[]) =>
+  const decideMany = vi.fn((keys: readonly string[]) =>
     Object.fromEntries(
       keys.map((key) => [key, key === "theme" ? decision.variant("dark") : decision.boolean(true)])
     )
@@ -92,7 +95,7 @@ describe("React integration", () => {
   })
 
   it("supports custom functions and live invalidation", async () => {
-    const call = mock(() => Promise.resolve(7))
+    const call = vi.fn(() => Promise.resolve(7))
     const cache = createGateCache()
     function Consumer() {
       return <span>{useGate(call, { key: "answer" })}</span>
@@ -234,7 +237,7 @@ describe("React integration", () => {
 
   it("applies the provider identity to hook cache prefetching", async () => {
     const seen: string[] = []
-    const decideMany = mock((keys: readonly string[], identity: { distinctId: string }) => {
+    const decideMany = vi.fn((keys: readonly string[], identity: { distinctId: string }) => {
       seen.push(identity.distinctId)
       return Object.fromEntries(keys.map((key) => [key, decision.boolean(true)]))
     })
@@ -313,7 +316,7 @@ describe("React integration", () => {
 
   it("re-evaluates only for change notifications naming a subscribed key", async () => {
     let emit: ((keys: readonly string[]) => void) | undefined
-    const decide = mock(() => decision.boolean(true))
+    const decide = vi.fn(() => decision.boolean(true))
     const factory = buildGate({
       decide,
       identify: () => ({ distinctId: "core" }),
@@ -376,7 +379,7 @@ describe("React integration", () => {
     const original = console.error
     // oxlint-disable-next-line no-console -- The warning under test is emitted through console.error.
     console.error = (...args: unknown[]) => errors.push(args[0])
-    const call = mock(() => Promise.reject(new Error("boom")))
+    const call = vi.fn(() => Promise.reject(new Error("boom")))
     const cache = createGateCache()
     function Consumer() {
       return <span>{useGate(call, { key: "retry" })}</span>
@@ -397,9 +400,9 @@ describe("React integration", () => {
       console.error = original
     }
     // The rejected entry is evicted on the next task, not synchronously.
-    await Bun.sleep(1)
+    await sleep(1)
     cleanup()
-    const call2 = mock(() => Promise.resolve(9))
+    const call2 = vi.fn(() => Promise.resolve(9))
     function Retry() {
       return <span>{useGate(call2, { key: "retry" })}</span>
     }
@@ -477,7 +480,7 @@ function EmptyBatchConsumer() {
 }
 
 function settledFactory() {
-  const decide = mock(() => decision.boolean(true))
+  const decide = vi.fn(() => decision.boolean(true))
   const factory = buildGate({ decide, identify: () => ({ distinctId: "core" }) })
   return { decide, flag: factory({ defaultValue: false, key: "beta" }) }
 }
@@ -489,10 +492,10 @@ describe("gate cache bounds", () => {
 
     await cache.prefetch(flag, { identity: { distinctId: "first" } })
     await cache.prefetch(flag, { identity: { distinctId: "second" } })
-    await Bun.sleep(1)
+    await sleep(1)
     await cache.prefetch(flag, { identity: { distinctId: "first" } })
     await cache.prefetch(flag, { identity: { distinctId: "third" } })
-    await Bun.sleep(1)
+    await sleep(1)
     expect(decide).toHaveBeenCalledTimes(3)
 
     await cache.prefetch(flag, { identity: { distinctId: "second" } })
@@ -503,7 +506,7 @@ describe("gate cache bounds", () => {
 
   it("expires settled evaluations after ttlMs", async () => {
     let now = 0
-    const dateNow = spyOn(Date, "now").mockImplementation(() => now)
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => now)
     const { decide, flag } = settledFactory()
     const cache = createGateCache({ ttlMs: 100 })
 

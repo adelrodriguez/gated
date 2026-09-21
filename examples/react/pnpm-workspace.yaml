@@ -1,0 +1,3 @@
+# Keep the example in its own pnpm workspace so installs use this lockfile
+# instead of the repository root. Do not remove this boundary.
+packages: []

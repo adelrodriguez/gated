@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from "bun:test"
+import { describe, expect, test, vi } from "vitest"
 import type { Decision, Hook, HookContext } from "../types"
 import { runAfterHooks, runBeforeHooks, runErrorHooks, runFinallyHooks } from "../hook"
 
@@ -12,8 +12,8 @@ const context: HookContext = {
 
 describe("observer hook runners", () => {
   test("runs all before hooks and isolates failures", async () => {
-    const failed = mock(() => Promise.reject(new Error("Hook error")))
-    const passed = mock(() => Promise.resolve())
+    const failed = vi.fn(() => Promise.reject(new Error("Hook error")))
+    const passed = vi.fn(() => Promise.resolve())
 
     await runBeforeHooks([{ before: failed }, { before: passed }], context)
 
@@ -22,8 +22,8 @@ describe("observer hook runners", () => {
   })
 
   test("runs all after hooks with decision source metadata", async () => {
-    const first = mock(() => Promise.resolve())
-    const second = mock(() => Promise.resolve())
+    const first = vi.fn(() => Promise.resolve())
+    const second = vi.fn(() => Promise.resolve())
     const decision: Decision = { type: "boolean", value: true }
     const hooks: Hook[] = [{ after: first }, { after: second }]
 
@@ -34,8 +34,8 @@ describe("observer hook runners", () => {
   })
 
   test("runs all error hooks and isolates failures", async () => {
-    const failed = mock(() => Promise.reject(new Error("Hook error")))
-    const passed = mock(() => Promise.resolve())
+    const failed = vi.fn(() => Promise.reject(new Error("Hook error")))
+    const passed = vi.fn(() => Promise.resolve())
     const error = new Error("Provider error")
 
     await runErrorHooks([{ error: failed }, { error: passed }], context, error)
@@ -45,8 +45,8 @@ describe("observer hook runners", () => {
   })
 
   test("runs all finally hooks and isolates failures", async () => {
-    const failed = mock(() => Promise.reject(new Error("Hook error")))
-    const passed = mock(() => Promise.resolve())
+    const failed = vi.fn(() => Promise.reject(new Error("Hook error")))
+    const passed = vi.fn(() => Promise.resolve())
 
     await runFinallyHooks([{ finally: failed }, { finally: passed }], context)
 

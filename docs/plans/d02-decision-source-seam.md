@@ -47,7 +47,7 @@ type EvaluationDeadline = { timeoutMs: number | undefined } | { signal: AbortSig
 
 ## Verification
 
-- `bun test`, `bun run build`, `bun run check`, `bun run analyze`
+- `pnpm run test`, `pnpm run build`, `pnpm run check`, `pnpm run analyze`
 
 ## Release
 

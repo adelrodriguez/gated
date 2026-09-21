@@ -1,18 +1,12 @@
 import type { KnipConfig } from "knip"
 import analyze from "adamantite/analyze"
 
-const config = {
+const config: KnipConfig = {
   ...analyze,
-  entry: [
-    "bunup.config.ts",
-    "src/index.ts",
-    "src/hooks/index.ts",
-    "src/integrations/react.tsx",
-    "src/__tests__/entrypoints.types.ts",
-  ],
+  entry: ["src/__tests__/entrypoints.types.ts"],
   ignore: [],
   ignoreFiles: [],
-  project: ["src/**/*.{ts,tsx}", "*.config.ts"],
-} satisfies KnipConfig
+  project: ["scripts/**/*.ts", "src/**/*.{ts,tsx}", "*.config.ts"],
+}
 
 export default config
