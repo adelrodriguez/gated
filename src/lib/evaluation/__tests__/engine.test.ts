@@ -9,16 +9,23 @@ import type {
   Identity,
 } from "#lib/types"
 import { resolveConfig } from "#lib/config/resolved-config"
-import { executeGate as executeResolvedGate } from "#lib/evaluation/engine"
+import {
+  type GateSource,
+  executeGate as executeResolvedGate,
+  executeGateDetails,
+} from "#lib/evaluation/engine"
 import { extractDecisionValue, validateDecision } from "#lib/gate/decision"
-import { MalformedDecisionError } from "#lib/shared/errors"
+import { GateTimeoutError, MalformedDecisionError } from "#lib/shared/errors"
 
 function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
   config: AnyGatedConfig<TIdentity>,
   options: GateOptions<T>,
   callOptions?: GateCallOptions<TIdentity | null>
 ): Promise<boolean | T[number]> {
-  return executeResolvedGate(resolveConfig(config), options, callOptions)
+  const resolved = resolveConfig(config)
+  return executeResolvedGate(resolved, options, callOptions, resolved, {
+    timeoutMs: options.timeoutMs ?? resolved.timeoutMs,
+  })
 }
 
 async function expectRejection<T>(promise: Promise<T>, message: string) {
@@ -434,5 +441,95 @@ describe("executeGate", () => {
       },
       expect.any(Error)
     )
+  })
+})
+
+describe("executeGateDetails with a gate source", () => {
+  const identity = { distinctId: "user123" }
+  const options = { defaultValue: false, key: "beta-access" }
+
+  function createSource() {
+    return {
+      decide: vi.fn<GateSource<Identity>["decide"]>(() =>
+        Promise.resolve({ type: "boolean", value: true })
+      ),
+      resolveIdentity: vi.fn<GateSource<Identity>["resolveIdentity"]>(() =>
+        Promise.resolve(identity)
+      ),
+    }
+  }
+
+  test("asks the source for provider work only after a cache miss", async () => {
+    const cached = new Map<string, Decision>()
+    const configDecide = vi.fn(() => ({ type: "boolean", value: false }) as const)
+    const config = resolveConfig<Identity>({
+      cache: {
+        get: (key) => Promise.resolve(cached.get(key)),
+        set: (key, value) => {
+          cached.set(key, value)
+          return Promise.resolve()
+        },
+      },
+      decide: configDecide,
+      identify: () => null,
+    })
+    const source = createSource()
+    const deadline = { timeoutMs: undefined }
+
+    const first = await executeGateDetails(config, options, undefined, source, deadline)
+    await sleep(0)
+    const second = await executeGateDetails(config, options, undefined, source, deadline)
+
+    expect(first).toMatchObject({ source: "provider", value: true })
+    expect(second).toMatchObject({ source: "cache", value: true })
+    expect(source.resolveIdentity).toHaveBeenCalledTimes(2)
+    expect(source.decide).toHaveBeenCalledTimes(1)
+    expect(source.decide).toHaveBeenCalledWith("beta-access", identity, {
+      signal: expect.any(AbortSignal),
+    })
+    expect(configDecide).not.toHaveBeenCalled()
+  })
+
+  test("returns the timeout error when the deadline signal aborts", async () => {
+    const config = resolveConfig<Identity>({
+      decide: () => ({ type: "boolean", value: true }),
+      identify: () => identity,
+    })
+    const source = createSource()
+    source.decide.mockImplementation(() => Promise.withResolvers<Decision>().promise)
+    const controller = new AbortController()
+
+    const evaluation = executeGateDetails(config, options, undefined, source, {
+      signal: controller.signal,
+    })
+    controller.abort(new GateTimeoutError(5))
+    const details = await evaluation
+
+    expect(details.source).toBe("default")
+    expect(details.value).toBe(false)
+    expect(details.error).toBeInstanceOf(GateTimeoutError)
+  })
+
+  test("adds no timeout of its own when the deadline is a signal", async () => {
+    const config = resolveConfig<Identity>({
+      decide: () => ({ type: "boolean", value: true }),
+      identify: () => identity,
+      timeoutMs: 1,
+    })
+    const source = createSource()
+    source.decide.mockImplementation(async () => {
+      await sleep(20)
+      return { type: "boolean", value: true }
+    })
+
+    const details = await executeGateDetails(
+      config,
+      { ...options, timeoutMs: 1 },
+      undefined,
+      source,
+      { signal: new AbortController().signal }
+    )
+
+    expect(details).toMatchObject({ source: "provider", value: true })
   })
 })

@@ -163,12 +163,19 @@ export function buildGate<TIdentity extends Identity>(
     assertGateOptions(options)
     assertTimeoutMs(options.timeoutMs)
 
+    const deadline = { timeoutMs: options.timeoutMs ?? resolved.timeoutMs }
     const evaluator = async (callOptions?: GateCallOptions<TIdentity | null>) =>
-      executeGate(resolved, options, callOptions)
+      executeGate(resolved, options, callOptions, resolved, deadline)
 
     const assigned = Object.assign(evaluator, {
       details: (callOptions?: GateCallOptions<TIdentity | null>) =>
-        executeGateDetails<TIdentity, T, TPayload>(resolved, options, callOptions),
+        executeGateDetails<TIdentity, T, TPayload>(
+          resolved,
+          options,
+          callOptions,
+          resolved,
+          deadline
+        ),
     })
     registerEvaluator(assigned, { factoryRef, options })
     return assigned
