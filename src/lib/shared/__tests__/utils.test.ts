@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { normalizeError } from "../utils"
+import { normalizeError } from "#lib/shared/utils"
 
 describe("normalizeError", () => {
   test("serializes a thrown non-Error object", () => {

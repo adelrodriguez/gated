@@ -5,24 +5,11 @@ import type {
   HookContext,
   HookErrorReport,
   Identity,
-  MaybePromise,
-} from "./types"
-import { normalizeError } from "./utils"
+} from "#lib/types"
+import { reportInBackground } from "#lib/shared/report"
+import { normalizeError } from "#lib/shared/utils"
 
 type HookErrorReporter<TIdentity extends Identity> = GatedConfig<TIdentity>["onHookError"]
-
-export function reportInBackground<TReport>(
-  reporter: ((report: TReport) => MaybePromise<void>) | undefined,
-  report: TReport
-): void {
-  if (!reporter) {
-    return
-  }
-
-  void Promise.resolve()
-    .then(() => reporter(report))
-    .catch(() => null)
-}
 
 function reportRejectedHooks<TIdentity extends Identity>(
   results: Array<PromiseSettledResult<void>>,

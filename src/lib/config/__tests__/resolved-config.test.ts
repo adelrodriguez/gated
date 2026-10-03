@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest"
-import type { Decision, Hook, Identity } from "../../types"
-import { IdentityNotFoundError } from "../../errors"
-import { resolveConfig } from "../resolved-config"
+import type { Decision, Hook, Identity } from "#lib/types"
+import { resolveConfig } from "#lib/config/resolved-config"
+import { IdentityNotFoundError } from "#lib/shared/errors"
 
 const decision: Decision = { type: "boolean", value: true }
 const signal = new AbortController().signal

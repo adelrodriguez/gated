@@ -11,7 +11,10 @@
     "noEmit": true,
     "target": "ESNext",
     "types": ["node"],
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "paths": {
+      "#lib/*": ["./src/lib/*"]
+    }
   },
   "exclude": ["node_modules", "dist", ".packref"],
   "include": ["src", "scripts", "*.config.ts"]

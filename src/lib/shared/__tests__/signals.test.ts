@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from "vitest"
-import { createEvaluationSignal } from "../signals"
+import { createEvaluationSignal } from "#lib/shared/signals"
 
 describe("createEvaluationSignal", () => {
   test("forwards an already-aborted caller signal when a timeout is configured", () => {

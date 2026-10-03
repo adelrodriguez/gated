@@ -1,10 +1,10 @@
 import { setTimeout as sleep } from "node:timers/promises"
 import { describe, expect, test, vi } from "vitest"
-import type { Decision, EvaluationDetails, Hook, Identity } from "../lib/types"
+import type { Decision, EvaluationDetails, Hook, Identity } from "#lib/types"
+import { getEvaluatorRecord } from "#lib/gate/registry"
+import { IdentityNotFoundError, MalformedDecisionError } from "#lib/shared/errors"
 import { decision } from "../decision"
 import { buildGate } from "../factory"
-import { IdentityNotFoundError, MalformedDecisionError } from "../lib/errors"
-import { getEvaluatorRecord } from "../lib/evaluation/registry"
 
 describe("buildGate", () => {
   test("registers one record for its evaluators", async () => {

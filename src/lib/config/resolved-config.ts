@@ -1,7 +1,14 @@
-import type { Decision, DecisionCache, GatedConfig, Hook, HookContext, Identity } from "../types"
-import type { AnyGatedConfig } from "./shared"
-import { IdentityNotFoundError } from "../errors"
-import { createResolutionState, type ResolutionState } from "./resolve"
+import type {
+  AnyGatedConfig,
+  Decision,
+  DecisionCache,
+  GatedConfig,
+  Hook,
+  HookContext,
+  Identity,
+} from "#lib/types"
+import { IdentityNotFoundError } from "#lib/shared/errors"
+import { createResolutionState, type ResolutionState } from "./resolution-state"
 
 /**
  * One gate factory's configuration with the strict/anonymous/caller-identity union resolved away.

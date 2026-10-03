@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { serializeKey } from "../key"
+import { serializeKey } from "#lib/promise-cache/key"
 
 describe("serializeKey", () => {
   test.each([

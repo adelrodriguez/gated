@@ -12,7 +12,7 @@ export {
   InvalidVariantError,
   MalformedDecisionError,
   BatchFlagNotFoundError,
-} from "./lib/errors"
+} from "#lib/shared/errors"
 export type {
   AnonymousGatedConfig,
   CallerIdentityGatedConfig,
@@ -32,4 +32,4 @@ export type {
   Identity,
   IdentityValue,
   MaybePromise,
-} from "./lib/types"
+} from "#lib/types"

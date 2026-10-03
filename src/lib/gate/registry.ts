@@ -1,5 +1,4 @@
-import type { GateCallOptions, GateChanges } from "../types"
-import type { GateOptions } from "./shared"
+import type { GateCallOptions, GateChanges, GateOptions } from "#lib/types"
 
 export type EvaluatorFactoryRef = {
   batch: (flags: readonly object[], callOptions?: GateCallOptions<never>) => Promise<unknown>
