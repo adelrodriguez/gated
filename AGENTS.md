@@ -46,9 +46,9 @@ Use Changesets for versioning and changelog management. See
   and `src/lib/promise-cache/` → `src/lib/config/` → `src/lib/evaluation/stages/` →
   `src/lib/evaluation/` → `src/decision.ts`, `src/factory.ts`, `src/hooks/`, and
   `src/integrations/` → `src/index.ts`. Folders in one layer do not import each other.
-- Use subpath imports (`#lib/types`, `#lib/shared/errors`, `#factory`) for modules outside
-  the current folder. Use relative imports (`./engine`) only inside the same folder.
-  `src/__tests__/architecture.test.ts` enforces both rules.
+- Import `src/lib/` modules outside the current folder through `#lib/*` subpath imports
+  (`#lib/types`, `#lib/shared/errors`). Use relative imports inside a folder and between
+  the entry modules in `src/`. `src/__tests__/architecture.test.ts` enforces both rules.
 - Treat `gated`, `gated/hooks`, and `gated/react` as public entry
   points. Consider package consumers before changing their runtime behavior or types.
 - Add or update tests for behavior changes.

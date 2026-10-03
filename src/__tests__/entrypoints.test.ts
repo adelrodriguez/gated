@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import * as hooks from "#hooks"
-import * as gated from "#index"
-import * as react from "#integrations/react"
+import * as hooks from "../hooks"
+import * as gated from "../index"
+import * as react from "../integrations/react"
 
 describe("public entry points", () => {
   it("exposes the core gate factory", async () => {

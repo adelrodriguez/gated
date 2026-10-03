@@ -59,10 +59,13 @@ layer:
 
 Folders in the same layer do not import each other.
 
-Import a module outside the current folder through a subpath import, for example
+Import a `lib/` module outside the current folder through a subpath import, for example
 `#lib/types` or `#lib/shared/errors`. The `imports` field in `package.json` and `paths` in
-`tsconfig.json` map `#*` to `src/*`. Use relative imports such as `./engine` only inside the
-same folder. `src/__tests__/architecture.test.ts` enforces these rules.
+`tsconfig.json` map `#lib/*` to `src/lib/*`. Use relative imports inside a folder and between
+the entry modules in `src/`. `src/__tests__/architecture.test.ts` enforces these rules.
+
+The example app uses `#*` for its own `src/`, so `examples/react/tsconfig.json` also maps
+`#lib/*` to the library source.
 
 ## Development commands
 

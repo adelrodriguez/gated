@@ -13,7 +13,7 @@
     "types": ["node"],
     "verbatimModuleSyntax": true,
     "paths": {
-      "#*": ["./src/*"]
+      "#lib/*": ["./src/lib/*"]
     }
   },
   "exclude": ["node_modules", "dist", ".packref"],

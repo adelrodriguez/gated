@@ -1,7 +1,7 @@
 export { buildGate } from "./factory"
 export type { GateFactory, GateBatch } from "./factory"
 export { decision } from "./decision"
-export { defineHook } from "#hooks"
+export { defineHook } from "./hooks"
 export {
   DecisionTypeMismatchError,
   DuplicateBatchKeyError,

@@ -1,4 +1,4 @@
-import type { EvaluationDetails, GateBatch, Identity } from "#index"
+import type { EvaluationDetails, GateBatch, Identity } from "../index"
 import type {
   GateBatchIdentityOf,
   GateBatchValuesOf,
@@ -6,8 +6,8 @@ import type {
   GateIdentityOf,
   GateValueOf,
   ReactGateCache,
-} from "#integrations/react"
-import { buildGate, decision } from "#index"
+} from "../integrations/react"
+import { buildGate, decision } from "../index"
 import {
   createGateCache,
   FeatureGate,
@@ -15,7 +15,7 @@ import {
   useGate,
   useGateBatch,
   useGateCache,
-} from "#integrations/react"
+} from "../integrations/react"
 
 interface ConsumerIdentity extends Identity {
   plan: "free" | "pro"

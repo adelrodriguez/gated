@@ -61,11 +61,15 @@ describe("architecture", () => {
     expect(violations).toEqual([])
   })
 
-  test.each(sourceFiles)("%s uses subpath imports outside its folder", (path) => {
-    const outsideFolder = readSpecifiers(path).filter(
-      (specifier) => specifier.startsWith(".") && !/^\.\/[^/]+$/.test(specifier)
-    )
+  test.each(sourceFiles)("%s uses subpath imports for lib modules outside its folder", (path) => {
+    const relativeIntoLib = readSpecifiers(path).filter((specifier) => {
+      if (!specifier.startsWith(".")) {
+        return false
+      }
+      const target = resolveImport(path, specifier)
+      return target.startsWith("lib/") && dirname(target) !== dirname(path)
+    })
 
-    expect(outsideFolder).toEqual([])
+    expect(relativeIntoLib).toEqual([])
   })
 })
