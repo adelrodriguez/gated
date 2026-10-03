@@ -100,31 +100,13 @@ export function buildGate<TIdentity extends Identity>(
 ): GateFactory<TIdentity, TIdentity | null> | GateFactory<TIdentity, TIdentity, true> {
   assertTimeoutMs(config.timeoutMs)
   const resolved = resolveConfig(config)
-  const changeListeners = new Set<(keys?: readonly string[]) => void>()
-  let detachProvider: (() => void) | undefined
   const changes: GateChanges = {
     subscribe(listener) {
-      changeListeners.add(listener)
-      if (changeListeners.size === 1 && resolved.subscribe) {
-        detachProvider = resolved.subscribe(({ keys }) => {
-          for (const changeListener of changeListeners) {
-            reportInBackground(changeListener, keys)
-          }
-        })
-      }
-
-      let attached = true
-      return () => {
-        if (!attached) {
-          return
-        }
-        attached = false
-        changeListeners.delete(listener)
-        if (changeListeners.size === 0) {
-          detachProvider?.()
-          detachProvider = undefined
-        }
-      }
+      return (
+        resolved.changes?.subscribe((keys) => {
+          reportInBackground(listener, keys)
+        }) ?? (() => null)
+      )
     },
   }
 

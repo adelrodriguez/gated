@@ -60,7 +60,7 @@ function indexCacheKey<TIdentity extends Identity>(
   store: DecisionCache,
   key: string
 ): void {
-  if (!store.delete || !config.subscribe) {
+  if (!store.delete || !config.changes) {
     return
   }
 
@@ -71,30 +71,29 @@ function indexCacheKey<TIdentity extends Identity>(
 }
 
 /**
- * Attaches the flag-change subscription that invalidates this factory's decision memory: it drops
- * in-flight coalesced calls and deletes indexed store entries for the changed flags, and
- * invalidates every pending cache write regardless of which flags changed. Attached on the first
- * evaluation that touches cache or coalescing and kept for the factory's lifetime. A throwing
- * `subscribe` never fails the evaluation: it is reported through `onCacheError` and the evaluation
- * continues without invalidation.
+ * Adds the listener that invalidates this factory's decision memory to the change broadcaster: it
+ * drops in-flight coalesced calls and deletes indexed store entries for the changed flags, and
+ * invalidates every pending cache write regardless of which flags changed. Added on the first
+ * evaluation that touches cache or coalescing and never removed, so the provider stays attached for
+ * the factory's lifetime. A throwing `subscribe` never fails the evaluation: it is reported through
+ * `onCacheError` and the evaluation continues without invalidation. The next evaluation tries
+ * again.
  */
 function attachInvalidationSubscription<TIdentity extends Identity>(
   config: ResolvedConfig<TIdentity>,
   context: HookContext<TIdentity>,
   key: string
 ): void {
-  const { state, subscribe } = config
-  if (!subscribe) {
-    return
-  }
+  const { changes, state } = config
   const { subscription } = state
-  if (subscription.attached || subscription.attaching) {
+  if (!changes || subscription.attached) {
     return
   }
 
-  subscription.attaching = true
+  // Set before the attach, so a provider that notifies synchronously cannot add a second listener.
+  subscription.attached = true
   try {
-    subscribe(({ keys: changedFlagKeys }) => {
+    changes.subscribe((changedFlagKeys) => {
       // An invalidated flag's in-flight provider call is stale too: already-attached followers
       // keep the leader's decision, but later evaluations must not join it.
       const changed = changedFlagKeys && new Set(changedFlagKeys)
@@ -128,11 +127,9 @@ function attachInvalidationSubscription<TIdentity extends Identity>(
         }
       }
     })
-    subscription.attached = true
   } catch (error) {
+    subscription.attached = false
     reportCacheError(config, context, "subscribe", key, error)
-  } finally {
-    subscription.attaching = false
   }
 }
 

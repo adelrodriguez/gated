@@ -384,6 +384,48 @@ describe("first-class cache", () => {
     expect(detach).not.toHaveBeenCalled()
   })
 
+  test("shares one provider subscription between invalidation and change listeners", async () => {
+    let notify!: (change: { keys?: readonly string[] }) => void
+    const detach = vi.fn(() => null)
+    const subscribe = vi.fn((listener: typeof notify) => {
+      notify = listener
+      return detach
+    })
+    const cached = new Map<string, Decision>()
+    const gate = buildGate({
+      cache: {
+        delete: (key) => Promise.resolve(cached.delete(key)),
+        get: (key) => Promise.resolve(cached.get(key)),
+        set: (key, value) => {
+          cached.set(key, value)
+          return Promise.resolve()
+        },
+      },
+      decide: () => ({ type: "boolean", value: true }),
+      identify: () => ({ distinctId: "user123" }),
+      subscribe,
+    })
+    const evaluator = gate({ defaultValue: false, key: "beta-access" })
+    const changed: Array<readonly string[] | undefined> = []
+
+    const unsubscribe = gate.changes.subscribe((keys) => {
+      changed.push(keys)
+    })
+    expect(await evaluator()).toBe(true)
+    await flushBackground()
+    expect(cached.size).toBe(1)
+    expect(subscribe).toHaveBeenCalledTimes(1)
+
+    notify({ keys: ["beta-access"] })
+    await flushBackground()
+    expect(cached.size).toBe(0)
+    expect(changed).toEqual([["beta-access"]])
+
+    unsubscribe()
+    expect(detach).not.toHaveBeenCalled()
+    expect(subscribe).toHaveBeenCalledTimes(1)
+  })
+
   test("reports delete failures without failing invalidation", async () => {
     const reports: DecisionCacheErrorReport[] = []
     let notify!: (change: { keys?: readonly string[] }) => void
