@@ -21,8 +21,7 @@ export type BatchEntry = {
  * Entries join the open round; the round closes when its timer fires, so evaluations that resolve
  * from cache never delay or join it.
  */
-type FlushRound<TIdentity extends Identity> = {
-  identity: TIdentity | null
+type FlushRound = {
   keys: string[]
   promise: Promise<Record<string, Decision>>
   reject: (error: Error) => void
@@ -64,26 +63,29 @@ export async function executeGateBatch<TIdentity extends Identity>(
   )
 
   // Resolve the identity once. Every evaluation in the batch gets this identity, or this error.
+  // A flush round opens only after an evaluation resolved this identity, so the round reads it.
+  let identity: TIdentity | null = null
   let resolveIdentity: GateSource<TIdentity>["resolveIdentity"]
   try {
-    const identity = await raceWithSignal(
+    const resolved = await raceWithSignal(
       () => config.resolveIdentity(callOptions?.identity),
       signal
     )
-    resolveIdentity = () => Promise.resolve(identity)
+    identity = resolved
+    resolveIdentity = () => Promise.resolve(resolved)
   } catch (error) {
     const identityError = normalizeError(error)
     resolveIdentity = () => Promise.reject(identityError)
   }
 
-  let round: FlushRound<TIdentity> | undefined
+  let round: FlushRound | undefined
 
-  const flushRound = async (current: FlushRound<TIdentity>): Promise<void> => {
+  const flushRound = async (current: FlushRound): Promise<void> => {
     round = undefined
     try {
       current.resolve(
         await raceWithSignal(
-          () => config.decideMany?.(current.keys, current.identity, { signal }) ?? {},
+          () => config.decideMany?.(current.keys, identity, { signal }) ?? {},
           signal
         )
       )
@@ -92,15 +94,11 @@ export async function executeGateBatch<TIdentity extends Identity>(
     }
   }
 
-  const joinFlushRound = (
-    key: string,
-    identity: TIdentity | null
-  ): Promise<Record<string, Decision>> => {
+  const joinFlushRound = (key: string): Promise<Record<string, Decision>> => {
     if (!round) {
       const { promise, reject, resolve } = Promise.withResolvers<Record<string, Decision>>()
       void promise.catch(() => null)
-      const current: FlushRound<TIdentity> = {
-        identity,
+      const current: FlushRound = {
         keys: [],
         promise,
         reject,
@@ -119,7 +117,7 @@ export async function executeGateBatch<TIdentity extends Identity>(
   // a coalesced follower. Those evaluations share one `decideMany` call for each flush round.
   const source: GateSource<TIdentity> = {
     async decide(key, identity, options) {
-      const decisions = await joinFlushRound(key, identity)
+      const decisions = await joinFlushRound(key)
       const batched = Object.hasOwn(decisions, key) ? decisions[key] : undefined
       if (batched) {
         return batched

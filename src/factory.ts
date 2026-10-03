@@ -163,9 +163,10 @@ export function buildGate<TIdentity extends Identity>(
     assertGateOptions(options)
     assertTimeoutMs(options.timeoutMs)
 
-    const deadline = { timeoutMs: options.timeoutMs ?? resolved.timeoutMs }
+    // Read on each call, as the batch does for its entries.
+    const deadline = () => ({ timeoutMs: options.timeoutMs ?? resolved.timeoutMs })
     const evaluator = async (callOptions?: GateCallOptions<TIdentity | null>) =>
-      executeGate(resolved, options, callOptions, resolved, deadline)
+      executeGate(resolved, options, callOptions, resolved, deadline())
 
     const assigned = Object.assign(evaluator, {
       details: (callOptions?: GateCallOptions<TIdentity | null>) =>
@@ -174,7 +175,7 @@ export function buildGate<TIdentity extends Identity>(
           options,
           callOptions,
           resolved,
-          deadline
+          deadline()
         ),
     })
     registerEvaluator(assigned, { factoryRef, options })
