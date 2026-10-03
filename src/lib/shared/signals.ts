@@ -1,5 +1,5 @@
-import { GateTimeoutError } from "../errors"
-import { normalizeError } from "../utils"
+import { GateTimeoutError } from "./errors"
+import { normalizeError } from "./utils"
 
 export const noop: () => void = () => null
 

@@ -32,6 +32,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#lib/*": "./src/lib/*"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

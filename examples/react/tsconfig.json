@@ -20,6 +20,7 @@
     ],
     "paths": {
       "#*": ["./src/*"],
+      "#lib/*": ["../../src/lib/*"],
       "gated": ["../../src/index.ts"],
       "gated/hooks": ["../../src/hooks/index.ts"],
       "gated/react": ["../../src/integrations/react.tsx"]

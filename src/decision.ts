@@ -1,4 +1,4 @@
-import type { Decision } from "./lib/types"
+import type { Decision } from "#lib/types"
 
 type BooleanDecision = Extract<Decision, { type: "boolean" }>
 type VariantDecision<TPayload> = Extract<Decision<TPayload>, { type: "variant" }>

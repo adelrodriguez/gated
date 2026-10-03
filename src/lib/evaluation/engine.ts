@@ -1,18 +1,25 @@
+import type { ResolvedConfig } from "#lib/config/resolved-config"
 import type {
   Decision,
   DecisionSource,
   EvaluationDetails,
   GateCallOptions,
   HookContext,
+  GateConfiguration,
+  GateOptions,
   Identity,
-} from "../types"
-import type { ResolvedConfig } from "./resolved-config"
-import { runAfterHooks, runBeforeHooks, runErrorHooks, runFinallyHooks } from "../hook"
-import { normalizeError } from "../utils"
-import { extractDecisionValue } from "./decision"
-import { resolveDecision } from "./resolve"
-import { type GateConfiguration, type GateOptions, getGateConfiguration } from "./shared"
-import { consumeCleanup, createEvaluationSignal, raceWithSignal } from "./signals"
+} from "#lib/types"
+import {
+  runAfterHooks,
+  runBeforeHooks,
+  runErrorHooks,
+  runFinallyHooks,
+} from "#lib/evaluation/stages/hooks"
+import { resolveDecision } from "#lib/evaluation/stages/resolve"
+import { getGateConfiguration } from "#lib/gate/configuration"
+import { extractDecisionValue } from "#lib/gate/decision"
+import { consumeCleanup, createEvaluationSignal, raceWithSignal } from "#lib/shared/signals"
+import { normalizeError } from "#lib/shared/utils"
 
 type Evaluation<TIdentity extends Identity> = {
   defaultValue: boolean | string

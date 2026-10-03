@@ -1,9 +1,8 @@
 import { setTimeout as sleep } from "node:timers/promises"
 import { describe, expect, test, vi } from "vitest"
-import type { Decision, HookContext, Identity } from "../../types"
-import type { AnyGatedConfig } from "../shared"
-import { resolveDecision } from "../resolve"
-import { resolveConfig, type ResolvedConfig } from "../resolved-config"
+import type { AnyGatedConfig, Decision, HookContext, Identity } from "#lib/types"
+import { resolveConfig, type ResolvedConfig } from "#lib/config/resolved-config"
+import { resolveDecision } from "#lib/evaluation/stages/resolve"
 
 const trueDecision: Decision = { type: "boolean", value: true }
 const falseDecision: Decision = { type: "boolean", value: false }
