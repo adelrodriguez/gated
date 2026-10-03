@@ -1,9 +1,9 @@
 import { GateTimeoutError } from "./errors"
 import { normalizeError } from "./utils"
 
-export const noop: () => void = () => null
+const noop: () => void = () => null
 
-export function abortReason(signal: AbortSignal): Error {
+function abortReason(signal: AbortSignal): Error {
   return normalizeError(signal.reason)
 }
 
@@ -69,8 +69,4 @@ export async function raceWithSignal<T>(
   } finally {
     signal.removeEventListener("abort", onAbort)
   }
-}
-
-export function consumeCleanup(promise: Promise<void>): void {
-  void promise.catch(() => null)
 }

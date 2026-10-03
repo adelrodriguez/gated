@@ -9,16 +9,11 @@ import type {
   GateOptions,
   Identity,
 } from "#lib/types"
-import {
-  runAfterHooks,
-  runBeforeHooks,
-  runErrorHooks,
-  runFinallyHooks,
-} from "#lib/evaluation/stages/hooks"
+import { createHookRunner } from "#lib/evaluation/stages/hooks"
 import { resolveDecision } from "#lib/evaluation/stages/resolve"
 import { getGateConfiguration } from "#lib/gate/configuration"
 import { extractDecisionValue } from "#lib/gate/decision"
-import { consumeCleanup, createEvaluationSignal, raceWithSignal } from "#lib/shared/signals"
+import { createEvaluationSignal, raceWithSignal } from "#lib/shared/signals"
 import { normalizeError } from "#lib/shared/utils"
 
 type Evaluation<TIdentity extends Identity> = {
@@ -105,7 +100,6 @@ export async function executeGateDetails<
   source: GateSource<TIdentity>,
   deadline: EvaluationDeadline
 ): Promise<EvaluationDetails<boolean | T[number], TPayload>> {
-  const { hooks } = config
   const gateConfiguration = getGateConfiguration(options.variants)
   const { cleanup, signal } =
     "signal" in deadline
@@ -121,9 +115,10 @@ export async function executeGateDetails<
     variants: gateConfiguration.kind === "variant" ? gateConfiguration.variants : undefined,
   }
   const hookContext = createHookContext(evaluation, gateConfiguration)
+  const hookRunner = createHookRunner(config.hooks, hookContext, config.onHookError)
   let result: boolean | T[number] | undefined
   let failure: Error | undefined
-  let postCommitHooks: Promise<void> | undefined
+  let finallyDispatched = false
 
   try {
     const identity = await raceWithSignal(
@@ -132,7 +127,7 @@ export async function executeGateDetails<
     )
     evaluation.identity = identity
 
-    await raceWithSignal(() => runBeforeHooks(hooks, hookContext, config.onHookError), signal)
+    await raceWithSignal(() => hookRunner.before(), signal)
 
     const resolution = await resolveDecision(
       config,
@@ -147,32 +142,25 @@ export async function executeGateDetails<
     const afterMeta = { source: resolution.source }
 
     result = extractDecisionValue(decision)
-    postCommitHooks = runAfterHooks(
-      hooks,
-      hookContext,
-      decision,
-      afterMeta,
-      config.onHookError
-    ).then(() => runFinallyHooks(hooks, hookContext, config.onHookError))
-    consumeCleanup(postCommitHooks)
+    hookRunner.dispatchAfterThenFinally(decision, afterMeta)
+    finallyDispatched = true
   } catch (error) {
     const gateError = normalizeError(error)
     failure = gateError
     evaluation.source = "default"
-    const errorHooks = runErrorHooks(hooks, hookContext, gateError, config.onHookError)
 
     if (signal.aborted) {
-      consumeCleanup(errorHooks)
+      hookRunner.dispatchError(gateError)
     } else {
       try {
-        await raceWithSignal(() => errorHooks, signal)
+        await raceWithSignal(() => hookRunner.error(gateError), signal)
       } catch {
-        consumeCleanup(errorHooks)
+        // The deadline passed while the error hooks ran. They finish without blocking the result.
       }
     }
   } finally {
-    if (!postCommitHooks) {
-      consumeCleanup(runFinallyHooks(hooks, hookContext, config.onHookError))
+    if (!finallyDispatched) {
+      hookRunner.dispatchFinally()
     }
     cleanup()
   }
