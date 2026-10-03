@@ -9,7 +9,7 @@ import type {
 import { DuplicateBatchKeyError } from "#lib/shared/errors"
 import { createEvaluationSignal, raceWithSignal } from "#lib/shared/signals"
 import { normalizeError } from "#lib/shared/utils"
-import { executeGateDetails, type IdentityResult } from "./engine"
+import { executeGateDetails, type GateSource } from "./engine"
 
 export type BatchEntry = {
   flag: object
@@ -45,7 +45,10 @@ export async function executeGateBatch<TIdentity extends Identity>(
     throw new DuplicateBatchKeyError(duplicateKey)
   }
 
-  const effectiveTimeouts = entries.map((entry) => entry.options.timeoutMs ?? config.timeoutMs)
+  const entryTimeouts = new Map(
+    entries.map((entry) => [entry.flag, entry.options.timeoutMs ?? config.timeoutMs])
+  )
+  const effectiveTimeouts = [...entryTimeouts.values()]
   const batchTimeoutMs = effectiveTimeouts.includes(undefined)
     ? undefined
     : Math.max(...(effectiveTimeouts as number[]))
@@ -55,29 +58,30 @@ export async function executeGateBatch<TIdentity extends Identity>(
   const entrySignals = new Map(
     entries.map((entry) => [
       entry.flag,
-      createEvaluationSignal(callOptions?.signal, entry.options.timeoutMs ?? config.timeoutMs),
+      createEvaluationSignal(callOptions?.signal, entryTimeouts.get(entry.flag)),
     ])
   )
-  let identityResult: IdentityResult<TIdentity>
+
+  // Resolve the identity once. Every evaluation in the batch gets this identity, or this error.
+  // A flush round opens only after an evaluation resolved this identity, so the round reads it.
+  let identity: TIdentity | null = null
+  let resolveIdentity: GateSource<TIdentity>["resolveIdentity"]
   try {
-    const identity = await raceWithSignal(
+    const resolved = await raceWithSignal(
       () => config.resolveIdentity(callOptions?.identity),
       signal
     )
-    identityResult = { value: identity }
+    identity = resolved
+    resolveIdentity = () => Promise.resolve(resolved)
   } catch (error) {
-    identityResult = { error: normalizeError(error) }
+    const identityError = normalizeError(error)
+    resolveIdentity = () => Promise.reject(identityError)
   }
 
   let round: FlushRound | undefined
 
   const flushRound = async (current: FlushRound): Promise<void> => {
     round = undefined
-    if ("error" in identityResult) {
-      current.reject(identityResult.error)
-      return
-    }
-    const identity = identityResult.value
     try {
       current.resolve(
         await raceWithSignal(
@@ -109,30 +113,26 @@ export async function executeGateBatch<TIdentity extends Identity>(
     return round.promise
   }
 
-  const evaluations = entries.map((entry) => {
-    const entrySignal = entrySignals.get(entry.flag)
-    const provider = async (): Promise<Decision> => {
-      if ("error" in identityResult) {
-        throw identityResult.error
-      }
-      const decisions = await joinFlushRound(entry.options.key)
-      const batched = Object.hasOwn(decisions, entry.options.key)
-        ? decisions[entry.options.key]
-        : undefined
+  // An evaluation calls `decide` only when it needs provider work: after a cache miss, and never as
+  // a coalesced follower. Those evaluations share one `decideMany` call for each flush round.
+  const source: GateSource<TIdentity> = {
+    async decide(key, identity, options) {
+      const decisions = await joinFlushRound(key)
+      const batched = Object.hasOwn(decisions, key) ? decisions[key] : undefined
       if (batched) {
         return batched
       }
-      return await config.decide(entry.options.key, identityResult.value, {
-        signal: entrySignal?.signal ?? signal,
-      })
-    }
+      return await config.decide(key, identity, options)
+    },
+    resolveIdentity,
+  }
+
+  const evaluations = entries.map((entry) => {
+    const entrySignal = entrySignals.get(entry.flag)
     return {
-      evaluation: executeGateDetails(
-        config,
-        entry.options,
-        { ...callOptions, signal: entrySignal?.signal },
-        { identityResult, provider }
-      ).finally(() => {
+      evaluation: executeGateDetails(config, entry.options, callOptions, source, {
+        signal: entrySignal?.signal ?? signal,
+      }).finally(() => {
         entrySignal?.cleanup()
       }),
       flag: entry.flag,

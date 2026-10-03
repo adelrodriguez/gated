@@ -9,7 +9,7 @@ export function abortReason(signal: AbortSignal): Error {
 
 export function createEvaluationSignal(
   callerSignal: AbortSignal | undefined,
-  timeoutMs: number | undefined
+  timeoutMs?: number
 ): { cleanup: () => void; signal: AbortSignal } {
   if (timeoutMs === undefined) {
     const signal = callerSignal ?? new AbortController().signal

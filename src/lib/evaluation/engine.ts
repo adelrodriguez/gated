@@ -32,21 +32,22 @@ type Evaluation<TIdentity extends Identity> = {
   variants?: readonly string[]
 }
 
-export type IdentityResult<TIdentity extends Identity> =
-  | { error: Error }
-  | { value: TIdentity | null }
+/**
+ * Where one evaluation gets its identity and its provider decision. The direct path passes the
+ * resolved config itself. The batch path passes one adapter for each `batch()` call that returns
+ * the pre-resolved identity and joins the batch flush round.
+ */
+export type GateSource<TIdentity extends Identity> = Pick<
+  ResolvedConfig<TIdentity>,
+  "resolveIdentity" | "decide"
+>
 
 /**
- * Contract between the batch orchestrator and one evaluation.
- *
- * `identityResult` replaces identity resolution. `provider` replaces the configured `decide` and is
- * called only when the evaluation needs provider work — after a cache miss, and never as a
- * coalesced follower.
+ * The deadline for one evaluation. `timeoutMs` makes the engine create its own timeout around the
+ * caller signal. `signal` is a deadline the caller already built, such as a batch entry signal that
+ * includes the caller signal and the entry timeout; the engine adds no timeout of its own.
  */
-export type ExecutionOverrides<TIdentity extends Identity> = {
-  identityResult: IdentityResult<TIdentity>
-  provider: () => Promise<Decision>
-}
+export type EvaluationDeadline = { timeoutMs: number | undefined } | { signal: AbortSignal }
 
 function createHookContext<TIdentity extends Identity>(
   evaluation: Evaluation<TIdentity>,
@@ -100,15 +101,16 @@ export async function executeGateDetails<
 >(
   config: ResolvedConfig<TIdentity>,
   options: GateOptions<T>,
-  callOptions?: GateCallOptions<TIdentity | null>,
-  execution?: ExecutionOverrides<TIdentity>
+  callOptions: GateCallOptions<TIdentity | null> | undefined,
+  source: GateSource<TIdentity>,
+  deadline: EvaluationDeadline
 ): Promise<EvaluationDetails<boolean | T[number], TPayload>> {
   const { hooks } = config
   const gateConfiguration = getGateConfiguration(options.variants)
-  const { cleanup, signal } = createEvaluationSignal(
-    callOptions?.signal,
-    execution ? undefined : (options.timeoutMs ?? config.timeoutMs)
-  )
+  const { cleanup, signal } =
+    "signal" in deadline
+      ? createEvaluationSignal(deadline.signal)
+      : createEvaluationSignal(callOptions?.signal, deadline.timeoutMs)
   const evaluation: Evaluation<TIdentity> = {
     defaultValue: options.defaultValue,
     identity: null,
@@ -124,15 +126,10 @@ export async function executeGateDetails<
   let postCommitHooks: Promise<void> | undefined
 
   try {
-    const identity = await raceWithSignal(async () => {
-      if (execution?.identityResult && "error" in execution.identityResult) {
-        throw execution.identityResult.error
-      }
-      if (execution?.identityResult && "value" in execution.identityResult) {
-        return execution.identityResult.value
-      }
-      return await config.resolveIdentity(callOptions?.identity)
-    }, signal)
+    const identity = await raceWithSignal(
+      () => source.resolveIdentity(callOptions?.identity),
+      signal
+    )
     evaluation.identity = identity
 
     await raceWithSignal(() => runBeforeHooks(hooks, hookContext, config.onHookError), signal)
@@ -141,7 +138,7 @@ export async function executeGateDetails<
       config,
       hookContext,
       options,
-      () => execution?.provider() ?? config.decide(evaluation.key, identity, { signal }),
+      () => source.decide(evaluation.key, identity, { signal }),
       signal
     )
     const { decision } = resolution
@@ -207,8 +204,10 @@ export async function executeGateDetails<
 export async function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
   config: ResolvedConfig<TIdentity>,
   options: GateOptions<T>,
-  callOptions?: GateCallOptions<TIdentity | null>
+  callOptions: GateCallOptions<TIdentity | null> | undefined,
+  source: GateSource<TIdentity>,
+  deadline: EvaluationDeadline
 ): Promise<boolean | T[number]> {
-  const details = await executeGateDetails(config, options, callOptions)
+  const details = await executeGateDetails(config, options, callOptions, source, deadline)
   return details.value
 }
