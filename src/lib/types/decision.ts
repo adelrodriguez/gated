@@ -17,7 +17,7 @@ type EvaluationDetailsBase<TValue> = {
 }
 
 type EvaluationDetailsPayload<TValue, TPayload> = [Extract<TValue, string>] extends [never]
-  ? Record<never, never>
+  ? unknown
   : {
       /**
        * Present only when a successful variant decision includes provider metadata.
