@@ -73,7 +73,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitest/coverage-v8": "5.0.1",
-    "adamantite": "0.41.0",
+    "adamantite": "0.42.0",
     "happy-dom": "20.14.5",
     "knip": "6.32.2",
     "oxfmt": "0.65.0",
