@@ -415,6 +415,11 @@ flag. Gated drops the cached decisions and the in-flight provider calls for thos
 If the `subscribe` function throws, Gated reports the error through `onCacheError` and
 does not fail the evaluation.
 
+Each gate factory calls `subscribe` at most once at a time. Invalidation and
+`gate.changes` listeners share that one attachment. After the first evaluation that uses
+the cache or request coalescing, the factory stays attached. A factory that only
+`gate.changes` listeners use calls the detach function when the last listener leaves.
+
 ### Share concurrent provider work
 
 Gated coalesces concurrent evaluations for the same evaluation key by default. These

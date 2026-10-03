@@ -8,6 +8,7 @@ import type {
   Identity,
 } from "#lib/types"
 import { IdentityNotFoundError } from "#lib/shared/errors"
+import { type ChangeBroadcaster, createChangeBroadcaster } from "./change-broadcaster"
 import { createResolutionState, type ResolutionState } from "./resolution-state"
 
 /**
@@ -29,6 +30,10 @@ export type ResolvedConfig<TIdentity extends Identity> = {
     options: { signal: AbortSignal }
   ) => Promise<Record<string, Decision>>
   cache?: DecisionCache
+  /**
+   * Present only when the config supplies `subscribe`. The only path to the provider signal.
+   */
+  changes?: ChangeBroadcaster
   coalesce: boolean
   evaluationKey?: (context: HookContext<TIdentity>) => string
   /**
@@ -40,7 +45,6 @@ export type ResolvedConfig<TIdentity extends Identity> = {
   timeoutMs?: number
   onHookError?: GatedConfig<TIdentity>["onHookError"]
   onCacheError?: GatedConfig<TIdentity>["onCacheError"]
-  subscribe?: GatedConfig<TIdentity>["subscribe"]
 }
 
 export function resolveConfig<TIdentity extends Identity>(
@@ -48,13 +52,13 @@ export function resolveConfig<TIdentity extends Identity>(
 ): ResolvedConfig<TIdentity> {
   const base = {
     cache: config.cache,
+    changes: config.subscribe && createChangeBroadcaster(config.subscribe),
     coalesce: config.coalesce !== false,
     evaluationKey: config.evaluationKey,
     hooks: [...(config.hooks ?? [])],
     onCacheError: config.onCacheError,
     onHookError: config.onHookError,
     state: createResolutionState(),
-    subscribe: config.subscribe,
     timeoutMs: config.timeoutMs,
   }
 
