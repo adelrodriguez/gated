@@ -1,4 +1,4 @@
 allowBuilds:
   msgpackr-extract: false
 minimumReleaseAgeExclude:
-  - adamantite@0.43.0
+  - adamantite
