@@ -1,4 +1,4 @@
-import type { Decision } from "./types"
+import type { Decision } from "#lib/types"
 
 export class GatedError extends Error {
   constructor(message: string, options?: ErrorOptions) {

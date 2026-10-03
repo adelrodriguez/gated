@@ -1,6 +1,11 @@
 import { describe, expect, test, vi } from "vitest"
-import type { Decision, Hook, HookContext } from "../types"
-import { runAfterHooks, runBeforeHooks, runErrorHooks, runFinallyHooks } from "../hook"
+import type { Decision, Hook, HookContext } from "#lib/types"
+import {
+  runAfterHooks,
+  runBeforeHooks,
+  runErrorHooks,
+  runFinallyHooks,
+} from "#lib/evaluation/stages/hooks"
 
 const context: HookContext = {
   defaultValue: false,

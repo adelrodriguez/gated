@@ -42,6 +42,13 @@ Use Changesets for versioning and changelog management. See
 - Keep the gate factory in `src/factory.ts`, the decision helpers in `src/decision.ts`,
   core implementation in `src/lib/`, hooks in `src/hooks/`, and the React integration in
   `src/integrations/react.tsx`.
+- Import only from lower layers: `src/lib/types/` → `src/lib/shared/` → `src/lib/gate/`
+  and `src/lib/promise-cache/` → `src/lib/config/` → `src/lib/evaluation/stages/` →
+  `src/lib/evaluation/` → `src/decision.ts`, `src/factory.ts`, `src/hooks/`, and
+  `src/integrations/` → `src/index.ts`. Folders in one layer do not import each other.
+- Use subpath imports (`#lib/types`, `#lib/shared/errors`, `#factory`) for modules outside
+  the current folder. Use relative imports (`./engine`) only inside the same folder.
+  `src/__tests__/architecture.test.ts` enforces both rules.
 - Treat `gated`, `gated/hooks`, and `gated/react` as public entry
   points. Consider package consumers before changing their runtime behavior or types.
 - Add or update tests for behavior changes.

@@ -1,4 +1,4 @@
-import type { Hook, Identity } from "../lib/types"
+import type { Hook, Identity } from "#lib/types"
 
 /**
  * Defines a hook object. The same object is shared by every gate it is registered on, so any

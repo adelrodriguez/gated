@@ -1,8 +1,8 @@
 import { setTimeout as sleep } from "node:timers/promises"
 import { describe, expect, test, vi } from "vitest"
-import type { DecisionCacheErrorReport, Decision, HookContext, HookErrorReport } from "../lib/types"
-import { buildGate } from "../factory"
-import { GateTimeoutError, InvalidVariantError } from "../lib/errors"
+import type { DecisionCacheErrorReport, Decision, HookContext, HookErrorReport } from "#lib/types"
+import { buildGate } from "#factory"
+import { GateTimeoutError, InvalidVariantError } from "#lib/shared/errors"
 
 function createDeferred<T>() {
   let rejectDeferred!: (reason?: Error) => void

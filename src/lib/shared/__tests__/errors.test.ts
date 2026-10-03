@@ -8,7 +8,7 @@ import {
   InvalidVariantError,
   MalformedDecisionError,
   BatchFlagNotFoundError,
-} from "../errors"
+} from "#lib/shared/errors"
 
 describe("contextual errors", () => {
   test("names missing identity failures", () => {

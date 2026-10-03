@@ -1,10 +1,15 @@
-import type { Decision, EvaluationDetails, GateCallOptions, Identity } from "../types"
-import type { ResolvedConfig } from "./resolved-config"
-import type { GateOptions } from "./shared"
-import { DuplicateBatchKeyError } from "../errors"
-import { normalizeError } from "../utils"
+import type { ResolvedConfig } from "#lib/config/resolved-config"
+import type {
+  Decision,
+  EvaluationDetails,
+  GateCallOptions,
+  GateOptions,
+  Identity,
+} from "#lib/types"
+import { DuplicateBatchKeyError } from "#lib/shared/errors"
+import { createEvaluationSignal, raceWithSignal } from "#lib/shared/signals"
+import { normalizeError } from "#lib/shared/utils"
 import { executeGateDetails, type IdentityResult } from "./engine"
-import { createEvaluationSignal, raceWithSignal } from "./signals"
 
 export type BatchEntry = {
   flag: object

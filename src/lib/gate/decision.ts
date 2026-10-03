@@ -1,6 +1,10 @@
-import type { Decision } from "../types"
-import { DecisionTypeMismatchError, InvalidVariantError, MalformedDecisionError } from "../errors"
-import { type GateOptions, getGateConfiguration } from "./shared"
+import type { Decision, GateOptions } from "#lib/types"
+import {
+  DecisionTypeMismatchError,
+  InvalidVariantError,
+  MalformedDecisionError,
+} from "#lib/shared/errors"
+import { getGateConfiguration } from "./configuration"
 
 export function extractDecisionValue(decision: Decision) {
   return decision.type === "variant" ? decision.variant : decision.value

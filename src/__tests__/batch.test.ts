@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest"
-import type { Decision, Hook, Identity, IdentityValue } from "../lib/types"
-import { buildGate } from "../factory"
-import { BatchFlagNotFoundError } from "../lib/errors"
+import type { Decision, Hook, Identity, IdentityValue } from "#lib/types"
+import { buildGate } from "#factory"
+import { BatchFlagNotFoundError } from "#lib/shared/errors"
 
 async function expectRejection(promise: Promise<IdentityValue>, message: string): Promise<void> {
   try {

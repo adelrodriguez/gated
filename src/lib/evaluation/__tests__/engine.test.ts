@@ -1,11 +1,17 @@
 import { setTimeout as sleep } from "node:timers/promises"
 import { describe, expect, test, vi } from "vitest"
-import type { GateCallOptions, Decision, Hook, Identity } from "../../types"
-import type { AnyGatedConfig, GateOptions } from "../shared"
-import { MalformedDecisionError } from "../../errors"
-import { extractDecisionValue, validateDecision } from "../decision"
-import { executeGate as executeResolvedGate } from "../engine"
-import { resolveConfig } from "../resolved-config"
+import type {
+  AnyGatedConfig,
+  Decision,
+  GateCallOptions,
+  GateOptions,
+  Hook,
+  Identity,
+} from "#lib/types"
+import { resolveConfig } from "#lib/config/resolved-config"
+import { executeGate as executeResolvedGate } from "#lib/evaluation/engine"
+import { extractDecisionValue, validateDecision } from "#lib/gate/decision"
+import { MalformedDecisionError } from "#lib/shared/errors"
 
 function executeGate<TIdentity extends Identity, T extends string[] = string[]>(
   config: AnyGatedConfig<TIdentity>,

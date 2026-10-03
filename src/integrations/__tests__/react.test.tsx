@@ -4,7 +4,7 @@ import { setTimeout as sleep } from "node:timers/promises"
 import { act, cleanup, render, screen } from "@testing-library/react"
 import { Component, type ReactNode, Suspense } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { buildGate, decision } from "../../index"
+import { buildGate, decision } from "#index"
 import {
   createGateCache,
   FeatureGate,
@@ -12,7 +12,7 @@ import {
   useGate,
   useGateBatch,
   useGateCache,
-} from "../react"
+} from "#integrations/react"
 
 afterEach(cleanup)
 

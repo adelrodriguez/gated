@@ -26,17 +26,43 @@ change behavior or terminology. Use the project's domain language.
 
 ```text
 src/
-  index.ts                Root public API
-  factory.ts              Gate factory and batch construction
-  decision.ts             Decision helpers
-  lib/                    Evaluation engine, cache, and shared types
-  hooks/                  Hook factory
-  integrations/react.tsx  React integration, published as gated/react
-  **/__tests__/           Colocated tests
-vitest.config.ts          Test and coverage configuration
+  index.ts                  Root public API
+  factory.ts                Gate factory and batch construction
+  decision.ts               Decision helpers
+  hooks/                    Hook factory, published as gated/hooks
+  integrations/react.tsx    React integration, published as gated/react
+  lib/
+    evaluation/             Evaluation engine and batch
+      stages/               Hook lifecycle and decision resolution (cache and coalescing)
+    config/                 Resolved factory configuration and its decision memory
+    gate/                   Gate configuration, decision validation, evaluation keys, registry
+    promise-cache/          Promise-cache keys and helpers for integrations
+    shared/                 Errors, signals, and other domain-free helpers
+    types/                  Type contracts, with no runtime code
+  **/__tests__/             Colocated tests
+vitest.config.ts            Test and coverage configuration
 ```
 
 The public package entry points are `gated`, `gated/hooks`, and `gated/react`. `dist/` is build output.
+
+Dependencies go in one direction. A module imports only from its own folder or from a lower
+layer:
+
+1. `lib/types/`
+2. `lib/shared/`
+3. `lib/gate/` and `lib/promise-cache/`
+4. `lib/config/`
+5. `lib/evaluation/stages/`
+6. `lib/evaluation/`
+7. `decision.ts`, `factory.ts`, `hooks/`, and `integrations/`
+8. `index.ts`
+
+Folders in the same layer do not import each other.
+
+Import a module outside the current folder through a subpath import, for example
+`#lib/types` or `#lib/shared/errors`. The `imports` field in `package.json` and `paths` in
+`tsconfig.json` map `#*` to `src/*`. Use relative imports such as `./engine` only inside the
+same folder. `src/__tests__/architecture.test.ts` enforces these rules.
 
 ## Development commands
 

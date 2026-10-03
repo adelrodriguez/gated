@@ -1,7 +1,7 @@
 export { buildGate } from "./factory"
 export type { GateFactory, GateBatch } from "./factory"
 export { decision } from "./decision"
-export { defineHook } from "./hooks"
+export { defineHook } from "#hooks"
 export {
   DecisionTypeMismatchError,
   DuplicateBatchKeyError,
@@ -12,7 +12,7 @@ export {
   InvalidVariantError,
   MalformedDecisionError,
   BatchFlagNotFoundError,
-} from "./lib/errors"
+} from "#lib/shared/errors"
 export type {
   AnonymousGatedConfig,
   CallerIdentityGatedConfig,
@@ -32,4 +32,4 @@ export type {
   Identity,
   IdentityValue,
   MaybePromise,
-} from "./lib/types"
+} from "#lib/types"

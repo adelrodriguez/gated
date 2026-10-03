@@ -9,12 +9,12 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
-import type { EvaluationDetails, GateEvaluator, Identity } from "../lib/types"
-import { evictOnRejection, type GateCacheOptions } from "../lib/cache"
-import { type GateCacheKey, serializeKey } from "../lib/cache/key"
-import { ForeignGateEvaluatorError } from "../lib/errors"
-import { getEvaluatorRecord } from "../lib/evaluation/registry"
-import { isDevelopmentEnvironment } from "../lib/utils"
+import type { EvaluationDetails, GateEvaluator, Identity } from "#lib/types"
+import { getEvaluatorRecord } from "#lib/gate/registry"
+import { evictOnRejection, type GateCacheOptions } from "#lib/promise-cache"
+import { type GateCacheKey, serializeKey } from "#lib/promise-cache/key"
+import { ForeignGateEvaluatorError } from "#lib/shared/errors"
+import { isDevelopmentEnvironment } from "#lib/shared/utils"
 
 type AnyGateEvaluator =
   | GateEvaluator<never, boolean | string, never>

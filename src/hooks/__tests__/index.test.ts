@@ -1,8 +1,8 @@
 import { describe, expect, test } from "vitest"
-import type { Hook, HookContext, Identity } from "../../lib/types"
-import { decision } from "../../decision"
-import { buildGate } from "../../factory"
-import { defineHook } from "../index"
+import type { Hook, HookContext, Identity } from "#lib/types"
+import { decision } from "#decision"
+import { buildGate } from "#factory"
+import { defineHook } from "#hooks"
 
 const context: HookContext = {
   defaultValue: false,
