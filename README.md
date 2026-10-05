@@ -574,6 +574,10 @@ function RefreshButton() {
 }
 ```
 
+TypeScript does not check the provider identity against the identity type of the gates.
+When a gate requires a specific identity type, pass `identity` to the hook, for example
+`useGate(betaAccess, { identity })`.
+
 A cache that you use directly cannot read a provider identity. Supply an explicit identity
 to its gate operations.
 

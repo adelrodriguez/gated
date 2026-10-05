@@ -350,6 +350,11 @@ export function GateProvider({
   children,
 }: {
   cache?: ReactGateCache
+  /**
+   * The default identity for gate consumers below the provider. TypeScript does not check it
+   * against the identity type of the gates. When a gate requires a specific identity type, pass
+   * `identity` to the hook.
+   */
   identity?: Identity
   children: ReactNode
 }): ReactNode {
