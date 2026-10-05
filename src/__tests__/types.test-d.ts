@@ -257,6 +257,43 @@ function _narrowDetails(details: EvaluationDetails<Theme>): void {
   type _BatchIdentity = Expect<Equal<GateBatchIdentityOf<Flags>, ConsumerIdentity>>
 }
 
+// Types a React batch identity as the intersection of the gate identity types.
+{
+  type _Mixed = Expect<
+    Equal<
+      GateBatchIdentityOf<readonly [typeof booleanGate, typeof organizationGate]>,
+      ConsumerIdentity & OrganizationIdentity
+    >
+  >
+  type _Single = Expect<
+    Equal<GateBatchIdentityOf<readonly [typeof organizationGate]>, OrganizationIdentity>
+  >
+  type _Anonymous = Expect<
+    Equal<
+      GateBatchIdentityOf<readonly [typeof booleanGate, typeof anonymousGate]>,
+      ConsumerIdentity
+    >
+  >
+  type _Array = Expect<
+    Equal<
+      GateBatchIdentityOf<Array<typeof booleanGate | typeof organizationGate>>,
+      ConsumerIdentity & OrganizationIdentity
+    >
+  >
+  type _Empty = Expect<Equal<GateBatchIdentityOf<readonly []>, Identity>>
+}
+
+// Accepts a React batch identity that satisfies every gate identity type.
+function MixedIdentityConsumer(): null {
+  const batch = useGateBatch([booleanGate, organizationGate], {
+    identity: { distinctId: "consumer", organizationId: "org", plan: "pro" },
+  })
+
+  type _Batch = Expect<Equal<typeof batch, Readonly<[boolean, boolean]>>>
+
+  return null
+}
+
 // Types batch results as a readonly tuple with typed get and details lookups.
 async function _batch(): Promise<void> {
   const batch = await factory.batch([booleanGate, variantGate])
@@ -455,11 +492,16 @@ function useInvalidForms(): void {
   useGate(() => Promise.resolve(1), { details: true, key: "custom" })
   // @ts-expect-error -- the identity must match the gate identity
   useGate(booleanGate, { identity: { distinctId: "consumer", plan: "enterprise" } })
+  useGateBatch([booleanGate, organizationGate], {
+    // @ts-expect-error -- the batch identity must satisfy every gate identity type
+    identity: { distinctId: "consumer", plan: "pro" },
+  })
 }
 
 // Suppress unused function warnings — these exist only for type checking.
 void _batch
 void Consumer
+void MixedIdentityConsumer
 void _narrowDetails
 void _narrowHookContext
 void _negativeTypeTests
