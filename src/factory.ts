@@ -28,6 +28,11 @@ type GatePayload<TEvaluator> =
     ? TPayload
     : never
 type GateDetails<TEvaluator> = EvaluationDetails<GateValue<TEvaluator>, GatePayload<TEvaluator>>
+type FactoryGateEvaluator<
+  TIdentity extends Identity,
+  TCallIdentity extends TIdentity | null,
+  TCallRequired extends boolean,
+> = GateEvaluator<TIdentity, boolean | string, TCallIdentity, unknown, TCallRequired>
 
 export type GateBatch<TFlags extends readonly AnyGateEvaluator[]> = Readonly<{
   [K in keyof TFlags]: GateValue<TFlags[K]>
@@ -53,7 +58,18 @@ export interface GateFactory<
     variants: T
     timeoutMs?: number
   }): GateEvaluator<TIdentity, T[number], TCallIdentity, TPayload, TCallRequired>
-  batch<const TFlags extends readonly AnyGateEvaluator[]>(
+  /**
+   * Evaluates several gates from this factory with one identity resolution.
+   *
+   * TypeScript rejects gates whose identity type does not match this factory. Gates from a
+   * different factory with the same identity type pass the type check, and the call throws
+   * `ForeignGateEvaluatorError` at runtime.
+   */
+  batch<
+    const TFlags extends ReadonlyArray<
+      FactoryGateEvaluator<TIdentity, TCallIdentity, TCallRequired>
+    >,
+  >(
     flags: TFlags,
     ...args: TCallRequired extends true
       ? [options: GateCallOptions<TCallIdentity> & { identity: Extract<TCallIdentity, Identity> }]

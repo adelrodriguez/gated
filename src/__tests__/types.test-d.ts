@@ -46,6 +46,10 @@ interface ConsumerIdentity extends Identity {
   plan: "free" | "pro"
 }
 
+interface OrganizationIdentity extends Identity {
+  organizationId: string
+}
+
 type Theme = "light" | "dark"
 type ThemePayload = { experiment: string }
 
@@ -68,6 +72,11 @@ const variantGate = factory<ThemePayload, ["light", "dark"]>({
   key: "theme",
   variants: ["light", "dark"],
 })
+const organizationFactory = buildGate<OrganizationIdentity>({
+  decide: () => decision.boolean(true),
+  identify: () => ({ distinctId: "consumer", organizationId: "org" }),
+})
+const organizationGate = organizationFactory({ defaultValue: false, key: "beta" })
 const anonymousGate = anonymousFactory({ defaultValue: false, key: "beta" })
 const callerGate = callerFactory({ defaultValue: false, key: "beta" })
 
@@ -409,6 +418,12 @@ function _negativeTypeTests(): void {
 
   // @ts-expect-error -- caller-identity batches require an identity
   void callerFactory.batch([callerGate])
+
+  // @ts-expect-error -- batch flags must match the factory identity type
+  void factory.batch([booleanGate, organizationGate])
+
+  // @ts-expect-error -- a non-anonymous gate does not accept the null identity of an anonymous batch
+  void anonymousFactory.batch([booleanGate])
 
   // @ts-expect-error -- decision.variant requires a variant name
   decision.variant()
