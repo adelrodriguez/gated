@@ -19,7 +19,7 @@ Thank you for contributing to Gated.
 
 3. Create a branch for the change.
 
-Read [CONTEXT.md](CONTEXT.md) and [docs/agents/domain.md](docs/agents/domain.md) before you
+Read [GLOSSARY.md](GLOSSARY.md) and [docs/agents/domain.md](docs/agents/domain.md) before you
 change behavior or terminology. Use the project's domain language.
 
 ## Layout

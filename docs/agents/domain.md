@@ -6,7 +6,7 @@ This repository uses a single-context domain-doc layout.
 
 Read these files:
 
-- `CONTEXT.md` at the repository root.
+- `GLOSSARY.md` at the repository root.
 - This domain vocabulary.
 
 ## Vocabulary
