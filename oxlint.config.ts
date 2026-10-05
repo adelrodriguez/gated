@@ -16,7 +16,6 @@ export default defineConfig({
       files: ["src/__tests__/types.test-d.ts"],
       rules: {
         "eslint/no-lone-blocks": "off",
-        "typescript/no-unnecessary-type-parameters": "off",
       },
     },
   ],

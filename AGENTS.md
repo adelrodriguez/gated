@@ -53,6 +53,7 @@ Use Changesets for versioning and changelog management. See
   points. Consider package consumers before changing their runtime behavior or types.
 - Add or update tests for behavior changes.
 - Public API type changes must be covered in `src/__tests__/types.test-d.ts`.
+- Write type assertions with `expectTypeOf` from `vitest`.
 - Type assertions are enforced by `pnpm run check`, not Vitest.
 
 <!-- ADAMANTITE:START -->

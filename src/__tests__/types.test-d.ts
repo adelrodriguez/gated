@@ -1,4 +1,5 @@
 // Compile-time checks only: `pnpm run check` enforces this file, and Vitest never runs it.
+import { expectTypeOf } from "vitest"
 import type {
   AnonymousGatedConfig,
   CallerIdentityGatedConfig,
@@ -34,12 +35,6 @@ import {
   useGateBatch,
   useGateCache,
 } from "../integrations/react"
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-type Equal<A, B> =
-  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
-
-type Expect<T extends true> = T
 
 // ── Test fixtures ────────────────────────────────────────────────────────────
 interface ConsumerIdentity extends Identity {
@@ -85,21 +80,19 @@ type Flags = readonly [typeof booleanGate, typeof variantGate]
 // ── Positive type-level tests ────────────────────────────────────────────────
 // Returns a factory that resolves the configured identity for each call.
 {
-  type _Factory = Expect<Equal<typeof factory, GateFactory<ConsumerIdentity>>>
+  expectTypeOf(factory).toEqualTypeOf<GateFactory<ConsumerIdentity>>()
 }
 
 // Lets an anonymous factory accept a null caller identity.
 {
-  type _Factory = Expect<
-    Equal<typeof anonymousFactory, GateFactory<ConsumerIdentity, ConsumerIdentity | null>>
-  >
+  expectTypeOf(anonymousFactory).toEqualTypeOf<
+    GateFactory<ConsumerIdentity, ConsumerIdentity | null>
+  >()
 }
 
 // Requires caller identity when the config has no identify function.
 {
-  type _Factory = Expect<
-    Equal<typeof callerFactory, GateFactory<ConsumerIdentity, ConsumerIdentity, true>>
-  >
+  expectTypeOf(callerFactory).toEqualTypeOf<GateFactory<ConsumerIdentity, ConsumerIdentity, true>>()
 }
 
 // Infers the identity type from identify when no type argument is given.
@@ -109,42 +102,42 @@ type Flags = readonly [typeof booleanGate, typeof variantGate]
     identify: () => ({ distinctId: 1, team: "core" }),
   })
 
-  type _Factory = Expect<Equal<typeof inferred, GateFactory<{ distinctId: number; team: string }>>>
+  expectTypeOf(inferred).toEqualTypeOf<GateFactory<{ distinctId: number; team: string }>>()
 }
 
 // Types the identity passed to decide, decideMany, hooks, and error callbacks.
 {
   buildGate<ConsumerIdentity>({
     decide: (key, identity) => {
-      type _Key = Expect<Equal<typeof key, string>>
-      type _Identity = Expect<Equal<typeof identity, ConsumerIdentity>>
+      expectTypeOf(key).toEqualTypeOf<string>()
+      expectTypeOf(identity).toEqualTypeOf<ConsumerIdentity>()
       return decision.boolean(true)
     },
     decideMany: (keys, identity) => {
-      type _Keys = Expect<Equal<typeof keys, readonly string[]>>
-      type _Identity = Expect<Equal<typeof identity, ConsumerIdentity>>
+      expectTypeOf(keys).toEqualTypeOf<readonly string[]>()
+      expectTypeOf(identity).toEqualTypeOf<ConsumerIdentity>()
       return {}
     },
     hooks: [
       {
         before: (context) => {
-          type _Identity = Expect<Equal<typeof context.identity, ConsumerIdentity | null>>
+          expectTypeOf(context.identity).toEqualTypeOf<ConsumerIdentity | null>()
         },
       },
     ],
     identify: () => null,
     onCacheError: (report) => {
-      type _Identity = Expect<Equal<typeof report.identity, ConsumerIdentity | null>>
+      expectTypeOf(report.identity).toEqualTypeOf<ConsumerIdentity | null>()
     },
     onHookError: (report) => {
-      type _Phase = Expect<Equal<typeof report.phase, "before" | "after" | "error" | "finally">>
+      expectTypeOf(report.phase).toEqualTypeOf<"before" | "after" | "error" | "finally">()
     },
   })
 
   buildGate<ConsumerIdentity>({
     anonymous: "allow",
     decide: (_key, identity) => {
-      type _Identity = Expect<Equal<typeof identity, ConsumerIdentity | null>>
+      expectTypeOf(identity).toEqualTypeOf<ConsumerIdentity | null>()
       return decision.boolean(true)
     },
     identify: () => null,
@@ -153,33 +146,28 @@ type Flags = readonly [typeof booleanGate, typeof variantGate]
 
 // Exports the three config shapes that buildGate accepts.
 {
-  type _Anonymous = Expect<Equal<AnonymousGatedConfig<ConsumerIdentity>["anonymous"], "allow">>
-  type _Default = Expect<Equal<GatedConfig<ConsumerIdentity>["anonymous"], "reject" | undefined>>
-  type _CallerIdentity = Expect<
-    Equal<CallerIdentityGatedConfig<ConsumerIdentity>["identify"], undefined>
-  >
+  expectTypeOf<AnonymousGatedConfig<ConsumerIdentity>["anonymous"]>().toEqualTypeOf<"allow">()
+  expectTypeOf<GatedConfig<ConsumerIdentity>["anonymous"]>().toEqualTypeOf<"reject" | undefined>()
+  expectTypeOf<CallerIdentityGatedConfig<ConsumerIdentity>["identify"]>().toEqualTypeOf<undefined>()
 }
 
 // Types boolean gates as boolean evaluators.
 {
-  type _Gate = Expect<
-    Equal<typeof booleanGate, GateEvaluator<ConsumerIdentity, boolean, ConsumerIdentity>>
-  >
-  type _Value = Expect<Equal<Awaited<ReturnType<typeof booleanGate>>, boolean>>
-  type _Options = Expect<
-    Equal<Parameters<typeof booleanGate>, [options?: GateCallOptions<ConsumerIdentity>]>
-  >
+  expectTypeOf(booleanGate).toEqualTypeOf<
+    GateEvaluator<ConsumerIdentity, boolean, ConsumerIdentity>
+  >()
+  expectTypeOf(booleanGate).returns.resolves.toEqualTypeOf<boolean>()
+  expectTypeOf(booleanGate).parameters.toEqualTypeOf<
+    [options?: GateCallOptions<ConsumerIdentity>]
+  >()
 }
 
 // Types variant gates with the variant union and payload type.
 {
-  type _Gate = Expect<
-    Equal<
-      typeof variantGate,
-      GateEvaluator<ConsumerIdentity, Theme, ConsumerIdentity, ThemePayload>
-    >
-  >
-  type _Value = Expect<Equal<Awaited<ReturnType<typeof variantGate>>, Theme>>
+  expectTypeOf(variantGate).toEqualTypeOf<
+    GateEvaluator<ConsumerIdentity, Theme, ConsumerIdentity, ThemePayload>
+  >()
+  expectTypeOf(variantGate).returns.resolves.toEqualTypeOf<Theme>()
 }
 
 // Infers the variant union from a variants literal without type arguments.
@@ -190,24 +178,24 @@ type Flags = readonly [typeof booleanGate, typeof variantGate]
     variants: ["light", "dark", "system"],
   })
 
-  type _Value = Expect<Equal<GateValueOf<typeof gate>, "light" | "dark" | "system">>
-  type _Payload = Expect<
-    Equal<GateDetailsOf<typeof gate>, EvaluationDetails<"light" | "dark" | "system">>
-  >
+  expectTypeOf<GateValueOf<typeof gate>>().toEqualTypeOf<"light" | "dark" | "system">()
+  expectTypeOf<GateDetailsOf<typeof gate>>().toEqualTypeOf<
+    EvaluationDetails<"light" | "dark" | "system">
+  >()
 }
 
 // Accepts a null identity only on anonymous factory gates.
 {
-  type _Options = Expect<
-    Equal<Parameters<typeof anonymousGate>, [options?: GateCallOptions<ConsumerIdentity | null>]>
-  >
+  expectTypeOf(anonymousGate).parameters.toEqualTypeOf<
+    [options?: GateCallOptions<ConsumerIdentity | null>]
+  >()
 
   void anonymousGate({ identity: null })
 }
 
 // Requires an identity on every call from a caller-identity factory.
 {
-  type _Identity = Expect<Equal<Parameters<typeof callerGate>[0]["identity"], ConsumerIdentity>>
+  expectTypeOf(callerGate).parameter(0).toHaveProperty("identity").toEqualTypeOf<ConsumerIdentity>()
 
   void callerGate({ identity: { distinctId: "consumer", plan: "free" } })
   void callerFactory.batch([callerGate], { identity: { distinctId: "consumer", plan: "free" } })
@@ -215,72 +203,61 @@ type Flags = readonly [typeof booleanGate, typeof variantGate]
 
 // Types evaluation details for boolean and variant gates.
 {
-  type _Boolean = Expect<
-    Equal<Awaited<ReturnType<typeof booleanGate.details>>, EvaluationDetails<boolean>>
-  >
-  type _Variant = Expect<
-    Equal<GateDetailsOf<typeof variantGate>, EvaluationDetails<Theme, ThemePayload>>
-  >
+  expectTypeOf(booleanGate.details).returns.resolves.toEqualTypeOf<EvaluationDetails<boolean>>()
+  expectTypeOf<GateDetailsOf<typeof variantGate>>().toEqualTypeOf<
+    EvaluationDetails<Theme, ThemePayload>
+  >()
 }
 
 // Exposes a payload only on variant evaluation details.
 {
-  type _BooleanKeys = Expect<
-    Equal<keyof EvaluationDetails<boolean>, "error" | "flagKey" | "source" | "value">
-  >
-  type _VariantPayload = Expect<
-    Equal<EvaluationDetails<Theme, ThemePayload>["payload"], ThemePayload | undefined>
-  >
+  expectTypeOf<keyof EvaluationDetails<boolean>>().toEqualTypeOf<
+    "error" | "flagKey" | "source" | "value"
+  >()
+  expectTypeOf<EvaluationDetails<Theme, ThemePayload>["payload"]>().toEqualTypeOf<
+    ThemePayload | undefined
+  >()
 }
 
 // Narrows evaluation details to an error only for the default source.
 function _narrowDetails(details: EvaluationDetails<Theme>): void {
   if (details.source === "default") {
-    type _Error = Expect<Equal<typeof details.error, Error>>
+    expectTypeOf(details.error).toEqualTypeOf<Error>()
   } else {
-    type _Source = Expect<Equal<typeof details.source, DecisionSource>>
-    type _Error = Expect<Equal<typeof details.error, undefined>>
+    expectTypeOf(details.source).toEqualTypeOf<DecisionSource>()
+    expectTypeOf(details.error).toEqualTypeOf<undefined>()
   }
 }
 
 // Extracts gate value, identity, and details types for React consumers.
 {
-  type _BooleanValue = Expect<Equal<GateValueOf<typeof booleanGate>, boolean>>
-  type _VariantValue = Expect<Equal<GateValueOf<typeof variantGate>, Theme>>
-  type _Identity = Expect<Equal<GateIdentityOf<typeof booleanGate>, ConsumerIdentity>>
-  type _AnonymousIdentity = Expect<Equal<GateIdentityOf<typeof anonymousGate>, ConsumerIdentity>>
-  type _CallerIdentity = Expect<Equal<GateIdentityOf<typeof callerGate>, ConsumerIdentity>>
-  type _Details = Expect<
-    Equal<GateDetailsOf<typeof variantGate>, EvaluationDetails<Theme, ThemePayload>>
-  >
-  type _BatchValues = Expect<Equal<GateBatchValuesOf<Flags>, Readonly<[boolean, Theme]>>>
-  type _BatchIdentity = Expect<Equal<GateBatchIdentityOf<Flags>, ConsumerIdentity>>
+  expectTypeOf<GateValueOf<typeof booleanGate>>().toEqualTypeOf<boolean>()
+  expectTypeOf<GateValueOf<typeof variantGate>>().toEqualTypeOf<Theme>()
+  expectTypeOf<GateIdentityOf<typeof booleanGate>>().toEqualTypeOf<ConsumerIdentity>()
+  expectTypeOf<GateIdentityOf<typeof anonymousGate>>().toEqualTypeOf<ConsumerIdentity>()
+  expectTypeOf<GateIdentityOf<typeof callerGate>>().toEqualTypeOf<ConsumerIdentity>()
+  expectTypeOf<GateDetailsOf<typeof variantGate>>().toEqualTypeOf<
+    EvaluationDetails<Theme, ThemePayload>
+  >()
+  expectTypeOf<GateBatchValuesOf<Flags>>().toEqualTypeOf<Readonly<[boolean, Theme]>>()
+  expectTypeOf<GateBatchIdentityOf<Flags>>().toEqualTypeOf<ConsumerIdentity>()
 }
 
 // Types a React batch identity as the intersection of the gate identity types.
 {
-  type _Mixed = Expect<
-    Equal<
-      GateBatchIdentityOf<readonly [typeof booleanGate, typeof organizationGate]>,
-      ConsumerIdentity & OrganizationIdentity
-    >
-  >
-  type _Single = Expect<
-    Equal<GateBatchIdentityOf<readonly [typeof organizationGate]>, OrganizationIdentity>
-  >
-  type _Anonymous = Expect<
-    Equal<
-      GateBatchIdentityOf<readonly [typeof booleanGate, typeof anonymousGate]>,
-      ConsumerIdentity
-    >
-  >
-  type _Array = Expect<
-    Equal<
-      GateBatchIdentityOf<Array<typeof booleanGate | typeof organizationGate>>,
-      ConsumerIdentity & OrganizationIdentity
-    >
-  >
-  type _Empty = Expect<Equal<GateBatchIdentityOf<readonly []>, Identity>>
+  expectTypeOf<
+    GateBatchIdentityOf<readonly [typeof booleanGate, typeof organizationGate]>
+  >().toEqualTypeOf<ConsumerIdentity & OrganizationIdentity>()
+  expectTypeOf<
+    GateBatchIdentityOf<readonly [typeof organizationGate]>
+  >().toEqualTypeOf<OrganizationIdentity>()
+  expectTypeOf<
+    GateBatchIdentityOf<readonly [typeof booleanGate, typeof anonymousGate]>
+  >().toEqualTypeOf<ConsumerIdentity>()
+  expectTypeOf<
+    GateBatchIdentityOf<Array<typeof booleanGate | typeof organizationGate>>
+  >().toEqualTypeOf<ConsumerIdentity & OrganizationIdentity>()
+  expectTypeOf<GateBatchIdentityOf<readonly []>>().toEqualTypeOf<Identity>()
 }
 
 // Accepts a React batch identity that satisfies every gate identity type.
@@ -289,7 +266,7 @@ function MixedIdentityConsumer(): null {
     identity: { distinctId: "consumer", organizationId: "org", plan: "pro" },
   })
 
-  type _Batch = Expect<Equal<typeof batch, Readonly<[boolean, boolean]>>>
+  expectTypeOf(batch).toEqualTypeOf<Readonly<[boolean, boolean]>>()
 
   return null
 }
@@ -298,16 +275,16 @@ function MixedIdentityConsumer(): null {
 async function _batch(): Promise<void> {
   const batch = await factory.batch([booleanGate, variantGate])
 
-  type _Batch = Expect<Equal<typeof batch, GateBatch<Flags>>>
-  type _First = Expect<Equal<(typeof batch)[0], boolean>>
-  type _Second = Expect<Equal<(typeof batch)[1], Theme>>
-  type _Length = Expect<Equal<(typeof batch)["length"], 2>>
+  expectTypeOf(batch).toEqualTypeOf<GateBatch<Flags>>()
+  expectTypeOf(batch[0]).toEqualTypeOf<boolean>()
+  expectTypeOf(batch[1]).toEqualTypeOf<Theme>()
+  expectTypeOf(batch.length).toEqualTypeOf<2>()
 
   const value = batch.get(variantGate)
   const details = batch.details(variantGate)
 
-  type _Get = Expect<Equal<typeof value, Theme>>
-  type _Details = Expect<Equal<typeof details, EvaluationDetails<Theme, ThemePayload>>>
+  expectTypeOf(value).toEqualTypeOf<Theme>()
+  expectTypeOf(details).toEqualTypeOf<EvaluationDetails<Theme, ThemePayload>>()
 }
 
 // Types decision helpers as members of the Decision union.
@@ -316,24 +293,28 @@ async function _batch(): Promise<void> {
   const variantDecision = decision.variant("dark", { experiment: "a" })
   const untypedVariant = decision.variant("dark")
 
-  type _Boolean = Expect<Equal<typeof booleanDecision, { type: "boolean"; value: boolean }>>
-  type _Variant = Expect<
-    Equal<typeof variantDecision, { type: "variant"; variant: string; payload?: ThemePayload }>
-  >
-  type _Untyped = Expect<
-    Equal<typeof untypedVariant, { type: "variant"; variant: string; payload?: unknown }>
-  >
-  type _IsDecision = Expect<typeof variantDecision extends Decision<ThemePayload> ? true : false>
+  expectTypeOf(booleanDecision).toEqualTypeOf<{ type: "boolean"; value: boolean }>()
+  expectTypeOf(variantDecision).toEqualTypeOf<{
+    type: "variant"
+    variant: string
+    payload?: ThemePayload
+  }>()
+  expectTypeOf(untypedVariant).toEqualTypeOf<{
+    type: "variant"
+    variant: string
+    payload?: unknown
+  }>()
+  expectTypeOf(variantDecision).toExtend<Decision<ThemePayload>>()
 }
 
 // Types hook contexts by gate kind.
 function _narrowHookContext(context: HookContext<ConsumerIdentity>): void {
   if (context.kind === "variant") {
-    type _Default = Expect<Equal<typeof context.defaultValue, string>>
-    type _Variants = Expect<Equal<typeof context.variants, readonly string[]>>
+    expectTypeOf(context.defaultValue).toEqualTypeOf<string>()
+    expectTypeOf(context.variants).toEqualTypeOf<readonly string[]>()
   } else {
-    type _Default = Expect<Equal<typeof context.defaultValue, boolean>>
-    type _Variants = Expect<Equal<typeof context.variants, undefined>>
+    expectTypeOf(context.defaultValue).toEqualTypeOf<boolean>()
+    expectTypeOf(context.variants).toEqualTypeOf<undefined>()
   }
 }
 
@@ -341,9 +322,9 @@ function _narrowHookContext(context: HookContext<ConsumerIdentity>): void {
 {
   const hook = defineHook<ConsumerIdentity>({
     after: (context, result, meta) => {
-      type _Identity = Expect<Equal<typeof context.identity, ConsumerIdentity | null>>
-      type _Decision = Expect<Equal<typeof result, Decision>>
-      type _Source = Expect<Equal<typeof meta.source, DecisionSource>>
+      expectTypeOf(context.identity).toEqualTypeOf<ConsumerIdentity | null>()
+      expectTypeOf(result).toEqualTypeOf<Decision>()
+      expectTypeOf(meta.source).toEqualTypeOf<DecisionSource>()
     },
   })
   const required = defineHook((options: { prefix: string }) => ({
@@ -357,16 +338,16 @@ function _narrowHookContext(context: HookContext<ConsumerIdentity>): void {
     },
   }))
 
-  type _Hook = Expect<Equal<typeof hook, Hook<ConsumerIdentity>>>
-  type _Required = Expect<Equal<typeof required, (options: { prefix: string }) => Hook>>
-  type _Optional = Expect<Equal<typeof optional, (options?: { prefix: string }) => Hook>>
-  type _SameExport = Expect<Equal<typeof defineHook, typeof defineHookFromHooks>>
+  expectTypeOf(hook).toEqualTypeOf<Hook<ConsumerIdentity>>()
+  expectTypeOf(required).toEqualTypeOf<(options: { prefix: string }) => Hook>()
+  expectTypeOf(optional).toEqualTypeOf<(options?: { prefix: string }) => Hook>()
+  expectTypeOf(defineHook).toEqualTypeOf(defineHookFromHooks)
 }
 
 // Exports error classes that extend GatedError.
 {
-  type _InvalidVariant = Expect<InvalidVariantError extends GatedError ? true : false>
-  type _AllowedVariants = Expect<Equal<InvalidVariantError["allowedVariants"], readonly string[]>>
+  expectTypeOf<InvalidVariantError>().toExtend<GatedError>()
+  expectTypeOf<InvalidVariantError["allowedVariants"]>().toEqualTypeOf<readonly string[]>()
 }
 
 // Types the React hooks from the gate type.
@@ -378,12 +359,12 @@ function Consumer(): null {
   const custom = useGate(() => Promise.resolve(1), { key: ["custom", 1] })
   const cache = useGateCache()
 
-  type _Value = Expect<Equal<typeof value, boolean>>
-  type _Details = Expect<Equal<typeof details, EvaluationDetails<boolean>>>
-  type _Variant = Expect<Equal<typeof variant, Theme>>
-  type _Batch = Expect<Equal<typeof batch, Readonly<[boolean, Theme]>>>
-  type _Custom = Expect<Equal<typeof custom, number>>
-  type _Cache = Expect<Equal<typeof cache, ReactGateCache>>
+  expectTypeOf(value).toEqualTypeOf<boolean>()
+  expectTypeOf(details).toEqualTypeOf<EvaluationDetails<boolean>>()
+  expectTypeOf(variant).toEqualTypeOf<Theme>()
+  expectTypeOf(batch).toEqualTypeOf<Readonly<[boolean, Theme]>>()
+  expectTypeOf(custom).toEqualTypeOf<number>()
+  expectTypeOf(cache).toEqualTypeOf<ReactGateCache>()
 
   return null
 }
@@ -392,7 +373,7 @@ function Consumer(): null {
 {
   const cache = createGateCache({ maxEntries: 10, ttlMs: 1000 })
 
-  type _Cache = Expect<Equal<typeof cache, ReactGateCache>>
+  expectTypeOf(cache).toEqualTypeOf<ReactGateCache>()
 
   void cache.prefetch(variantGate, { identity: { distinctId: "consumer", plan: "pro" } })
   void cache.prefetchBatch([booleanGate, variantGate], { ttlMs: 1000 })

@@ -92,6 +92,7 @@ script.
 - Keep the React integration in `src/integrations/react.tsx`.
 - Add or update colocated tests for behavior changes.
 - Public API type changes require coverage in `src/__tests__/types.test-d.ts`.
+- Write type assertions with `expectTypeOf` from `vitest`.
 - Type assertions are checked by `pnpm run check`, not Vitest.
 - Update user documentation when public behavior, types, or entry points change.
 - Consider package consumers before you change `gated`, `gated/hooks`, or
