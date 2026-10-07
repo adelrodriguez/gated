@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { buildGate, decision } from "../../index"
 import {
   createGateCache,
+  createGateHooks,
   FeatureGate,
   GateProvider,
   useGate,
@@ -92,6 +93,68 @@ describe("React integration", () => {
       "hook",
       "provider",
     ])
+  })
+
+  it("gives createGateHooks hooks the identity of their own provider only", async () => {
+    const seen: unknown[] = []
+    const factory = buildGate({
+      decide: (key, identity) => {
+        seen.push(`${key}:${identity.distinctId}`)
+        return decision.boolean(true)
+      },
+      identify: () => ({ distinctId: "core" }),
+    })
+    const bound = createGateHooks(factory)
+    const flag = factory({ defaultValue: false, key: "single" })
+    const other = factory({ defaultValue: false, key: "batch" })
+    const plain = factory({ defaultValue: false, key: "plain" })
+    function BoundConsumer() {
+      const [batchValue] = bound.useGateBatch([other])
+      return <span>{`${String(bound.useGate(flag))}-${String(batchValue)}`}</span>
+    }
+    function PlainConsumer() {
+      return <span>{String(useGate(plain))}</span>
+    }
+    await renderAsync(
+      <bound.GateProvider identity={{ distinctId: "bound" }}>
+        <Suspense fallback="loading">
+          <BoundConsumer />
+          <PlainConsumer />
+        </Suspense>
+      </bound.GateProvider>
+    )
+    await screen.findByText("true-true")
+    await screen.findByText("true")
+    expect(seen.toSorted((left, right) => String(left).localeCompare(String(right)))).toEqual([
+      "batch:bound",
+      "plain:bound",
+      "single:bound",
+    ])
+  })
+
+  it("does not give createGateHooks hooks the identity of a plain GateProvider", async () => {
+    const seen: unknown[] = []
+    const factory = buildGate({
+      decide: (_key, identity) => {
+        seen.push(identity.distinctId)
+        return decision.boolean(true)
+      },
+      identify: () => ({ distinctId: "core" }),
+    })
+    const bound = createGateHooks(factory)
+    const flag = factory({ defaultValue: false, key: "beta" })
+    function BoundConsumer() {
+      return <span>{String(bound.useGate(flag))}</span>
+    }
+    await renderAsync(
+      <GateProvider identity={{ distinctId: "untyped" }}>
+        <Suspense fallback="loading">
+          <BoundConsumer />
+        </Suspense>
+      </GateProvider>
+    )
+    await screen.findByText("true")
+    expect(seen).toEqual(["core"])
   })
 
   it("supports custom functions and live invalidation", async () => {

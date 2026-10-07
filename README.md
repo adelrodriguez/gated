@@ -574,9 +574,23 @@ function RefreshButton() {
 }
 ```
 
-TypeScript does not check the provider identity against the identity type of the gates.
-When a gate requires a specific identity type, pass `identity` to the hook, for example
-`useGate(betaAccess, { identity })`.
+TypeScript does not check the `GateProvider` identity against the identity type of the
+gates. To check it, create the provider and hooks from the gate factory with
+`createGateHooks`:
+
+```tsx
+import { createGateHooks } from "gated/react"
+
+const gate = buildGate<UserIdentity>({ identify, decide })
+
+export const { GateProvider, useGate, useGateBatch } = createGateHooks(gate)
+```
+
+The provider requires a `UserIdentity`, and the hooks accept only gates from factories with
+the same identity type and call mode. These hooks read the identity only from their own
+provider. Under a plain `GateProvider`, they use the `identify` function of the factory.
+Plain `useGate`, `useGateBatch`, `useGateCache`, and `FeatureGate` below the provider also
+read its identity.
 
 A cache that you use directly cannot read a provider identity. Supply an explicit identity
 to its gate operations.
