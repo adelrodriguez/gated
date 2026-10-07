@@ -1,4 +1,5 @@
 import type {
+  AnyGateEvaluator,
   AnonymousGatedConfig,
   CallerIdentityGatedConfig,
   EvaluationDetails,
@@ -16,15 +17,24 @@ import { type EvaluatorFactoryRef, getEvaluatorRecord, registerEvaluator } from 
 import { ForeignGateEvaluatorError, BatchFlagNotFoundError } from "#lib/shared/errors"
 import { reportInBackground } from "#lib/shared/report"
 
-type AnyGateEvaluator =
-  | GateEvaluator<never, boolean | string, never>
-  | GateEvaluator<never, boolean | string, never, unknown, true>
 type GateValue<TEvaluator> =
-  TEvaluator extends GateEvaluator<never, infer TValue, never, infer _TPayload, infer _TRequired>
+  TEvaluator extends GateEvaluator<
+    infer _TIdentity,
+    infer TValue,
+    infer _TCallIdentity,
+    infer _TPayload,
+    infer _TRequired
+  >
     ? TValue
     : never
 type GatePayload<TEvaluator> =
-  TEvaluator extends GateEvaluator<never, boolean | string, never, infer TPayload, infer _TRequired>
+  TEvaluator extends GateEvaluator<
+    infer _TIdentity,
+    boolean | string,
+    infer _TCallIdentity,
+    infer TPayload,
+    infer _TRequired
+  >
     ? TPayload
     : never
 type GateDetails<TEvaluator> = EvaluationDetails<GateValue<TEvaluator>, GatePayload<TEvaluator>>
@@ -61,8 +71,9 @@ export interface GateFactory<
   /**
    * Evaluates several gates from this factory with one identity resolution.
    *
-   * TypeScript rejects gates whose identity type does not match this factory. Gates from a
-   * different factory with the same identity type pass the type check, and the call throws
+   * TypeScript rejects gates whose identity type or call mode (anonymous, caller identity, or
+   * identify) does not match this factory exactly. Gates from a different factory with the same
+   * identity type and call mode pass the type check, and the call throws
    * `ForeignGateEvaluatorError` at runtime.
    */
   batch<
@@ -195,7 +206,8 @@ export function buildGate<TIdentity extends Identity>(
         ),
     })
     registerEvaluator(assigned, { factoryRef, options })
-    return assigned
+    // The identity marker is type-only, so the runtime evaluator never has it.
+    return assigned as GateEvaluator<TIdentity, boolean | T[number], TIdentity | null, TPayload>
   }
 
   return Object.assign(gate, {

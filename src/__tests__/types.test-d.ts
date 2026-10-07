@@ -72,6 +72,11 @@ const organizationFactory = buildGate<OrganizationIdentity>({
   identify: () => ({ distinctId: "consumer", organizationId: "org" }),
 })
 const organizationGate = organizationFactory({ defaultValue: false, key: "beta" })
+const wideFactory = buildGate<Identity>({
+  decide: () => decision.boolean(true),
+  identify: () => ({ distinctId: "consumer" }),
+})
+const wideGate = wideFactory({ defaultValue: false, key: "beta" })
 const anonymousGate = anonymousFactory({ defaultValue: false, key: "beta" })
 const callerGate = callerFactory({ defaultValue: false, key: "beta" })
 
@@ -162,6 +167,11 @@ type Flags = readonly [typeof booleanGate, typeof variantGate]
   >()
 }
 
+// Keeps the identity marker out of the string keys of a gate.
+{
+  expectTypeOf<Extract<keyof typeof booleanGate, string>>().toEqualTypeOf<"details">()
+}
+
 // Types variant gates with the variant union and payload type.
 {
   expectTypeOf(variantGate).toEqualTypeOf<
@@ -236,6 +246,7 @@ function _narrowDetails(details: EvaluationDetails<Theme>): void {
   expectTypeOf<GateIdentityOf<typeof booleanGate>>().toEqualTypeOf<ConsumerIdentity>()
   expectTypeOf<GateIdentityOf<typeof anonymousGate>>().toEqualTypeOf<ConsumerIdentity>()
   expectTypeOf<GateIdentityOf<typeof callerGate>>().toEqualTypeOf<ConsumerIdentity>()
+  expectTypeOf<GateIdentityOf<typeof wideGate>>().toEqualTypeOf<Identity>()
   expectTypeOf<GateDetailsOf<typeof variantGate>>().toEqualTypeOf<
     EvaluationDetails<Theme, ThemePayload>
   >()
@@ -440,8 +451,32 @@ function _negativeTypeTests(): void {
   // @ts-expect-error -- batch flags must match the factory identity type
   void factory.batch([booleanGate, organizationGate])
 
+  // @ts-expect-error -- batch flags must not have a wider identity type than the factory
+  void factory.batch([wideGate])
+
   // @ts-expect-error -- a non-anonymous gate does not accept the null identity of an anonymous batch
   void anonymousFactory.batch([booleanGate])
+
+  // @ts-expect-error -- an anonymous gate does not belong to a non-anonymous factory
+  void factory.batch([anonymousGate])
+
+  // @ts-expect-error -- a caller-identity gate does not belong to a factory with identify
+  void factory.batch([callerGate])
+
+  void callerFactory.batch(
+    // @ts-expect-error -- a gate from a factory with identify does not belong to a caller-identity factory
+    [booleanGate],
+    { identity: { distinctId: "consumer", plan: "free" } }
+  )
+
+  void callerFactory.batch(
+    // @ts-expect-error -- an anonymous gate does not belong to a caller-identity factory
+    [anonymousGate],
+    { identity: { distinctId: "consumer", plan: "free" } }
+  )
+
+  // @ts-expect-error -- a caller-identity gate does not belong to an anonymous factory
+  void anonymousFactory.batch([callerGate])
 
   // @ts-expect-error -- decision.variant requires a variant name
   decision.variant()

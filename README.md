@@ -219,9 +219,9 @@ If `decideMany` omits a key, Gated calls `decide` for that key. If you do not su
 `decideMany`, Gated evaluates cache misses in parallel.
 
 All batch keys must be unique, and all evaluators must come from the same gate factory.
-TypeScript rejects an evaluator with a different identity type. An evaluator from a
-different factory with the same identity type causes a `ForeignGateEvaluatorError` at
-runtime.
+TypeScript rejects an evaluator with a different identity type or call mode (anonymous,
+caller identity, or `identify`). An evaluator from a different factory with the same
+identity type and call mode causes a `ForeignGateEvaluatorError` at runtime.
 
 ## Supply an identity
 
