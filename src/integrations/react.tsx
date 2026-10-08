@@ -658,7 +658,7 @@ export type GateHooks<
  * identity.
  *
  * @example
- *   const gate = buildGate<UserIdentity>({ identify, decide })
+ *   const gate = buildGate({ identify: () => ({ distinctId: user.id, plan: user.plan }), decide })
  *   export const { GateProvider, useGate, useGateBatch } = createGateHooks(gate)
  */
 export function createGateHooks<

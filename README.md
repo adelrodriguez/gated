@@ -581,13 +581,23 @@ gates. To check it, create the provider and hooks from the gate factory with
 ```tsx
 import { createGateHooks } from "gated/react"
 
-const gate = buildGate<UserIdentity>({ identify, decide })
+const gate = buildGate({
+  identify: async () => {
+    const user = await getCurrentUser()
+    return { distinctId: user.id, plan: user.plan }
+  },
+  decide,
+})
 
 export const { GateProvider, useGate, useGateBatch } = createGateHooks(gate)
 ```
 
-The provider requires a `UserIdentity`, and the hooks accept only gates from factories with
-the same identity type and call mode. These hooks read the identity only from their own
+`createGateHooks` reads the identity type from the factory, and `buildGate` infers it from
+the return type of `identify`. A factory without `identify` needs a type argument, for
+example `buildGate<UserIdentity>({ decide })`.
+
+The provider requires an identity with `distinctId` and `plan`, and the hooks accept only
+gates from factories with the same identity type and call mode. These hooks read the identity only from their own
 provider. Under a plain `GateProvider`, they use the `identify` function of the factory.
 Plain `useGate`, `useGateBatch`, `useGateCache`, and `FeatureGate` below the provider also
 read its identity.

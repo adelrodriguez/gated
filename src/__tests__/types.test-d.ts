@@ -416,6 +416,34 @@ function Consumer(): null {
   })
 }
 
+// Infers the createGateHooks identity type from the return type of identify.
+{
+  type InferredIdentity = { distinctId: string; plan: "free" | "pro" }
+  const user: InferredIdentity = { distinctId: "consumer", plan: "pro" }
+  const inferred = buildGate({ decide: () => decision.boolean(true), identify: () => user })
+  const inferredAsync = buildGate({
+    decide: () => decision.boolean(true),
+    identify: () => Promise.resolve(user),
+  })
+  const inferredAnonymous = buildGate({
+    anonymous: "allow",
+    decide: () => decision.boolean(true),
+    identify: (): InferredIdentity | null => null,
+  })
+
+  expectTypeOf(createGateHooks(inferred)).toEqualTypeOf<GateHooks<InferredIdentity>>()
+  expectTypeOf(createGateHooks(inferredAsync)).toEqualTypeOf<GateHooks<InferredIdentity>>()
+  expectTypeOf(createGateHooks(inferredAnonymous)).toEqualTypeOf<
+    GateHooks<InferredIdentity, InferredIdentity | null>
+  >()
+
+  void createGateHooks(inferred).GateProvider({
+    children: null,
+    // @ts-expect-error -- the inferred identity requires plan
+    identity: { distinctId: "consumer" },
+  })
+}
+
 function BoundConsumer(): null {
   const value = consumerHooks.useGate(booleanGate)
   const details = consumerHooks.useGate(variantGate, { details: true })
