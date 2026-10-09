@@ -27,6 +27,7 @@ describe("public entry points", () => {
         "FeatureGate",
         "GateProvider",
         "createGateCache",
+        "createGateHooks",
         "useGate",
         "useGateBatch",
         "useGateCache",

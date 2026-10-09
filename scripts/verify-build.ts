@@ -79,6 +79,7 @@ assert.deepEqual(Object.keys(react).toSorted(), [
   "FeatureGate",
   "GateProvider",
   "createGateCache",
+  "createGateHooks",
   "useGate",
   "useGateBatch",
   "useGateCache",

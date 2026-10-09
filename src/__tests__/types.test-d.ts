@@ -21,6 +21,7 @@ import type {
   GateBatchIdentityOf,
   GateBatchValuesOf,
   GateDetailsOf,
+  GateHooks,
   GateIdentityOf,
   GateValueOf,
   ReactGateCache,
@@ -29,6 +30,7 @@ import { defineHook as defineHookFromHooks } from "../hooks"
 import { buildGate, decision, defineHook } from "../index"
 import {
   createGateCache,
+  createGateHooks,
   FeatureGate,
   GateProvider,
   useGate,
@@ -81,6 +83,8 @@ const anonymousGate = anonymousFactory({ defaultValue: false, key: "beta" })
 const callerGate = callerFactory({ defaultValue: false, key: "beta" })
 
 type Flags = readonly [typeof booleanGate, typeof variantGate]
+
+const consumerHooks = createGateHooks(factory)
 
 // ── Positive type-level tests ────────────────────────────────────────────────
 // Returns a factory that resolves the configured identity for each call.
@@ -396,6 +400,62 @@ function Consumer(): null {
   void FeatureGate({ children: null, gate: variantGate, match: "dark" })
 }
 
+// Types the hooks from createGateHooks to the factory identity type and call mode.
+{
+  expectTypeOf(consumerHooks).toEqualTypeOf<GateHooks<ConsumerIdentity>>()
+  expectTypeOf(createGateHooks(anonymousFactory)).toEqualTypeOf<
+    GateHooks<ConsumerIdentity, ConsumerIdentity | null>
+  >()
+  expectTypeOf(createGateHooks(callerFactory)).toEqualTypeOf<
+    GateHooks<ConsumerIdentity, ConsumerIdentity, true>
+  >()
+
+  void consumerHooks.GateProvider({
+    children: null,
+    identity: { distinctId: "consumer", plan: "pro" },
+  })
+}
+
+// Infers the createGateHooks identity type from the return type of identify.
+{
+  type InferredIdentity = { distinctId: string; plan: "free" | "pro" }
+  const user: InferredIdentity = { distinctId: "consumer", plan: "pro" }
+  const inferred = buildGate({ decide: () => decision.boolean(true), identify: () => user })
+  const inferredAsync = buildGate({
+    decide: () => decision.boolean(true),
+    identify: () => Promise.resolve(user),
+  })
+  const inferredAnonymous = buildGate({
+    anonymous: "allow",
+    decide: () => decision.boolean(true),
+    identify: (): InferredIdentity | null => null,
+  })
+
+  expectTypeOf(createGateHooks(inferred)).toEqualTypeOf<GateHooks<InferredIdentity>>()
+  expectTypeOf(createGateHooks(inferredAsync)).toEqualTypeOf<GateHooks<InferredIdentity>>()
+  expectTypeOf(createGateHooks(inferredAnonymous)).toEqualTypeOf<
+    GateHooks<InferredIdentity, InferredIdentity | null>
+  >()
+
+  void createGateHooks(inferred).GateProvider({
+    children: null,
+    // @ts-expect-error -- the inferred identity requires plan
+    identity: { distinctId: "consumer" },
+  })
+}
+
+function BoundConsumer(): null {
+  const value = consumerHooks.useGate(booleanGate)
+  const details = consumerHooks.useGate(variantGate, { details: true })
+  const batch = consumerHooks.useGateBatch([booleanGate, variantGate])
+
+  expectTypeOf(value).toEqualTypeOf<boolean>()
+  expectTypeOf(details).toEqualTypeOf<EvaluationDetails<Theme, ThemePayload>>()
+  expectTypeOf(batch).toEqualTypeOf<Readonly<[boolean, Theme]>>()
+
+  return null
+}
+
 // ── Negative type tests ──────────────────────────────────────────────────────
 // These verify that invalid usage produces compile-time errors.
 // The function bodies never execute — only the type checker matters.
@@ -501,6 +561,22 @@ async function _negativeBatchTypeTests(): Promise<void> {
   batch[0] = true
 }
 
+function useInvalidBoundForms(): void {
+  void consumerHooks.GateProvider({
+    children: null,
+    // @ts-expect-error -- the provider identity must include plan
+    identity: { distinctId: "consumer" },
+  })
+  // @ts-expect-error -- the hooks accept only gates with the factory identity type
+  consumerHooks.useGate(organizationGate)
+  // @ts-expect-error -- the hooks accept only gates with the factory call mode
+  consumerHooks.useGate(anonymousGate)
+  // @ts-expect-error -- every batch gate must have the factory identity type
+  consumerHooks.useGateBatch([booleanGate, wideGate])
+  // @ts-expect-error -- the hook identity must include plan
+  consumerHooks.useGate(booleanGate, { identity: { distinctId: "consumer" } })
+}
+
 function useInvalidForms(): void {
   // @ts-expect-error -- The function form requires a key.
   useGate(() => Promise.resolve(1))
@@ -516,10 +592,12 @@ function useInvalidForms(): void {
 
 // Suppress unused function warnings — these exist only for type checking.
 void _batch
+void BoundConsumer
 void Consumer
 void MixedIdentityConsumer
 void _narrowDetails
 void _narrowHookContext
 void _negativeTypeTests
 void _negativeBatchTypeTests
+void useInvalidBoundForms
 void useInvalidForms

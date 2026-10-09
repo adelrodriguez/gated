@@ -333,32 +333,42 @@ function createCachedEvaluation(
   return setEntry(cache, bucket, key, cachedEvaluation, ttlMs)
 }
 
-type GateContextValue = { cache: ReactGateCache; identity?: Identity }
+// `binding` marks the identity of a `createGateHooks` provider, so its hooks never read an
+// untyped identity from a plain `GateProvider`.
+type GateContextValue = { binding?: object; cache: ReactGateCache; identity?: Identity }
 const defaultCache = createGateCache()
 const GateContext = createContext<GateContextValue | undefined>(undefined)
 let didWarnAboutServerDefaultCache = false
 
-export function GateProvider({
+type GateProviderProps<TIdentity extends Identity> = {
+  cache?: ReactGateCache
+  identity?: TIdentity
+  children: ReactNode
+}
+
+function GateContextProvider({
+  binding,
   cache: suppliedCache,
   identity,
   children,
-}: {
-  cache?: ReactGateCache
-  /**
-   * The default identity for gate consumers below the provider. TypeScript does not check it
-   * against the identity type of the gates. When a gate requires a specific identity type, pass
-   * `identity` to the hook.
-   */
-  identity?: Identity
-  children: ReactNode
-}): ReactNode {
+}: GateProviderProps<Identity> & { binding?: object }): ReactNode {
   // oxlint-disable-next-line react/hook-use-state -- The mounted cache is never replaced, and useState is the only hook that guarantees a stable identity across renders.
   const [mountedCache] = useState(createGateCache)
   const value = useMemo(
-    () => ({ cache: suppliedCache ?? mountedCache, identity }),
-    [identity, mountedCache, suppliedCache]
+    () => ({ binding, cache: suppliedCache ?? mountedCache, identity }),
+    [binding, identity, mountedCache, suppliedCache]
   )
   return <GateContext value={value}>{children}</GateContext>
+}
+
+/**
+ * Supplies the gate cache and a default identity to gate consumers below it.
+ *
+ * TypeScript does not check `identity` against the identity type of the gates. Use the provider
+ * from `createGateHooks` when the gates require a specific identity type.
+ */
+export function GateProvider(props: GateProviderProps<Identity>): ReactNode {
+  return <GateContextProvider {...props} />
 }
 
 function useGateContext(): GateContextValue {
@@ -484,12 +494,20 @@ export function useGate(
   } = {}
 ): unknown {
   const context = useGateContext()
-  const cache = context.cache as InternalGateCache
+  return useGateWithIdentity(context.cache, input, options, options.identity ?? context.identity)
+}
+
+function useGateWithIdentity(
+  contextCache: ReactGateCache,
+  input: AnyGateEvaluator | (() => Promise<unknown>),
+  options: { ttlMs?: number; details?: boolean; key?: ReactGateCacheKey },
+  identity: Identity | undefined
+): unknown {
+  const cache = contextCache as InternalGateCache
   const evaluator = getEvaluatorRecord(input) !== undefined
   if (!evaluator && !("key" in options)) {
     throw new TypeError("useGate(fn, options) requires a key option")
   }
-  const identity = options.identity ?? context.identity
   const bucket = evaluator ? getBucket(cache, input) : cache.customBucket
   const key = evaluator ? identityKey(identity) : serializeKey(options.key, "cacheKey")
   const store = getVersionStore(
@@ -519,8 +537,21 @@ export function useGateBatch<const TFlags extends readonly AnyGateEvaluator[]>(
   options: { identity?: GateBatchIdentityOf<TFlags>; ttlMs?: number } = {}
 ): GateBatchValuesOf<TFlags> {
   const context = useGateContext()
-  const cache = context.cache as InternalGateCache
-  const identity = options.identity ?? context.identity
+  return useGateBatchWithIdentity(
+    context.cache,
+    flags,
+    options.ttlMs,
+    options.identity ?? context.identity
+  )
+}
+
+function useGateBatchWithIdentity<const TFlags extends readonly AnyGateEvaluator[]>(
+  contextCache: ReactGateCache,
+  flags: TFlags,
+  ttlMs: number | undefined,
+  identity: Identity | undefined
+): GateBatchValuesOf<TFlags> {
+  const cache = contextCache as InternalGateCache
   const bucket = flags.length === 0 ? undefined : getBatchBucket(cache, flags)
   const key = batchKey(flags, identity)
   const store = bucket
@@ -534,7 +565,7 @@ export function useGateBatch<const TFlags extends readonly AnyGateEvaluator[]>(
     bucket,
     key,
     () => evaluateBatch(flags, identity),
-    options.ttlMs
+    ttlMs
   )
   return use(promise) as GateBatchValuesOf<TFlags>
 }
@@ -579,4 +610,90 @@ export function FeatureGate<TFlag extends AnyGateEvaluator>(
   }
   const slot = <GateSlot {...slotProps} />
   return loading === undefined ? slot : <Suspense fallback={loading}>{slot}</Suspense>
+}
+
+type FactoryGate<
+  TIdentity extends Identity,
+  TCallIdentity extends TIdentity | null,
+  TCallRequired extends boolean,
+> = GateEvaluator<TIdentity, boolean | string, TCallIdentity, unknown, TCallRequired>
+
+/**
+ * A provider and gate hooks that TypeScript checks against the identity type of one factory.
+ */
+export type GateHooks<
+  TIdentity extends Identity,
+  TCallIdentity extends TIdentity | null = TIdentity,
+  TCallRequired extends boolean = false,
+> = {
+  /**
+   * Supplies the gate cache and a default identity to the hooks from the same `createGateHooks`
+   * call. Plain `useGate`, `useGateBatch`, `useGateCache`, and `FeatureGate` below it also read the
+   * identity.
+   */
+  GateProvider: (props: GateProviderProps<TIdentity>) => ReactNode
+  useGate: {
+    <TFlag extends FactoryGate<TIdentity, TCallIdentity, TCallRequired>>(
+      flag: TFlag,
+      options?: { identity?: TIdentity; ttlMs?: number; details?: false }
+    ): GateValueOf<TFlag>
+    <TFlag extends FactoryGate<TIdentity, TCallIdentity, TCallRequired>>(
+      flag: TFlag,
+      options: { identity?: TIdentity; ttlMs?: number; details: true }
+    ): GateDetailsOf<TFlag>
+  }
+  useGateBatch: <
+    const TFlags extends ReadonlyArray<FactoryGate<TIdentity, TCallIdentity, TCallRequired>>,
+  >(
+    flags: TFlags,
+    options?: { identity?: TIdentity; ttlMs?: number }
+  ) => GateBatchValuesOf<TFlags>
+}
+
+/**
+ * Creates a provider and gate hooks typed to the identity of `factory`. The provider rejects an
+ * incomplete identity, and the hooks accept only gates with the factory's identity type.
+ *
+ * The hooks read the identity only from their own provider. Without it, the factory resolves the
+ * identity.
+ *
+ * @example
+ *   const gate = buildGate({ identify: () => ({ distinctId: user.id, plan: user.plan }), decide })
+ *   export const { GateProvider, useGate, useGateBatch } = createGateHooks(gate)
+ */
+export function createGateHooks<
+  TIdentity extends Identity,
+  TCallIdentity extends TIdentity | null,
+  TCallRequired extends boolean,
+>(
+  // Only the type is read: a gate factory returns gates of its identity type and call mode.
+  _factory: (options: never) => FactoryGate<TIdentity, TCallIdentity, TCallRequired>
+): GateHooks<TIdentity, TCallIdentity, TCallRequired> {
+  const binding = {}
+  const useBoundContext = (): { cache: ReactGateCache; identity?: Identity } => {
+    const context = useGateContext()
+    return {
+      cache: context.cache,
+      identity: context.binding === binding ? context.identity : undefined,
+    }
+  }
+  return {
+    GateProvider: (props) => <GateContextProvider {...props} binding={binding} />,
+    useGate: (
+      flag: AnyGateEvaluator,
+      options: { identity?: Identity; ttlMs?: number; details?: boolean } = {}
+    ) => {
+      const context = useBoundContext()
+      return useGateWithIdentity(context.cache, flag, options, options.identity ?? context.identity)
+    },
+    useGateBatch: (flags, options = {}) => {
+      const context = useBoundContext()
+      return useGateBatchWithIdentity(
+        context.cache,
+        flags,
+        options.ttlMs,
+        options.identity ?? context.identity
+      )
+    },
+  }
 }
