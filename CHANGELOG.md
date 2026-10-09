@@ -1,5 +1,50 @@
 # gated
 
+## 0.3.0
+
+### Minor Changes
+
+- ad3867b: Redesign the React integration around evaluators. Add destructurable server batch results, `useGate`, `useGateBatch`, `GateProvider`, `createGateCache`, `useGateCache`, live invalidation, and cache prefetch methods. `FeatureGate` now accepts an evaluator. Remove `createReactGate` and `GateCacheProvider`.
+
+  Migration:
+
+  - Replace `const useX = createReactGate(flag)` and `useX()` with `useGate(flag)`.
+  - Replace `useX(identity)` with `useGate(flag, { identity })`.
+  - Replace generated-hook invalidation methods with methods on `useGateCache()` or an explicit cache. A cache read through `useGateCache()` defaults to the provider identity; a directly constructed cache always needs an explicit identity.
+  - Replace `GateCacheProvider` with `GateProvider`.
+  - Replace custom `cacheKey` hooks with `useGate(() => fn(...args), { key })`.
+
+- a33d4b1: A gate factory attaches the configured `subscribe` at most once and sends each change to invalidation and to `factory.changes`. Consumers that count attachments see one attachment instead of two.
+- c5ea17d: **Breaking:** cache and request coalescing are now one read-through resolver keyed by a single evaluation key, and coalescing is enabled by default.
+
+  Migration:
+
+  - `cache: { store, key }` → `cache: store` plus the new top-level `evaluationKey` option
+  - `coalesce: { key }` → `coalesce: true` (or omit it — coalescing is now the default) plus `evaluationKey`
+  - The `CoalescingOptions` and `DecisionCacheOptions` types are removed
+  - Set `coalesce: false` to opt out of the new default, for example when `decide` has per-call side effects such as exposure logging; `after` hooks run once per evaluation (including coalesced followers), so hook-based exposure tracking is unaffected
+
+  Behavior changes:
+
+  - A throwing `evaluationKey` now degrades softly for coalescing too: it is reported through `onCacheError` (operation `"key"`) and the evaluation continues without cache or coalescing, instead of failing the evaluation
+  - A flag-change notification now drops in-flight coalesced provider work for the changed flags whenever `subscribe` is configured — with or without a cache — so evaluations that start after the notification lead a fresh provider call instead of receiving the pre-change decision
+  - A flag-change notification now invalidates every pending cache write — regardless of which flags changed, and even when the store cannot delete — so a decision fetched before the change is never written after it
+  - The invalidation subscription attaches on the first evaluation that touches cache or coalescing and stays attached for the factory's lifetime, instead of detaching when the cache key index empties
+  - A throwing `subscribe` never fails an evaluation: it is reported through `onCacheError` with the new `"subscribe"` operation and the evaluation continues without invalidation
+
+- 445f68d: Add `createGateHooks(factory)` to `gated/react`. It returns a `GateProvider`, `useGate`, and `useGateBatch` that TypeScript checks against the identity type of the factory, so the provider rejects an incomplete identity. The hooks read the identity only from their own provider.
+
+### Patch Changes
+
+- 2c9463f: `factory.batch()` now rejects at compile time gates whose identity type does not match the factory. Gates from a different factory with the same identity type still cause a `ForeignGateEvaluatorError` at runtime.
+- 2c9463f: `GateBatchIdentityOf` now resolves to the intersection of the gate identity types instead of their union, so `useGateBatch`, `prefetchBatch`, and `invalidateBatch` require an identity that every gate accepts. An empty batch accepts any `Identity`.
+- ed06cf2: Evaluation state (request coalescing and cache invalidation tracking) is now owned by each gate factory instead of module-level maps keyed by config identity. Two factories built from the same config object no longer share coalesced provider work or cache invalidation bookkeeping.
+- dbdef09: `GateEvaluator` now carries its identity type and call mode, so `factory.batch()` rejects at compile time gates with a wider, narrower, or differently anonymous identity, and gates from a factory with a different call mode.
+- f9db196: `buildGate` now reads the whole config once when the factory is built. Mutating any config field after `buildGate` — reassigning `decide`, attaching a `cache`, or pushing to the `hooks` array — no longer affects evaluations; pass the final configuration at build time.
+- e0e499b: Document pnpm as the primary package installation command.
+- 2c9463f: Document that TypeScript does not check the `GateProvider` identity against the identity type of the gates. Pass `identity` to the hook when a gate requires a specific identity type.
+- edec161: Clarify the README: the React gate cache section now explains the per-evaluator buckets and the shared bucket for custom `useGate` functions, conditions come before the statements they guard, and passive sentences name their actor.
+
 ## 0.2.0
 
 ### Minor Changes
