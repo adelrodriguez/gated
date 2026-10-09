@@ -9,16 +9,12 @@ import {
   useState,
   useSyncExternalStore,
 } from "react"
-import type { EvaluationDetails, GateEvaluator, Identity } from "#lib/types"
+import type { AnyGateEvaluator, EvaluationDetails, GateEvaluator, Identity } from "#lib/types"
 import { getEvaluatorRecord } from "#lib/gate/registry"
 import { evictOnRejection, type GateCacheOptions } from "#lib/promise-cache"
 import { type GateCacheKey, serializeKey } from "#lib/promise-cache/key"
 import { ForeignGateEvaluatorError } from "#lib/shared/errors"
 import { isDevelopmentEnvironment } from "#lib/shared/utils"
-
-type AnyGateEvaluator =
-  | GateEvaluator<never, boolean | string, never>
-  | GateEvaluator<never, boolean | string, never, unknown, true>
 
 export type GateValueOf<TFlag> = TFlag extends (...args: never[]) => Promise<infer TValue>
   ? TValue
@@ -27,13 +23,11 @@ export type GateIdentityOf<TFlag> =
   TFlag extends GateEvaluator<
     infer TIdentity,
     boolean | string,
-    infer TCallIdentity,
+    infer _TCallIdentity,
     unknown,
     infer _TRequired
   >
-    ? TCallIdentity extends Identity
-      ? TCallIdentity
-      : TIdentity
+    ? TIdentity
     : never
 export type GateDetailsOf<TFlag> = TFlag extends {
   details: (...args: never[]) => Promise<infer TDetails>
