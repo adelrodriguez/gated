@@ -219,6 +219,9 @@ If `decideMany` omits a key, Gated calls `decide` for that key. If you do not su
 `decideMany`, Gated evaluates cache misses in parallel.
 
 All batch keys must be unique, and all evaluators must come from the same gate factory.
+TypeScript rejects an evaluator with a different identity type. An evaluator from a
+different factory with the same identity type causes a `ForeignGateEvaluatorError` at
+runtime.
 
 ## Supply an identity
 
@@ -570,6 +573,10 @@ function RefreshButton() {
   return <button onClick={() => cache.invalidate(betaAccess)}>Refresh</button>
 }
 ```
+
+TypeScript does not check the provider identity against the identity type of the gates.
+When a gate requires a specific identity type, pass `identity` to the hook, for example
+`useGate(betaAccess, { identity })`.
 
 A cache that you use directly cannot read a provider identity. Supply an explicit identity
 to its gate operations.

@@ -11,6 +11,14 @@ export default defineConfig({
     typeAware: true,
     typeCheck: true,
   },
+  overrides: [
+    {
+      files: ["src/__tests__/types.test-d.ts"],
+      rules: {
+        "eslint/no-lone-blocks": "off",
+      },
+    },
+  ],
   rules: {
     "adamantite/no-react-state-hooks": [
       "error",

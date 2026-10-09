@@ -43,9 +43,20 @@ export type GateDetailsOf<TFlag> = TFlag extends {
 export type GateBatchValuesOf<TFlags extends readonly AnyGateEvaluator[]> = Readonly<{
   [K in keyof TFlags]: GateValueOf<TFlags[K]>
 }>
-export type GateBatchIdentityOf<TFlags extends readonly AnyGateEvaluator[]> = GateIdentityOf<
-  TFlags[number]
->
+type GateIdentityIntersection<TFlag> = (
+  TFlag extends unknown ? (identity: GateIdentityOf<TFlag>) => void : never
+) extends (identity: infer TIdentity extends Identity) => void
+  ? TIdentity
+  : never
+/**
+ * The identity that every gate in the batch accepts: the intersection of the gate identity types.
+ * An empty batch accepts any `Identity`.
+ */
+export type GateBatchIdentityOf<TFlags extends readonly AnyGateEvaluator[]> = [
+  TFlags[number],
+] extends [never]
+  ? Identity
+  : GateIdentityIntersection<TFlags[number]>
 export type ReactGateCacheKey = GateCacheKey
 export type ReactGateCacheOptions = GateCacheOptions
 
@@ -339,6 +350,11 @@ export function GateProvider({
   children,
 }: {
   cache?: ReactGateCache
+  /**
+   * The default identity for gate consumers below the provider. TypeScript does not check it
+   * against the identity type of the gates. When a gate requires a specific identity type, pass
+   * `identity` to the hook.
+   */
   identity?: Identity
   children: ReactNode
 }): ReactNode {
