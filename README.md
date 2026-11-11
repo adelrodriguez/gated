@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> `gated` has moved to [`@sanely/flags`](https://www.npmjs.com/package/@sanely/flags). Its code now lives in [adelrodriguez/sanely](https://github.com/adelrodriguez/sanely/tree/main/packages/flags). This repository is archived, and `gated` is deprecated on npm.
+
 <p align="center">
   <h1 align="center">🏰 <code>gated</code></h1>
   <p align="center">
